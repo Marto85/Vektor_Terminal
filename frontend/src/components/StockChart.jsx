@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import * as LightweightCharts from 'lightweight-charts';
 import {
@@ -154,7 +154,10 @@ export default function StockChart({ ticker, companyName }) {
     };
   }, [ticker, timeframe]);
 
-  const activeCandles = historyData?.seriesByMetric?.[selectedMetric] || [];
+  const activeCandles = useMemo(
+    () => historyData?.seriesByMetric?.[selectedMetric] || [],
+    [historyData, selectedMetric]
+  );
 
   // 2. Renderizar canvas según selectedMetric y chartType
   useEffect(() => {
@@ -420,7 +423,7 @@ export default function StockChart({ ticker, companyName }) {
       </div>
 
       {/* Cuerpo del gráfico: Barra de herramientas izquierda + Canvas */}
-      <div className="relative flex w-full h-[320px] mt-1">
+      <div className="relative flex w-full h-80 mt-1">
         {showLeftToolbar ? (
           <div className="w-9 shrink-0 border-r border-gray-100 bg-[#fafafa] flex flex-col items-center py-1.5 space-y-1.5 relative select-none">
             <button
@@ -553,7 +556,7 @@ export default function StockChart({ ticker, companyName }) {
           {hoverInfo && (
             <div
               style={{ left: `${hoverInfo.x}px`, top: `${hoverInfo.y}px` }}
-              className="pointer-events-none absolute z-30 w-[184px] bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2.5 text-[12px] leading-snug"
+              className="pointer-events-none absolute z-30 w-46 bg-white border border-gray-200 rounded-md shadow-lg px-3 py-2.5 text-[12px] leading-snug"
             >
               <div className="text-gray-500 text-[11px] mb-1">
                 {formatTooltipDate(hoverInfo.candle.time)}
