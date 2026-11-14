@@ -1,26 +1,12 @@
 import { useState } from 'react';
 import axios from 'axios';
-import { FileText, BarChart3, PieChart, Search, Bell, Settings, Download, Maximize2, Loader2, ExternalLink, Heart, ChevronUp, ChevronDown, Activity, Check } from 'lucide-react';
-import { ComposedChart, Line, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-
-// Datos ampliados para simular velas (open, close, high, low)
-const mockChartData = [
-  { date: 'Ene', price: 350, open: 320, close: 350, high: 360, low: 310, volume: 1200 },
-  { date: 'Feb', price: 400, open: 360, close: 400, high: 410, low: 350, volume: 1500 },
-  { date: 'Mar', price: 380, open: 410, close: 380, high: 420, low: 370, volume: 800 },
-  { date: 'Abr', price: 450, open: 390, close: 450, high: 460, low: 380, volume: 2000 },
-  { date: 'May', price: 420, open: 440, close: 420, high: 450, low: 410, volume: 1100 },
-  { date: 'Jun', price: 500, open: 430, close: 500, high: 510, low: 420, volume: 2500 },
-  { date: 'Jul', price: 545.18, open: 510, close: 545.18, high: 560, low: 500, volume: 3000 },
-];
+import { FileText, BarChart3, PieChart, Search, Bell, Settings, Download, Maximize2, Loader2, ExternalLink, Heart, ChevronUp } from 'lucide-react';
+import StockChart from './components/StockChart';
 
 function App() {
   const [activeSidebarTab, setActiveSidebarTab] = useState('Resumen');
   const [activeContentTab, setActiveContentTab] = useState('Cuenta de Resultados');
   const [period, setPeriod] = useState('annual');
-  const [chartType, setChartType] = useState('line'); // 'line' | 'candle'
-  const [showMetricDropdown, setShowMetricDropdown] = useState(false);
-  const [selectedMetric, setSelectedMetric] = useState('Price');
   
   const [tickerInput, setTickerInput] = useState('');
   const [currentTicker, setCurrentTicker] = useState('MSFT');
@@ -46,8 +32,6 @@ function App() {
     'Ratios',
     'Segmentos'
   ];
-
-  const chartMetrics = ['Price', '% Change', 'Total Return', 'Drawdowns', '10k Growth', 'Market Cap', 'Enterprise Value'];
 
   const executeSearch = async (tickerToSearch, selectedPeriod = period) => {
     if (!tickerToSearch) return;
@@ -292,122 +276,8 @@ function App() {
             {/* BLOQUE GLOBAL: Gráfico (Izq) y Panel de Datos (Der) */}
             <div className="flex space-x-6 mb-6">
               
-              {/* GRÁFICO ESTILO TIKR */}
-              <div className="flex-1 bg-white border border-gray-200 rounded shadow-sm flex flex-col relative">
-                <div className="px-4 py-3 flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <div className="w-4 h-4 bg-[#dc2626] rounded-xs flex items-center justify-center text-white text-[10px] font-bold">
-                        {currentTicker.charAt(0)}
-                      </div>
-                      <span className="text-sm font-bold text-gray-900">{currentTicker}</span>
-                      <span className="text-sm text-gray-500">{profileData ? profileData.name : "Cargando..."}</span>
-                    </div>
-                    <p className="text-[11px] text-gray-600 mt-1.5">
-                      <span className="text-red-600 font-medium">(0,9%)</span> retorno del precio sobre <span className="font-bold text-gray-900">1,00</span> años - <span className="text-red-600 font-medium">(0,9%)</span> Crecimiento compuesto
-                    </p>
-                  </div>
-                  <div className="flex space-x-2 relative">
-                    <button 
-                      onClick={() => setShowMetricDropdown(!showMetricDropdown)}
-                      className="flex items-center px-3 py-1 border border-gray-300 rounded text-[13px] font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 cursor-pointer transition-colors"
-                    >
-                      {selectedMetric} <ChevronDown className="w-3.5 h-3.5 ml-1.5 text-gray-500" />
-                    </button>
-                    
-                    {showMetricDropdown && (
-                      <div className="absolute top-full left-0 mt-1 w-48 bg-white border border-gray-200 rounded shadow-lg py-2 z-50">
-                        {chartMetrics.map((metric) => (
-                          <div 
-                            key={metric}
-                            onClick={() => { setSelectedMetric(metric); setShowMetricDropdown(false); }}
-                            className="flex justify-between items-center px-4 py-2 hover:bg-gray-50 cursor-pointer text-[13px] text-gray-800"
-                          >
-                            <span>{metric}</span>
-                            {selectedMetric === metric && <Check className="w-4 h-4 text-gray-400" />}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <button className="px-3 py-1 bg-black text-white rounded text-[13px] font-medium hover:bg-gray-800 cursor-pointer">
-                      Descargar
-                    </button>
-                    <button className="p-1 border border-gray-300 rounded text-gray-500 hover:bg-gray-50 cursor-pointer">
-                      <Maximize2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Rangos de tiempo */}
-                <div className="px-4 py-1.5 flex items-center space-x-3 text-[13px]">
-                  {['3m', '6m', 'este año', '1 año', '3 años', '5 años', '10 años', 'todas'].map(rango => (
-                    <button key={rango} className={`cursor-pointer ${rango === '1 año' ? 'bg-gray-100 px-2 py-1 rounded text-gray-900 font-medium' : 'text-gray-600 hover:text-gray-900'}`}>
-                      {rango}
-                    </button>
-                  ))}
-                  <button className="border border-gray-300 px-2.5 py-1 rounded text-gray-600 hover:bg-gray-50 cursor-pointer shadow-sm">
-                    Fecha personalizada
-                  </button>
-                </div>
-
-                {/* Área del Gráfico con Volumen Integrado y Velas Flotantes */}
-                <div className="h-70 w-full px-2 mt-2">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={mockChartData} margin={{ top: 5, right: 0, bottom: 0, left: -20 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f9fafb" />
-                      <XAxis dataKey="date" axisLine={{stroke: '#e5e7eb'}} tickLine={false} tick={{fontSize: 10, fill: '#9ca3af'}} dy={10} />
-                      <YAxis yAxisId="price" orientation="right" axisLine={false} tickLine={false} tick={{fontSize: 10, fill: '#9ca3af'}} dx={10} domain={['dataMin - 50', 'dataMax + 50']} />
-                      <YAxis yAxisId="volume" orientation="left" hide={true} domain={[0, 'dataMax * 5']} />
-                      <Tooltip contentStyle={{fontSize: '12px', borderRadius: '4px', border: '1px solid #e5e7eb', boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)'}} />
-                      
-                      {chartType === 'line' ? (
-                        <Line yAxisId="price" type="monotone" dataKey="price" stroke="#f59e0b" strokeWidth={1.5} dot={false} activeDot={{r: 4, fill: '#f59e0b'}} />
-                      ) : (
-                        <Bar yAxisId="price" dataKey={(data) => [data.open, data.close]} fill="#10b981" barSize={3}>
-                           {mockChartData.map((entry, index) => (
-                             <cell key={`cell-${index}`} fill={entry.close > entry.open ? '#10b981' : '#ef4444'} />
-                           ))}
-                        </Bar>
-                      )}
-                      
-                      <Bar yAxisId="volume" dataKey="volume" fill="#fcd34d" opacity={0.6} barSize={3} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-
-                {/* Barra inferior del gráfico */}
-                <div className="px-4 py-3 mt-auto border-t border-gray-100 flex items-center justify-between bg-[#fcfcfc] rounded-b">
-                  <div className="relative w-[320px]">
-                    <input 
-                      type="text" 
-                      placeholder="Las comparaciones no están disponibles en la vista de velas" 
-                      disabled={chartType === 'candle'}
-                      className={`w-full pl-3 pr-8 py-1.5 border border-gray-300 rounded shadow-sm text-xs focus:outline-none focus:border-orange-500 ${chartType === 'candle' ? 'bg-gray-100 text-gray-400 placeholder-gray-300' : 'bg-white text-gray-700'}`}
-                    />
-                    <ChevronDown className="w-4 h-4 absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  </div>
-                  <div className="flex space-x-2">
-                    <button className="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer shadow-sm">
-                      Hide Indicators
-                    </button>
-                    <button 
-                      onClick={() => setChartType(prev => prev === 'line' ? 'candle' : 'line')}
-                      className="p-1.5 border border-gray-300 rounded bg-white text-gray-600 hover:bg-gray-50 flex items-center cursor-pointer shadow-sm"
-                      title="Alternar Velas / Línea"
-                    >
-                      {chartType === 'line' ? (
-                        <div className="flex space-x-0.5 items-end h-4 w-4 justify-center">
-                          <div className="w-0.75 h-3 bg-red-500 rounded-[1px]"></div>
-                          <div className="w-0.75 h-4 bg-green-500 rounded-[1px]"></div>
-                        </div>
-                      ) : (
-                        <Activity className="w-4 h-4 text-orange-500" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
+              {/* GRÁFICO ESTILO TIKR (TradingView Lightweight Charts) */}
+              <StockChart ticker={currentTicker} companyName={profileData?.name} />
 
               {/* PANEL DE DATOS DERECHO */}
               <div className="w-85 bg-white border border-gray-200 rounded shadow-sm flex flex-col">
