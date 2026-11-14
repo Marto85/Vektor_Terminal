@@ -343,7 +343,7 @@ export default function StockChart({ ticker, companyName }) {
     selectedMetric === 'Market Cap' || selectedMetric === 'Enterprise Value' ? ' MM' : '';
 
   return (
-    <div className="flex-1 bg-white border border-gray-200 rounded shadow-sm flex flex-col relative min-w-0">
+    <div className="w-full lg:w-[47%] flex flex-col relative min-w-0 border-b lg:border-b-0 lg:border-r border-gray-100">
       {/* Cabecera superior del gráfico */}
       <div className="px-4 py-3 flex justify-between items-start">
         <div>
@@ -402,14 +402,14 @@ export default function StockChart({ ticker, companyName }) {
       </div>
 
       {/* Botonera interactiva de Timeframes */}
-      <div className="px-4 py-1.5 flex items-center space-x-2 text-[13px]">
+      <div className="px-4 py-1.5 flex items-center space-x-1 text-xs whitespace-nowrap overflow-x-auto">
         {TIMEFRAMES.map((tf) => {
           const isActive = timeframe === tf.id;
           return (
             <button
               key={tf.id}
               onClick={() => setTimeframe(tf.id)}
-              className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+              className={`px-1.5 py-1 rounded transition-colors cursor-pointer shrink-0 ${
                 isActive
                   ? 'bg-gray-200/80 text-gray-900 font-semibold'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
@@ -419,7 +419,7 @@ export default function StockChart({ ticker, companyName }) {
             </button>
           );
         })}
-        <button className="border border-gray-300 px-2.5 py-1 rounded text-gray-600 hover:bg-gray-50 cursor-pointer shadow-xs ml-1">
+        <button className="border border-gray-300 px-2 py-1 rounded text-gray-600 hover:bg-gray-50 cursor-pointer shadow-xs ml-1 shrink-0">
           Fecha personalizada
         </button>
       </div>
@@ -613,7 +613,7 @@ export default function StockChart({ ticker, companyName }) {
       </div>
 
       {/* Barra inferior del gráfico */}
-      <div className="px-4 py-3 mt-auto border-t border-gray-100 flex items-center justify-between bg-[#fcfcfc] rounded-b">
+      <div className="px-4 py-3 mt-auto border-t border-gray-100 flex items-center justify-between bg-[#fcfcfc] rounded-bl-lg">
         <div className="relative w-[320px]">
           <input
             type="text"

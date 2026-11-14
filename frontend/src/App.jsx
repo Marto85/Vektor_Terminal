@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import axios from 'axios';
-import { FileText, BarChart3, PieChart, Search, Bell, Settings, Download, Maximize2, Loader2, ExternalLink, Heart, ChevronUp } from 'lucide-react';
+import { FileText, BarChart3, PieChart, Search, Bell, Settings, Download, Maximize2, Loader2, ExternalLink, Heart, ChevronUp, ChevronDown } from 'lucide-react';
 import StockChart from './components/StockChart';
+import CapitalStructurePanel from './components/CapitalStructurePanel';
 
 function App() {
   const [activeSidebarTab, setActiveSidebarTab] = useState('Resumen');
   const [activeContentTab, setActiveContentTab] = useState('Cuenta de Resultados');
   const [period, setPeriod] = useState('annual');
+  const [showChart, setShowChart] = useState(true);
   
   const [tickerInput, setTickerInput] = useState('');
   const [currentTicker, setCurrentTicker] = useState('MSFT');
@@ -245,8 +247,15 @@ function App() {
                     <button className="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm">
                       USD
                     </button>
-                    <button className="flex items-center px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm">
-                      Ocultar gráfico <ChevronUp className="w-3.5 h-3.5 ml-1.5" />
+                    <button
+                      onClick={() => setShowChart((prev) => !prev)}
+                      className="flex items-center px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm"
+                    >
+                      {showChart ? (
+                        <>Ocultar gráfico <ChevronUp className="w-3.5 h-3.5 ml-1.5" /></>
+                      ) : (
+                        <>Mostrar gráfico <ChevronDown className="w-3.5 h-3.5 ml-1.5" /></>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -256,9 +265,10 @@ function App() {
                 <h2 className="text-[36px] font-bold text-gray-900 leading-none tracking-tight">
                   US$ {profileData ? formatNumber(profileData.price) : '0.00'}
                 </h2>
-                <p className={`text-[15px] font-bold mt-1 ${profileData?.change < 0 ? 'text-red-500' : 'text-green-600'}`}>
-                  {profileData?.change > 0 ? '+US$ ' : ''}{profileData ? formatNumber(profileData.change) : '0.00'} 
-                  {' '}({profileData?.change > 0 ? '+' : ''}{profileData ? formatNumber(profileData.change_pct, true) : '0.00%'})
+                <p className={`text-[15px] font-bold mt-1 ${profileData?.change < 0 ? 'text-[#d93025]' : 'text-green-600'}`}>
+                  {profileData
+                    ? `${profileData.change < 0 ? '-US$ ' : profileData.change > 0 ? '+US$ ' : 'US$ '}${formatNumber(Math.abs(profileData.change))} (${profileData.change > 0 ? '+' : profileData.change < 0 ? '-' : ''}${formatNumber(Math.abs(profileData.change_pct), true)})`
+                    : 'US$ 0,00 (0,00%)'}
                 </p>
                 <p className="text-[11px] text-gray-400 mt-1">
                   12 de noviembre de 2026 a las 4:00 p. m. GMT-3
@@ -273,19 +283,16 @@ function App() {
           
           <div className="max-w-7xl mx-auto px-6 py-6">
             
-            {/* BLOQUE GLOBAL: Gráfico (Izq) y Panel de Datos (Der) */}
-            <div className="flex space-x-6 mb-6">
-              
-              {/* GRÁFICO ESTILO TIKR (TradingView Lightweight Charts) */}
-              <StockChart ticker={currentTicker} companyName={profileData?.name} />
+            {/* BLOQUE GLOBAL: Tarjeta Unificada Gráfico (Izq) y Panel de Datos 2 Columnas (Der) */}
+            {showChart && (
+              <div className="bg-white border border-gray-200 rounded-lg shadow-sm flex flex-col lg:flex-row mb-6 overflow-hidden">
+                {/* GRÁFICO ESTILO TIKR (TradingView Lightweight Charts) */}
+                <StockChart ticker={currentTicker} companyName={profileData?.name} />
 
-              {/* PANEL DE DATOS DERECHO */}
-              <div className="w-85 bg-white border border-gray-200 rounded shadow-sm flex flex-col">
-                 <div className="p-4 flex-1 flex items-center justify-center text-gray-400 text-sm">
-                   [Estructura de Capital / LTM en construcción]
-                 </div>
+                {/* PANEL DE DATOS DERECHO */}
+                <CapitalStructurePanel summaryMetrics={profileData?.summary_metrics} />
               </div>
-            </div>
+            )}
 
             {/* Sub-Nav de la Vista Principal (ESTILO TIKR) */}
             <div className="flex border-b border-gray-200 mb-6 space-x-8 px-2">
