@@ -248,6 +248,8 @@ export default function StockChart({ ticker, companyName }) {
       const volumeSeries = addCompatibleSeries(chart, 'histogram', {
         priceFormat: { type: 'volume' },
         priceScaleId: 'volume',
+        lastValueVisible: false,
+        priceLineVisible: false,
       });
 
       chart.priceScale('volume').applyOptions({
