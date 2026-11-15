@@ -10,6 +10,7 @@ from app.core.yf_client import get_company_profile
 from app.services.company_service import get_raw_financials
 from app.services.financial_parser import extract_annual_metrics, extract_quarterly_metrics
 from app.services.ratios_calculator import calculate_ratios
+from app.services.valuation_service import build_valuation_report
 
 router = APIRouter()
 
@@ -68,6 +69,14 @@ def get_quarterly_financials(ticker: str, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/company/{ticker}/valuation")
+def get_company_valuation(ticker: str, db: Session = Depends(get_db)):
+    try:
+        return build_valuation_report(ticker, db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculando valoración: {str(e)}")
 
 
 @router.get("/search")

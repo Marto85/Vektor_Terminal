@@ -1,0 +1,369 @@
+export const METRICS_GLOSSARY = {
+  // --- ESTRUCTURA DE CAPITAL Y MERCADO ---
+  'Capitalización bursátil (MM)': {
+    title: 'Capitalización Bursátil (Market Cap)',
+    formula: 'Precio por acción × Acciones ordinarias en circulación',
+    explanation:
+      'Representa el valor de mercado del 100% del capital accionario (Equity) de la empresa según la cotización bursátil actual. No incluye deuda ni caja.',
+    evaluates:
+      'El tamaño de la compañía (Small, Mid, Large o Mega Cap) y cuánto cuesta comprar todas sus acciones en el mercado.',
+    benchmarks: [
+      'Mega Cap: > US$ 200.000 MM (líderes globales consolidados)',
+      'Large Cap: US$ 10.000 MM – US$ 200.000 MM',
+      'Mid Cap: US$ 2.000 MM – US$ 10.000 MM',
+      'Small Cap: < US$ 2.000 MM (mayor volatilidad y potencial de crecimiento)',
+    ],
+    example:
+      'Si una empresa tiene 300 MM de acciones y cotiza a US$ 32,60, su Market Cap es US$ 9.780 MM.',
+  },
+  'Valor empresarial (MM)': {
+    title: 'Valor Empresa (Enterprise Value - EV)',
+    formula: 'Capitalización Bursátil + Deuda Total − Efectivo e Inversiones a Corto Plazo',
+    explanation:
+      'Es el costo teórico de adquirir la totalidad del negocio operativo libre de deuda: pagás todas las acciones, cancelás las deudas y te quedás con la caja disponible.',
+    evaluates:
+      'La valoración real del negocio operativo independientemente de cómo esté financiado (mucho capital propio vs. mucha deuda). Es el numerador correcto para comparar contra Ventas, EBITDA o EBIT.',
+    benchmarks: [
+      'EV > Market Cap: la empresa tiene deuda neta (más deuda que efectivo).',
+      'EV < Market Cap: la empresa tiene caja neta (más efectivo que deuda), lo que reduce el precio efectivo de compra.',
+    ],
+    example:
+      'Market Cap de US$ 10.000 MM + Deuda de US$ 3.000 MM − Caja de US$ 1.000 MM = EV de US$ 12.000 MM.',
+  },
+  'Deuda neta LTM (MM)': {
+    title: 'Deuda Neta (Net Debt)',
+    formula: 'Deuda Financiera Total (Corto + Largo Plazo) − Efectivo e Inversiones Líquidas',
+    explanation:
+      'Mide cuánta deuda quedaría pendiente si la empresa usara toda su caja disponible hoy mismo para cancelar pasivos financieros. Si aparece entre paréntesis (negativo), significa que tiene caja neta.',
+    evaluates:
+      'El apalancamiento real del balance y el riesgo financiero ante subas de tasas de interés o caídas de ventas.',
+    benchmarks: [
+      'Negativa (Caja neta): fortaleza financiera máxima (típico en Big Tech).',
+      'Positiva moderada: manejable si está respaldada por flujo de caja recurrente.',
+    ],
+    example:
+      'Deuda total de US$ 4.000 MM y caja por US$ 5.500 MM → Deuda neta de (US$ 1.500 MM), es decir, US$ 1.500 MM de caja neta.',
+  },
+  'Deuda neta/EBITDA LTM': {
+    title: 'Deuda Neta / EBITDA',
+    formula: 'Deuda Neta ÷ EBITDA LTM (Beneficio Operativo + Depreciación y Amortización)',
+    explanation:
+      'Indica cuántos años de generación operativa bruta (EBITDA) necesitaría la empresa para pagar toda su deuda neta.',
+    evaluates:
+      'La solvencia y capacidad de repago. Es el ratio principal que miran bancos y calificadoras de riesgo.',
+    benchmarks: [
+      '< 0x (negativo): caja neta (sin riesgo de solvencia).',
+      '0x – 1,5x: balance muy conservador.',
+      '1,5x – 3,0x: apalancamiento estándar en empresas industriales o de consumo estables.',
+      '> 3,5x – 4,0x: alerta de sobreendeudamiento (salvo utilities o infraestructura regulada).',
+    ],
+    example:
+      'Deuda neta de US$ 6.000 MM y EBITDA anual de US$ 3.000 MM → 2,00x (tardaría 2 años de EBITDA en cancelar su deuda).',
+  },
+
+  // --- MÚLTIPLOS DE VALORACIÓN ---
+  'EV / Ventas (LTM)': {
+    title: 'EV / Ventas (EV / Sales)',
+    formula: 'Valor Empresa (EV) ÷ Ingresos Totales últimos 12 meses',
+    explanation:
+      'El EV (Valor Empresa = Market Cap + Deuda − Caja) dividido por la facturación anual. Mide cuánto paga el mercado por cada dólar de ventas generado por el negocio operativo.',
+    evaluates:
+      'La valoración relativa de empresas que aún no tienen beneficios netos positivos o cuyos márgenes están temporalmente comprimidos por inversión.',
+    benchmarks: [
+      'Empresas maduras / industriales / retail: 0,5x – 2,5x (márgenes netos bajos).',
+      'Empresas de consumo masivo / salud consolidadas: 2,5x – 5,0x.',
+      'Software / SaaS / Tecnología de altos márgenes (>70% margen bruto): 6,0x – 15,0x.',
+      'Hipercrecimiento especulativo: > 15,0x (exige crecimiento >25% anual sostenido).',
+    ],
+    example:
+      'Con un EV de US$ 3.960.000 MM y ventas LTM de US$ 346.400 MM, el EV/Ventas es 11,43x: el mercado paga US$ 11,43 por cada US$ 1 de facturación anual.',
+  },
+  'EV / Ingresos NTM': {
+    title: 'EV / Ingresos NTM (Forward EV/Sales)',
+    formula: 'Valor Empresa (EV) ÷ Ingresos Estimados próximos 12 meses (NTM)',
+    explanation:
+      'Compara el Valor Empresa actual contra las ventas proyectadas para los próximos 12 meses (Next Twelve Months).',
+    evaluates:
+      'Qué tan rápido el crecimiento esperado de ventas abarata el múltiplo actual.',
+    benchmarks: [
+      'Si EV/Ingresos NTM es significativamente menor al LTM, el mercado descuenta fuerte expansión comercial.',
+      'Tech / Cloud en crecimiento: 5,0x – 12,0x.',
+    ],
+    example:
+      'Si EV/Ventas LTM es 11,43x y se espera que las ventas crezcan 18% el próximo año, el EV/Ingresos NTM baja a ~9,6x.',
+  },
+  'EV / EBITDA (LTM)': {
+    title: 'EV / EBITDA',
+    formula: 'Valor Empresa (EV) ÷ (Beneficio Operativo + Depreciación y Amortización)',
+    explanation:
+      'El EV (Valor Empresa) dividido por el flujo operativo antes de impuestos, intereses y amortizaciones contables (EBITDA).',
+    evaluates:
+      'El múltiplo estándar institucional para comparar empresas de un mismo sector con distinta estructura de deuda o política fiscal.',
+    benchmarks: [
+      'Empresas maduras / cíclicas / manufactura: 6x – 10x.',
+      'Empresas estables de calidad (Consumo, Salud, Industriales líderes): 11x – 16x.',
+      'Tecnología consolidada / plataformas digitales: 16x – 25x.',
+      '> 30x: valoración exigente que requiere alta conversión a caja y crecimiento sostenido.',
+    ],
+    example:
+      'Un negocio con EV de US$ 1.500 MM y EBITDA de US$ 100 MM cotiza a 15,00x EV/EBITDA (recuperaría el valor empresa en 15 años operativos constantes).',
+  },
+  'EV / EBIT (LTM)': {
+    title: 'EV / EBIT',
+    formula: 'Valor Empresa (EV) ÷ Beneficio Operativo (EBIT)',
+    explanation:
+      'A diferencia del EV/EBITDA, aquí NO se suma la Depreciación y Amortización. Toma la ganancia operativa real después del desgaste de activos fijos.',
+    evaluates:
+      'Más exigente y realista que EV/EBITDA en negocios intensivos en capital (fábricas, telecomunicaciones, nube/data centers) donde reponer equipos es un costo real recurrente.',
+    benchmarks: [
+      'Empresas estables / industriales: 9x – 14x.',
+      'Compañías de alta calidad con ventajas competitivas: 15x – 22x.',
+      'Tech / Software líder: 20x – 28x.',
+    ],
+    example:
+      'Dos empresas tienen EV/EBITDA de 10x, pero la que necesita mucha maquinaria tiene un EV/EBIT de 18x (más cara en términos reales).',
+  },
+  'EV / Beneficio Bruto (LTM)': {
+    title: 'EV / Beneficio Bruto (EV / Gross Profit)',
+    formula: 'Valor Empresa (EV) ÷ (Ingresos Totales − Coste de los Bienes Vendidos)',
+    explanation:
+      'Relaciona el Valor Empresa con la ganancia que queda tras cubrir únicamente el costo directo de producir o prestar el servicio.',
+    evaluates:
+      'Permite comparar empresas de software o plataformas que reinvierten agresivamente en I+D y marketing (debajo de la línea bruta) para capturar cuota de mercado.',
+    benchmarks: [
+      'Retail / Industrial tradicional: 3x – 7x.',
+      'Software / SaaS consolidado: 10x – 18x.',
+    ],
+    example:
+      'Una SaaS con margen bruto del 80% y EV/Ventas de 12x tiene un EV/Beneficio Bruto de 15,0x.',
+  },
+  'EV / Flujo de Caja Libre (Unlevered)': {
+    title: 'EV / Flujo de Caja Libre (EV / FCF)',
+    formula: 'Valor Empresa (EV) ÷ Flujo de Caja Libre (CFO − CapEx)',
+    explanation:
+      'Mide cuántos años de caja libre disponible (después de pagar inversiones en bienes de capital) equivalen al Valor Empresa total.',
+    evaluates:
+      'La capacidad real de generar efectivo contante. Ojo: si la empresa está en un ciclo excepcional de expansión de CapEx, este múltiplo se dispara artificialmente.',
+    benchmarks: [
+      'Empresas maduras de bajo CapEx: 12x – 18x.',
+      'Compañías de calidad compuesta: 18x – 28x.',
+      '> 40x: suele indicar expectativas muy altas o un pico transitorio de inversión (CapEx) que deprime el FCF del año.',
+    ],
+    example:
+      'Si el EV es US$ 2.000 MM y el FCF anual es US$ 100 MM, el múltiplo es 20,00x.',
+  },
+  'Precio / Ventas (P/S)': {
+    title: 'Precio / Ventas (Price to Sales)',
+    formula: 'Capitalización Bursátil ÷ Ingresos Totales',
+    explanation:
+      'Similar a EV/Ventas, pero usa solo el valor de las acciones (Market Cap) sin sumar deuda ni restar caja.',
+    evaluates:
+      'Valoración relativa sobre ingresos desde la óptica del accionista. Conviene acompañarlo con EV/Ventas si la empresa tiene mucha deuda.',
+    benchmarks: [
+      'Negocios de margen bajo (supermercados, autos): 0,3x – 1,2x.',
+      'Empresas estables de buen margen: 2,0x – 4,5x.',
+      'Tecnología / Software: 5,0x – 12,0x.',
+    ],
+    example:
+      'Market Cap de US$ 500 MM y ventas de US$ 250 MM → P/S de 2,00x.',
+  },
+  'Precio / Beneficio (P/E)': {
+    title: 'Precio / Beneficio (PER o P/E Ratio)',
+    formula: 'Precio por Acción ÷ Beneficio por Acción Diluido (BPA) — o Market Cap ÷ Beneficio Neto',
+    explanation:
+      'Indica cuántos años de ganancias netas actuales está pagando el mercado por cada acción.',
+    evaluates:
+      'El múltiplo más difundido en bolsa. Puede distorsionarse si hubo ganancias o pérdidas extraordinarias no recurrentes (venta de un inmueble, revaluaciones, juicios).',
+    benchmarks: [
+      'Empresas cíclicas / bancos / maduras de bajo crecimiento: 8x – 14x.',
+      'Promedio histórico S&P 500 / empresas estables de calidad: 15x – 22x.',
+      'Crecimiento tecnológico consolidado: 22x – 35x.',
+      '> 40x: descuenta fuerte expansión futura de beneficios (o ganancias actuales deprimidas).',
+    ],
+    example:
+      'Acción a US$ 100 con ganancia neta de US$ 5 por acción → P/E de 20,00x (equivale a un rendimiento inicial de ganancias del 5% anual).',
+  },
+  'NTM Price / Earnings (P/E)': {
+    title: 'P/E Futuro (Forward P/E NTM)',
+    formula: 'Precio Actual ÷ Beneficio por Acción Estimado próximos 12 meses',
+    explanation:
+      'Mide el precio de hoy frente a las ganancias proyectadas por el consenso de analistas para los próximos 4 trimestres.',
+    evaluates:
+      'Si el P/E futuro es bastante más bajo que el P/E LTM, se espera aceleración de márgenes o crecimiento de utilidades.',
+    benchmarks: [
+      'Value / Estables: 10x – 16x.',
+      'Growth / Tech líder: 18x – 28x.',
+    ],
+    example:
+      'Precio US$ 523,88 y BPA estimado NTM de US$ 24,20 → Forward P/E de 21,65x.',
+  },
+  'Precio / Valor Libros (P/BV)': {
+    title: 'Precio / Valor Contable (Price to Book)',
+    formula: 'Capitalización Bursátil ÷ Patrimonio Neto Contable',
+    explanation:
+      'Compara el valor de mercado de las acciones contra el valor neto en libros (Activos Totales − Pasivos Totales).',
+    evaluates:
+      'Muy relevante en bancos, aseguradoras e inmobiliarias donde los activos valen cerca de su registro contable. Menos útil en empresas de software con altos intangibles.',
+    benchmarks: [
+      '< 1,0x: cotiza por debajo de su valor contable líquido (posible ganga o deterioro de activos).',
+      'Bancos / Industriales: 1,0x – 2,5x.',
+      'Empresas de alto ROE con pocos activos físicos (Tech/Consumo): 5,0x – 15,0x.',
+    ],
+    example:
+      'Patrimonio neto de US$ 1.000 MM y Market Cap de US$ 1.800 MM → P/BV de 1,80x.',
+  },
+  'Precio / Valor Contable Tangible (P/TBV)': {
+    title: 'Precio / Valor Contable Tangible (P/TBV)',
+    formula: 'Capitalización Bursátil ÷ (Patrimonio Neto − Fondo de Comercio − Activos Intangibles)',
+    explanation:
+      'Excluye el Goodwill (sobreprecio pagado en adquisiciones pasadas) y los intangibles para medir el respaldo físico y financiero neto.',
+    evaluates:
+      'El piso patrimonial duro del accionista, especialmente útil en empresas que crecieron comprando competidores.',
+    benchmarks: [
+      'Bancos e industriales: 1,2x – 3,0x.',
+      'Empresas con fuerte historial de adquisiciones (M&A): suele ser bastante mayor al P/BV.',
+    ],
+    example:
+      'Patrimonio de US$ 1.000 MM menos US$ 400 MM de Goodwill = US$ 600 MM tangibles. Con Market Cap de US$ 1.800 MM → P/TBV de 3,00x.',
+  },
+  'Precio / Flujo de Caja Libre (P/FCF)': {
+    title: 'Precio / Flujo de Caja Libre (P/FCF)',
+    formula: 'Capitalización Bursátil ÷ Flujo de Caja Libre (FCF)',
+    explanation:
+      'Compara el valor de mercado de las acciones contra la caja real que queda libre para repartir dividendos, recomprar acciones o reducir deuda.',
+    evaluates:
+      'La calidad de las ganancias: una empresa con P/E bajo pero P/FCF muy alto tiene problemas para convertir utilidad contable en dinero real.',
+    benchmarks: [
+      'Empresas maduras generadoras de caja: 12x – 18x.',
+      'Empresas de calidad compuesta: 18x – 26x.',
+      '> 35x: cara respecto a la caja actual o atravesando un ciclo fuerte de inversión (CapEx).',
+    ],
+    example:
+      'Market Cap de US$ 2.000 MM y FCF de US$ 100 MM → P/FCF de 20,00x.',
+  },
+  'FCF Yield %': {
+    title: 'Rendimiento de Flujo de Caja Libre (FCF Yield)',
+    formula: '(Flujo de Caja Libre ÷ Capitalización Bursátil) × 100',
+    explanation:
+      'Es la inversa del P/FCF expresada en porcentaje. Muestra qué tasa de retorno en efectivo genera la empresa sobre su precio bursátil hoy.',
+    evaluates:
+      'Permite comparar directamente el atractivo de una acción frente a la tasa de un bono del Tesoro (ej. 4%–4,5%).',
+    benchmarks: [
+      '> 6% – 8%: generación de caja muy atractiva (típico en value o empresas maduras).',
+      '3,5% – 5,5%: rango equilibrado para empresas de calidad.',
+      '< 2,5%: exigente; exige que el FCF crezca rápido en los próximos años para justificar el precio.',
+    ],
+    example:
+      'Con un FCF de US$ 100 MM y un Market Cap de US$ 2.000 MM, el FCF Yield es 5,00% anual.',
+  },
+
+  // --- PARÁMETROS DEL DCF ---
+  'Ajuste puntual FCF (+/- MM)': {
+    title: 'Ajuste Puntual al Flujo de Caja Libre (DCF)',
+    formula: 'FCF Proyectado Ajustado = FCF Operativo del Modelo ± Ajuste Manual (en millones)',
+    explanation:
+      'Permite sumar (+) o restar (−) un monto fijo anual en millones de dólares para corregir distorsiones económicas que los estados contables estándar no aíslan por sí solos.',
+    evaluates:
+      'La sensibilidad del Valor Intrínseco cuando detectás partidas no recurrentes o costos económicos ocultos en las notas del balance.',
+    benchmarks: [
+      'Caso 1 — Compensación basada en acciones (SBC): ingresar monto NEGATIVO (ej. -8000) para exigir que el FCF cubra la recompra de acciones emitidas a empleados.',
+      'Caso 2 — Beneficio operativo extraordinario en el año base (ej. cobro único por litigio o subsidio dentro del EBIT): ingresar monto NEGATIVO (ej. -1500) para no proyectarlo a perpetuidad.',
+      'Caso 3 — Ahorros de costos ya ejecutados o sinergias confirmadas que aún no figuran en el último 10-K: ingresar monto POSITIVO (ej. +1200).',
+      'Caso 4 — Empresa sin distorsiones relevantes: dejar en 0.',
+    ],
+    example:
+      'Si una tecnológica reporta US$ 50.000 MM de FCF pero entrega US$ 10.000 MM anuales en acciones a empleados (SBC), ingresás -10000 para calcular su valor intrínseco real libre de dilución.',
+  },
+
+  // --- RUBROS CONTABLES (PESTAÑA FINANZAS) ---
+  'Ingresos Totales': {
+    title: 'Ingresos Totales (Revenue / Top Line)',
+    formula: 'Ventas netas de bienes y servicios (descontando devoluciones y bonificaciones)',
+    explanation:
+      'La facturación bruta operativa del período antes de restar cualquier costo o gasto.',
+    evaluates:
+      'La demanda real de los productos/servicios y la expansión de cuota de mercado.',
+    benchmarks: [
+      'Empresas maduras: crecimiento orgánico de 3% – 7% anual.',
+      'Empresas de crecimiento: > 12% – 15% anual.',
+    ],
+    example: 'Ventas de licencias + suscripciones nube durante el ejercicio fiscal.',
+  },
+  'Beneficio Bruto': {
+    title: 'Beneficio Bruto (Gross Profit)',
+    formula: 'Ingresos Totales − Coste de los bienes vendidos (COGS)',
+    explanation:
+      'Lo que queda de las ventas tras pagar los costos directos de producción, materias primas o servidores.',
+    evaluates:
+      'El poder de fijación de precios (pricing power) y la eficiencia productiva básica.',
+    benchmarks: [
+      'Margen bruto > 60%: software, farmacia, marcas de lujo (altas ventajas competitivas).',
+      'Margen bruto 30% – 50%: consumo masivo e industriales especializados.',
+      'Margen bruto < 25%: retail, aerolíneas, manufactura commodity.',
+    ],
+    example: 'Ventas de US$ 1.000 MM − Costo directo de US$ 350 MM = Beneficio Bruto de US$ 650 MM (65% margen bruto).',
+  },
+  'Beneficio Operativo': {
+    title: 'Beneficio Operativo (EBIT)',
+    formula: 'Beneficio Bruto − Gastos Operativos (SG&A, I+D, Depreciación y Amortización)',
+    explanation:
+      'La ganancia generada estrictamente por el negocio principal antes de intereses financieros e impuestos.',
+    evaluates:
+      'La rentabilidad real de la operación cotidiana, limpia de cómo se financia la empresa o de resultados extraordinarios financieros.',
+    benchmarks: [
+      'Margen operativo > 25%: negocios altamente rentables con apalancamiento operativo.',
+      'Margen operativo 10% – 20%: rango saludable en industrias estándar.',
+    ],
+    example: 'Beneficio Bruto de US$ 650 MM − US$ 300 MM de gastos comerciales e I+D = EBIT de US$ 350 MM.',
+  },
+  'Efectivo de Operaciones (CFO)': {
+    title: 'Flujo de Caja Operativo (CFO)',
+    formula: 'Beneficio Neto + Partidas no monetarias (D&A, SBC) ± Cambios en Capital de Trabajo',
+    explanation:
+      'El dinero efectivo real que entró o salió de la caja por la actividad comercial habitual.',
+    evaluates:
+      'Si las ganancias contables se transforman efectivamente en dinero líquido. Un CFO consistentemente inferior al Beneficio Neto es señal de alerta.',
+    benchmarks: [
+      'Conversión CFO / Beneficio Neto ≥ 1,0x indica alta calidad contable.',
+    ],
+    example: 'Una empresa gana US$ 100 MM contables, suma US$ 30 MM de depreciación y cobra clientes pendientes por US$ 10 MM → CFO = US$ 140 MM.',
+  },
+  'Gastos de capital (CapEx)': {
+    title: 'Gastos de Capital (CapEx)',
+    formula: 'Inversiones en propiedades, planta, maquinaria, centros de datos y equipamiento',
+    explanation:
+      'Dinero destinado a mantener o expandir la capacidad física y tecnológica de largo plazo de la empresa.',
+    evaluates:
+      'Cuánto efectivo exige el negocio solo para seguir operando (CapEx de mantenimiento) frente a cuánto destina a crecer (CapEx de expansión).',
+    benchmarks: [
+      'Asset-light (bajo CapEx): < 5% de las ventas.',
+      'Intensivas en capital (energía, telecom, hyperscalers IA): 15% – 35% de las ventas.',
+    ],
+    example: 'Construcción de nuevos centros de datos o compra de maquinaria industrial.',
+  },
+  'Flujo de caja libre (FCF)': {
+    title: 'Flujo de Caja Libre (Free Cash Flow - FCF)',
+    formula: 'Efectivo de Operaciones (CFO) − Gastos de Capital (CapEx)',
+    explanation:
+      'El efectivo disponible que le sobra a la empresa después de pagar todos sus gastos operativos e inversiones en bienes de capital.',
+    evaluates:
+      'La métrica reina en valoración fundamental: con este dinero se pagan dividendos, se recompran acciones, se cancela deuda o se financian adquisiciones.',
+    benchmarks: [
+      'Margen FCF (FCF / Ventas) > 15%: máquina de generar efectivo.',
+      'Margen FCF 5% – 12%: sólido en negocios industriales o comerciales.',
+    ],
+    example: 'CFO de US$ 180 MM − CapEx de US$ 50 MM = FCF de US$ 130 MM.',
+  },
+};
+
+export function getGlossaryEntry(metricName) {
+  if (!metricName) return null;
+  if (METRICS_GLOSSARY[metricName]) return METRICS_GLOSSARY[metricName];
+
+  // Búsqueda flexible para variantes de nombre (ej. con o sin "(LTM)")
+  const clean = metricName.replace(/\s*\(LTM\)|\s*\(MM\)/gi, '').trim();
+  const matchedKey = Object.keys(METRICS_GLOSSARY).find(
+    (k) => k.toLowerCase().startsWith(clean.toLowerCase())
+  );
+  return matchedKey ? METRICS_GLOSSARY[matchedKey] : null;
+}

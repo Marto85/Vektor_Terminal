@@ -16,7 +16,7 @@ FINANCIAL_STATEMENTS = {
         "Gastos por Intereses": ["InterestExpense", "InterestExpenseDebt", "InterestExpenseNet"],
         "Ganancias (Pérdidas) Cambiarias": ["ForeignCurrencyTransactionGainLossBeforeTax"],
         "Ingresos (Gastos) No Operativos": ["OtherNonoperatingIncomeExpense", "NonoperatingIncomeExpense", "GainLossOnInvestments"],
-        "Beneficio antes de Impuestos": ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic"],
+        "Beneficio antes de Impuestos": ["IncomeLossFromContinuingOperationsBeforeTaxesExtraordinaryItemsNoncontrollingInterest", "IncomeLossFromContinuingOperationsBeforeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments", "IncomeLossFromContinuingOperationsBeforeTaxesDomestic"],
         "Gasto por Impuesto a las Ganancias": ["IncomeTaxExpenseBenefit", "CurrentIncomeTaxExpenseBenefit"],
         "Beneficio Neto": ["NetIncomeLoss", "ProfitLoss"],
         "BPA Básico": ["EarningsPerShareBasic"],
@@ -109,6 +109,16 @@ def extract_annual_metrics(raw_facts: dict) -> list:
                     
                     for entry in units:
                         if entry.get("form") in ["10-K", "10-K/A"] and entry.get("fp") == "FY":
+                            # Descartar comparativos trimestrales (< 300 días) incluidos dentro de algunos 10-K
+                            if statement != "Balance de Situación" and entry.get("start") and entry.get("end"):
+                                try:
+                                    d_start = datetime.strptime(entry["start"], "%Y-%m-%d")
+                                    d_end = datetime.strptime(entry["end"], "%Y-%m-%d")
+                                    if (d_end - d_start).days < 300:
+                                        continue
+                                except ValueError:
+                                    pass
+
                             fy = str(entry.get("fy"))
                             if fy in years_range:
                                 val = entry.get("val", 0.0)
@@ -419,8 +429,6 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
             if not row.empty:
                 r_dict = row.iloc[0].to_dict()
                 
-                # LIMPIEZA ESTRUCTURAL: Eliminamos los datos "basura" (ej. columnas FY o años viejos) 
-                # antes de pasarlo al frontend, dejando solo los trimestres puros.
                 clean_dict = {"Categoría": r_dict["Categoría"], "Métrica": r_dict["Métrica"]}
                 for p in periods_range:
                     clean_dict[p] = r_dict.get(p, 0.0)

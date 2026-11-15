@@ -1,0 +1,656 @@
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import axios from 'axios';
+import { Loader2, Calculator, RotateCcw, AlertTriangle, Info } from 'lucide-react';
+import { getGlossaryEntry } from '../data/metricsGlossary';
+
+function formatMult(val, suffix = 'x') {
+  if (val === null || val === undefined || Number.isNaN(val)) return '-';
+  const isNeg = val < 0;
+  const formatted = new Intl.NumberFormat('es-AR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Math.abs(val));
+  const text = `${formatted}${suffix}`;
+  return isNeg ? `(${text})` : text;
+}
+
+function formatMoney(val) {
+  if (val === null || val === undefined || Number.isNaN(val)) return '-';
+  const isNeg = val < 0;
+  const formatted = new Intl.NumberFormat('es-AR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Math.abs(val));
+  return isNeg ? `(US$ ${formatted})` : `US$ ${formatted}`;
+}
+
+export default function ValuationTab({ ticker, onOpenInfo }) {
+  const [valData, setValData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Supuestos editables del DCF en 2 etapas
+  const [revGrowth, setRevGrowth] = useState(11.0);
+  const [wacc, setWacc] = useState(9.0);
+  const [terminalGrowth, setTerminalGrowth] = useState(3.0);
+  const [capexStage1Pct, setCapexStage1Pct] = useState(15.0);
+  const [capexTerminalPct, setCapexTerminalPct] = useState(10.0);
+  const [exitMultiple, setExitMultiple] = useState(25.0);
+  const [extraAdjustmentMm, setExtraAdjustmentMm] = useState(0);
+
+  useEffect(() => {
+    if (!ticker) return;
+    let cancelled = false;
+
+    const fetchValuation = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await axios.get(
+          `http://127.0.0.1:8000/api/v1/company/${ticker.toUpperCase()}/valuation`
+        );
+        if (!cancelled) {
+          setValData(res.data);
+          const inp = res.data?.dcf_inputs;
+          if (inp) {
+            setCapexStage1Pct(Number(inp.capex_expansion_pct || 12.0));
+            setCapexTerminalPct(Number(inp.capex_maintenance_pct || 8.0));
+            setExitMultiple(Number(inp.exit_multiple_default || 24.0));
+            setExtraAdjustmentMm(0);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.response?.data?.detail || 'No se pudo calcular la valoración');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchValuation();
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker]);
+
+  // Cálculo en tiempo real: DCF 2 Etapas + Doble Valor Terminal (Gordon vs Exit Multiple)
+  const dcfResult = useMemo(() => {
+    const inp = valData?.dcf_inputs;
+    if (!inp || !inp.shares_mm || inp.shares_mm <= 0) return null;
+
+    const rev0 = Number(inp.revenue_base_mm || 0);
+    const ebitMargin = Number(inp.ebit_margin_pct || 15.0) / 100;
+    const taxRate = Number(inp.tax_rate_pct || 21.0) / 100;
+    const daPct = Number(inp.da_sales_pct || 8.0) / 100;
+
+    const g = revGrowth / 100;
+    const r = wacc / 100;
+    const gTerm = terminalGrowth / 100;
+    const capex1 = capexStage1Pct / 100;
+    const capexTerm = capexTerminalPct / 100;
+
+    if (r <= gTerm || rev0 <= 0) {
+      return { invalidSpread: true };
+    }
+
+    const projections = [];
+    let pvStage1 = 0;
+    let revCurr = rev0;
+
+    for (let yr = 1; yr <= 5; yr += 1) {
+      revCurr = revCurr * (1 + g);
+      const nopat = revCurr * ebitMargin * (1 - taxRate);
+      const da = revCurr * daPct;
+      const capex = revCurr * capex1;
+      const fcf = nopat + da - capex + Number(extraAdjustmentMm || 0);
+      const pv = fcf / (1 + r) ** yr;
+      pvStage1 += pv;
+
+      projections.push({
+        year: `Año +${yr}`,
+        rev: revCurr,
+        fcf,
+        pv,
+      });
+    }
+
+    // Año 6 (Estado Estacionario): el CapEx converge a mantenimiento
+    const revYear6 = revCurr * (1 + gTerm);
+    const nopat6 = revYear6 * ebitMargin * (1 - taxRate);
+    const da6 = revYear6 * daPct;
+    const capex6 = revYear6 * capexTerm;
+    const steadyStateFcf6 = nopat6 + da6 - capex6 + Number(extraAdjustmentMm || 0);
+
+    // Método A: Perpetuidad de Gordon Growth
+    const tvGordon = steadyStateFcf6 / (r - gTerm);
+    const pvTvGordon = tvGordon / (1 + r) ** 5;
+    const evGordon = pvStage1 + pvTvGordon;
+    const eqGordon = evGordon - Number(inp.net_debt_mm || 0);
+    const priceGordon = eqGordon / inp.shares_mm;
+    const impliedExitMult = steadyStateFcf6 > 0 ? tvGordon / steadyStateFcf6 : 0;
+    const upsideGordon =
+      inp.current_price > 0 ? ((priceGordon - inp.current_price) / inp.current_price) * 100 : 0;
+
+    // Método B: Múltiplo de Salida (Exit Multiple sobre FCF normalizado Año 5)
+    const normalizedFcf5 =
+      revCurr * (ebitMargin * (1 - taxRate) + daPct - capexTerm) + Number(extraAdjustmentMm || 0);
+    const tvMultiple = normalizedFcf5 * exitMultiple;
+    const pvTvMultiple = tvMultiple / (1 + r) ** 5;
+    const evMultiple = pvStage1 + pvTvMultiple;
+    const eqMultiple = evMultiple - Number(inp.net_debt_mm || 0);
+    const priceMultiple = eqMultiple / inp.shares_mm;
+    const upsideMultiple =
+      inp.current_price > 0 ? ((priceMultiple - inp.current_price) / inp.current_price) * 100 : 0;
+
+    // Comparación Reportado sin normalizar CapEx (para mostrar impacto)
+    const fcf5Unadjusted = projections[4]?.fcf || 0;
+    const tvUnadj = (fcf5Unadjusted * (1 + gTerm)) / (r - gTerm);
+    const priceUnadjusted =
+      (pvStage1 + tvUnadj / (1 + r) ** 5 - Number(inp.net_debt_mm || 0)) / inp.shares_mm;
+
+    return {
+      invalidSpread: false,
+      projections,
+      pvStage1,
+      steadyStateFcf6,
+      priceGordon,
+      upsideGordon,
+      impliedExitMult,
+      evGordon,
+      priceMultiple,
+      upsideMultiple,
+      evMultiple,
+      priceUnadjusted,
+    };
+  }, [valData, revGrowth, wacc, terminalGrowth, capexStage1Pct, capexTerminalPct, exitMultiple, extraAdjustmentMm]);
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm py-20 flex flex-col items-center justify-center text-orange-500">
+        <Loader2 className="w-8 h-8 mb-3 animate-spin" />
+        <p className="text-sm font-medium">Auditando estados contables y calculando valoración...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm py-16 text-center text-red-500 text-sm font-semibold">
+        {error}
+      </div>
+    );
+  }
+
+  if (!valData) return null;
+
+  const years = valData.years || [];
+  const rows = valData.rows || [];
+  const inp = valData.dcf_inputs || {};
+  const audit = valData.audit || { has_anomalies: false, flags: [], comparisons: [] };
+
+  const handleReset = () => {
+    setRevGrowth(11.0);
+    setWacc(9.0);
+    setTerminalGrowth(3.0);
+    setCapexStage1Pct(Number(inp.capex_expansion_pct || 12.0));
+    setCapexTerminalPct(Number(inp.capex_maintenance_pct || 8.0));
+    setExitMultiple(Number(inp.exit_multiple_default || 24.0));
+    setExtraAdjustmentMm(0);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* BLOQUE 0: AUDITORÍA AUTOMÁTICA DE DISTORSIONES CONTABLES */}
+      {audit.has_anomalies && (
+        <div className="bg-amber-50/70 border border-amber-200 rounded-lg p-4 shadow-xs">
+          <div className="flex items-start space-x-2.5">
+            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="text-sm font-bold text-gray-900">
+                Auditoría de Calidad Contable: se detectaron eventos con impacto material en {valData.ticker}
+              </h3>
+              <p className="text-xs text-gray-600 mt-0.5">
+                Los múltiplos reportados oficiales se mantienen intactos en la tabla, pero las siguientes partidas alteran la lectura recurrente:
+              </p>
+
+              <div className="mt-3 space-y-2">
+                {audit.flags.map((f) => (
+                  <div
+                    key={f.code}
+                    className="bg-white border border-amber-200/80 rounded px-3 py-2 text-xs"
+                  >
+                    <div className="flex items-center justify-between font-semibold text-gray-900">
+                      <span className="flex items-center">
+                        <Info className="w-3.5 h-3.5 text-amber-600 mr-1.5" />
+                        {f.title}
+                      </span>
+                      <span className="text-amber-700 tabular-nums">
+                        Impacto: {formatMoney(f.impact_mm)} MM
+                      </span>
+                    </div>
+                    <p className="text-gray-600 mt-1 leading-relaxed">{f.detail}</p>
+                  </div>
+                ))}
+              </div>
+
+              {audit.comparisons.length > 0 && (
+                <div className="mt-3 bg-white border border-amber-200/80 rounded overflow-hidden">
+                  <table className="w-full text-xs text-left">
+                    <thead>
+                      <tr className="bg-amber-100/60 text-gray-800 font-semibold">
+                        <th className="py-1.5 px-3">Métrica afectada</th>
+                        <th className="py-1.5 px-3 text-right">Valor Reportado</th>
+                        <th className="py-1.5 px-3 text-right text-emerald-700">Valor Sin Distorsión</th>
+                        <th className="py-1.5 px-3">Criterio de ajuste</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {audit.comparisons.map((c, i) => (
+                        <tr key={i} className="border-t border-amber-100">
+                          <td className="py-1.5 px-3 font-medium text-gray-800">{c.metric}</td>
+                          <td className="py-1.5 px-3 text-right tabular-nums text-gray-700">{c.reported}</td>
+                          <td className="py-1.5 px-3 text-right tabular-nums font-bold text-emerald-700">{c.adjusted}</td>
+                          <td className="py-1.5 px-3 text-gray-500">{c.note}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BLOQUE 1: TABLA DE MÚLTIPLOS HISTÓRICOS ESTILO TIKR */}
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+          <span className="text-sm font-bold text-gray-800">
+            Múltiplos Históricos de Valoración | {valData.ticker}
+          </span>
+          <span className="text-xs text-gray-400 italic">
+            Cierres anuales cruzados con estados 10-K (SEC) y snapshot LTM
+          </span>
+        </div>
+
+        <div className="w-full overflow-x-auto">
+          <table className="w-full text-[12.5px] text-left whitespace-nowrap">
+            <thead>
+              <tr className="bg-[#333333] text-white">
+                <th className="py-2.5 px-3.5 font-bold sticky left-0 bg-[#333333] z-10 min-w-60">
+                  Múltiplo | MiTerminal
+                </th>
+                {years.map((y) => (
+                  <th key={y} className="py-2.5 px-3 font-bold text-right">
+                    {y}
+                  </th>
+                ))}
+                <th className="py-2.5 px-3 font-bold text-right bg-[#262626] text-orange-400">
+                  Actual (LTM)
+                </th>
+                <th className="py-2.5 px-3 font-bold text-right">Prom. 5Y</th>
+                <th className="py-2.5 px-3 font-bold text-right">Med. 5Y</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => {
+                const showSection = idx === 0 || row.section !== rows[idx - 1].section;
+                const hasGlossary = Boolean(getGlossaryEntry(row.metric));
+                const formattedLtm = formatMult(row.ltm, row.suffix);
+
+                return (
+                  <Fragment key={row.metric}>
+                    {showSection && (
+                      <tr className="border-b border-gray-100 bg-gray-50/90">
+                        <td
+                          colSpan={years.length + 4}
+                          className="py-2 px-3.5 font-bold text-gray-900 sticky left-0"
+                        >
+                          {row.section}
+                        </td>
+                      </tr>
+                    )}
+                    <tr className="border-b border-gray-100 hover:bg-gray-50 group">
+                      <td className="py-2 px-3.5 sticky left-0 bg-white group-hover:bg-gray-50 z-10 text-gray-700 font-medium shadow-[1px_0_0_0_#f3f4f6]">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="truncate">{row.metric}</span>
+                          {hasGlossary && onOpenInfo && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenInfo(row.metric, formattedLtm)}
+                              title="Ver explicación, fórmula y rangos de referencia"
+                              className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-orange-500 transition-opacity cursor-pointer shrink-0"
+                            >
+                              <Info className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      {years.map((y) => {
+                        const v = row[y];
+                        const isNeg = typeof v === 'number' && v < 0;
+                        return (
+                          <td
+                            key={y}
+                            className={`py-2 px-3 text-right tabular-nums ${
+                              isNeg ? 'text-[#d93025]' : 'text-gray-800'
+                            }`}
+                          >
+                            {formatMult(v, row.suffix)}
+                          </td>
+                        );
+                      })}
+                      <td
+                        className={`py-2 px-3 text-right font-bold tabular-nums bg-orange-50/40 ${
+                          typeof row.ltm === 'number' && row.ltm < 0
+                            ? 'text-[#d93025]'
+                            : 'text-gray-900'
+                        }`}
+                      >
+                        {formattedLtm}
+                      </td>
+                      <td
+                        className={`py-2 px-3 text-right tabular-nums ${
+                          typeof row.avg_5y === 'number' && row.avg_5y < 0
+                            ? 'text-[#d93025]'
+                            : 'text-gray-700'
+                        }`}
+                      >
+                        {formatMult(row.avg_5y, row.suffix)}
+                      </td>
+                      <td
+                        className={`py-2 px-3 text-right tabular-nums ${
+                          typeof row.med_5y === 'number' && row.med_5y < 0
+                            ? 'text-[#d93025]'
+                            : 'text-gray-700'
+                        }`}
+                      >
+                        {formatMult(row.med_5y, row.suffix)}
+                      </td>
+                    </tr>
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* BLOQUE 2: DCF EN 2 ETAPAS + DOBLE VALOR TERMINAL */}
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-4 border-b border-gray-200">
+          <div className="flex items-center space-x-2">
+            <Calculator className="w-4 h-4 text-orange-500" />
+            <h3 className="text-sm font-bold text-gray-900">
+              Modelo DCF en 2 Etapas (Expansión vs. Estado Estacionario)
+            </h3>
+          </div>
+          <button
+            onClick={handleReset}
+            className="flex items-center text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded px-2.5 py-1 cursor-pointer"
+          >
+            <RotateCcw className="w-3 h-3 mr-1" /> Restablecer supuestos SEC
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Columna 1: Supuestos operativos y de CapEx por etapa */}
+          <div className="space-y-3.5 bg-gray-50 p-4 rounded border border-gray-200/80">
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-600">
+              Parámetros de proyección
+            </p>
+
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-gray-600">Crecimiento Ingresos (Años 1-5)</span>
+                <span className="font-bold text-gray-900">{revGrowth.toFixed(1)}%</span>
+              </div>
+              <input
+                type="range"
+                min="-5"
+                max="35"
+                step="0.5"
+                value={revGrowth}
+                onChange={(e) => setRevGrowth(parseFloat(e.target.value))}
+                className="w-full accent-orange-500 cursor-pointer"
+              />
+            </div>
+
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-gray-600">CapEx Etapa 1 Expansión (% Ventas)</span>
+                <span className="font-bold text-gray-900">{capexStage1Pct.toFixed(1)}%</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="45"
+                step="0.5"
+                value={capexStage1Pct}
+                onChange={(e) => setCapexStage1Pct(parseFloat(e.target.value))}
+                className="w-full accent-orange-500 cursor-pointer"
+              />
+            </div>
+
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-gray-600">CapEx Terminal Mantenimiento (% Ventas)</span>
+                <span className="font-bold text-emerald-700">{capexTerminalPct.toFixed(1)}%</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="30"
+                step="0.5"
+                value={capexTerminalPct}
+                onChange={(e) => setCapexTerminalPct(parseFloat(e.target.value))}
+                className="w-full accent-emerald-600 cursor-pointer"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-gray-600">WACC</span>
+                  <span className="font-bold text-gray-900">{wacc.toFixed(1)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="5"
+                  max="18"
+                  step="0.5"
+                  value={wacc}
+                  onChange={(e) => setWacc(parseFloat(e.target.value))}
+                  className="w-full accent-orange-500 cursor-pointer"
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-gray-600">Perpetuidad (g)</span>
+                  <span className="font-bold text-gray-900">{terminalGrowth.toFixed(1)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="5.5"
+                  step="0.25"
+                  value={terminalGrowth}
+                  onChange={(e) => setTerminalGrowth(parseFloat(e.target.value))}
+                  className="w-full accent-orange-500 cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-gray-600">Múltiplo de Salida (EV/FCF Año 5)</span>
+                <span className="font-bold text-gray-900">{exitMultiple.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min="8"
+                max="45"
+                step="0.5"
+                value={exitMultiple}
+                onChange={(e) => setExitMultiple(parseFloat(e.target.value))}
+                className="w-full accent-orange-500 cursor-pointer"
+              />
+            </div>
+
+            <div className="pt-2 border-t border-gray-200 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-600">Ajuste puntual FCF (+/- MM):</span>
+                {onOpenInfo && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenInfo('Ajuste puntual FCF (+/- MM)', `${extraAdjustmentMm} MM`)
+                    }
+                    title="Ver ejemplos típicos de cuándo y cómo ingresar un ajuste"
+                    className="text-gray-400 hover:text-orange-500 transition-colors cursor-pointer"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <input
+                type="number"
+                value={extraAdjustmentMm}
+                onChange={(e) => setExtraAdjustmentMm(Number(e.target.value) || 0)}
+                className="w-24 px-2 py-1 border border-gray-300 rounded text-right bg-white font-semibold text-gray-900"
+              />
+            </div>
+          </div>
+
+          {/* Columna 2: Flujos proyectados Etapa 1 + Transición Terminal */}
+          <div className="border border-gray-200 rounded p-4 flex flex-col justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
+                Proyección de Flujos (MM)
+              </p>
+              {dcfResult && !dcfResult.invalidSpread ? (
+                <div className="space-y-2 text-xs">
+                  {dcfResult.projections.map((p) => (
+                    <div
+                      key={p.year}
+                      className="flex justify-between py-1 border-b border-gray-100 last:border-0"
+                    >
+                      <span className="text-gray-600 font-medium">{p.year}</span>
+                      <span className="text-gray-500">FCF: {formatMoney(p.fcf)}</span>
+                      <span className="font-semibold text-gray-900">VP: {formatMoney(p.pv)}</span>
+                    </div>
+                  ))}
+                  <div className="pt-2 border-t border-gray-200 flex justify-between text-emerald-700 font-semibold">
+                    <span>FCF Estacionario (Año +6):</span>
+                    <span>{formatMoney(dcfResult.steadyStateFcf6)} MM</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-red-500">
+                  El WACC debe superar el crecimiento perpetuo (g).
+                </p>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-gray-200 space-y-1 text-[11px] text-gray-500">
+              <div className="flex justify-between">
+                <span>Margen EBIT base (SEC):</span>
+                <span className="font-semibold text-gray-700">{inp.ebit_margin_pct}%</span>
+              </div>
+              <div className="flex justify-between">
+                <span>D&A / Ventas (SEC):</span>
+                <span className="font-semibold text-gray-700">{inp.da_sales_pct}%</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Deuda neta LTM:</span>
+                <span className="font-semibold text-gray-700">{formatMoney(inp.net_debt_mm)} MM</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Columna 3: Doble Valor Terminal simultáneo */}
+          <div className="bg-[#fafafa] border border-gray-200 rounded p-4 flex flex-col justify-between space-y-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-gray-600">
+              Triangulación de Valor Intrínseco
+            </p>
+
+            {dcfResult && !dcfResult.invalidSpread ? (
+              <>
+                {/* Método 1: Perpetuidad de Gordon */}
+                <div className="bg-white border border-gray-200 rounded p-3">
+                  <div className="flex justify-between items-center text-[11px] text-gray-500">
+                    <span className="font-semibold text-gray-700">
+                      1. Perpetuidad (g = {terminalGrowth.toFixed(1)}%)
+                    </span>
+                    <span>Múltiplo implícito: {dcfResult.impliedExitMult.toFixed(1)}x</span>
+                  </div>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="text-xl font-bold text-gray-900">
+                      {formatMoney(dcfResult.priceGordon)}
+                    </span>
+                    <span
+                      className={`text-xs font-bold px-2 py-0.5 rounded ${
+                        dcfResult.upsideGordon >= 0
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-red-100 text-[#d93025]'
+                      }`}
+                    >
+                      {dcfResult.upsideGordon >= 0 ? '+' : ''}
+                      {dcfResult.upsideGordon.toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+
+                {/* Método 2: Múltiplo de Salida */}
+                <div className="bg-white border border-gray-200 rounded p-3">
+                  <div className="flex justify-between items-center text-[11px] text-gray-500">
+                    <span className="font-semibold text-gray-700">
+                      2. Múltiplo de Salida ({exitMultiple.toFixed(1)}x)
+                    </span>
+                    <span>Ref. histórica</span>
+                  </div>
+                  <div className="flex items-baseline justify-between mt-1">
+                    <span className="text-xl font-bold text-gray-900">
+                      {formatMoney(dcfResult.priceMultiple)}
+                    </span>
+                    <span
+                      className={`text-xs font-bold px-2 py-0.5 rounded ${
+                        dcfResult.upsideMultiple >= 0
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-red-100 text-[#d93025]'
+                      }`}
+                    >
+                      {dcfResult.upsideMultiple >= 0 ? '+' : ''}
+                      {dcfResult.upsideMultiple.toFixed(1)}%
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-[11px] text-gray-500 border-t border-gray-200 pt-2 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Precio actual / Consenso WS:</span>
+                    <span className="font-semibold text-gray-800">
+                      {formatMoney(inp.current_price)} / {inp.target_price ? formatMoney(inp.target_price) : '-'}
+                    </span>
+                  </div>
+                  {Math.abs(capexStage1Pct - capexTerminalPct) >= 3 && (
+                    <div className="flex justify-between text-amber-700">
+                      <span>Sin normalizar CapEx terminal:</span>
+                      <span className="font-semibold">{formatMoney(dcfResult.priceUnadjusted)}</span>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-gray-500">Ajustá WACC y crecimiento perpetuo para calcular.</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
