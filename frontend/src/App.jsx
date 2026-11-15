@@ -430,7 +430,8 @@ function App() {
                               className="border-b border-gray-100 pb-3 last:border-0 last:pb-0"
                             >
                               <span className="text-[10px] font-bold text-gray-400 uppercase">
-                                {date} • {n.publisher}
+-                                 {date}
+{n.publisher}
                               </span>
                               <a
                                 href={n.link}
@@ -632,7 +633,7 @@ function App() {
                                             )
                                           }
                                           title="Ver explicación y rangos de referencia"
-                                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-orange-500 transition-opacity cursor-pointer shrink-0"
+                                          className="text-gray-400 hover:text-orange-500 transition-colors cursor-pointer shrink-0"
                                         >
                                           <Info className="w-3.5 h-3.5" />
                                         </button>

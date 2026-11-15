@@ -28,7 +28,7 @@ function TikrRow({ label, value, prefix = '', suffix = '', decimals = 2, onOpenI
             type="button"
             onClick={() => onOpenInfo(label, formattedText)}
             title="Ver explicación y rangos de referencia"
-            className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-orange-500 transition-opacity cursor-pointer shrink-0"
+            className="text-gray-400 hover:text-orange-500 transition-colors cursor-pointer shrink-0"
           >
             <Info className="w-3 h-3" />
           </button>
