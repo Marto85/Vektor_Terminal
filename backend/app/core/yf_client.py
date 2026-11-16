@@ -150,9 +150,76 @@ def _fetch_sec_8k_item_202(cik: str | None) -> list[dict[str, Any]]:
     return filings_202
 
 
+def _extract_ltm_cashflow_metrics(
+    ticker_obj: yf.Ticker, info: dict[str, Any], fx_rate: float
+) -> dict[str, float | None]:
+    """
+    Calcula OCF LTM, CapEx LTM y FCF LTM (OCF - |CapEx|) sumando los últimos 4 trimestres
+    de `quarterly_cashflow` (o el último año de `cashflow` anual).
+    Si no hay tabla de flujo de efectivo disponible, hace fallback a `info`.
+    """
+    ocf_raw: float | None = None
+    capex_raw: float | None = None
+
+    ocf_keys = (
+        "Operating Cash Flow",
+        "Cash Flow From Continuing Operating Activities",
+        "Total Cash From Operating Activities",
+    )
+    capex_keys = (
+        "Capital Expenditure",
+        "Capital Expenditures",
+        "Purchase Of Property Plant And Equipment",
+    )
+
+    def _sum_first_matching_row(df: Any, keys: tuple[str, ...], max_cols: int) -> float | None:
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+            return None
+        idx_map = {str(i).strip().lower(): i for i in df.index}
+        for k in keys:
+            orig_idx = idx_map.get(k.lower())
+            if orig_idx is not None:
+                series = pd.to_numeric(df.loc[orig_idx].iloc[:max_cols], errors="coerce").dropna()
+                if len(series) >= max_cols:
+                    return float(series.sum())
+        return None
+
+    try:
+        q_cf = ticker_obj.quarterly_cashflow
+        ocf_raw = _sum_first_matching_row(q_cf, ocf_keys, 4)
+        capex_raw = _sum_first_matching_row(q_cf, capex_keys, 4)
+    except Exception:
+        pass
+
+    if ocf_raw is None or capex_raw is None:
+        try:
+            a_cf = ticker_obj.cashflow
+            if ocf_raw is None:
+                ocf_raw = _sum_first_matching_row(a_cf, ocf_keys, 1)
+            if capex_raw is None:
+                capex_raw = _sum_first_matching_row(a_cf, capex_keys, 1)
+        except Exception:
+            pass
+
+    ocf_mm = _to_mm(ocf_raw, fx_rate) if ocf_raw is not None else _to_mm(info.get("operatingCashflow"), fx_rate)
+    capex_mm = round(abs(_to_mm(capex_raw, fx_rate) or 0.0), 2) if capex_raw is not None else None
+
+    fcf_mm: float | None = None
+    if ocf_mm is not None and capex_mm is not None:
+        fcf_mm = round(ocf_mm - capex_mm, 2)
+    else:
+        fcf_mm = _to_mm(info.get("freeCashflow"), fx_rate)
+
+    return {
+        "ocf_ltm_mm": ocf_mm,
+        "capex_ltm_mm": capex_mm,
+        "fcf_ltm_mm": fcf_mm,
+    }
+
+
 def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any]:
     """
-    Obtiene datos de mercado (precio, cambio, acciones, deuda neta, fx_rate, noticias e info)
+    Obtiene datos de mercado (precio, cambio, acciones, deuda neta, fx_rate, cf_ltm, noticias e info)
     desde SQLite si tienen menos de 4 horas; caso contrario consulta Yahoo Finance y persiste.
     """
     ticker_upper = ticker_symbol.upper()
@@ -168,7 +235,7 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         updated_at: Any = cached_row.last_updated
         cached_payload: Any = cached_row.market_data
         if isinstance(updated_at, datetime) and isinstance(cached_payload, dict):
-            if (now - updated_at) < MARKET_CACHE_TTL and "fx_rate" in cached_payload:
+            if (now - updated_at) < MARKET_CACHE_TTL and "fx_rate" in cached_payload and "cf_ltm" in cached_payload:
                 return cached_payload
 
     ticker = yf.Ticker(ticker_upper)
@@ -191,6 +258,7 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
     total_cash_raw = (info.get("totalCash") or 0) * fx_rate
     shares_mm = float(shares_raw) / 1_000_000.0
     net_debt_mm = (float(total_debt_raw) - float(total_cash_raw)) / 1_000_000.0
+    cf_ltm = _extract_ltm_cashflow_metrics(ticker, info, fx_rate)
 
     raw_news = ticker.news
     news_list: list[dict[str, Any]] = []
@@ -212,6 +280,7 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         "net_debt_mm": net_debt_mm,
         "news": news_list,
         "info": info,
+        "cf_ltm": cf_ltm,
     }
 
     if cached_row is not None:
@@ -333,7 +402,12 @@ def get_cached_estimates_and_guidance(ticker_symbol: str, db: Session) -> dict[s
     return payload
 
 
-def _build_summary_metrics(info: dict[str, Any], price: float, fx_rate: float = 1.0) -> dict[str, Any]:
+def _build_summary_metrics(
+    info: dict[str, Any],
+    price: float,
+    fx_rate: float = 1.0,
+    cf_ltm: dict[str, float | None] | None = None,
+) -> dict[str, Any]:
     """
     Construye las 4 secciones del panel derecho estilo TIKR en 2 columnas
     a partir del diccionario `info` ya cacheado en SQLite, convirtiendo magnitudes
@@ -364,8 +438,16 @@ def _build_summary_metrics(info: dict[str, Any], price: float, fx_rate: float = 
     revenue_mm = _to_mm(info.get("totalRevenue"), fx_rate)
     gross_profit_mm = _to_mm(info.get("grossProfits"), fx_rate)
     net_income_mm = _to_mm(info.get("netIncomeToCommon"), fx_rate)
-    fcf_mm = _to_mm(info.get("freeCashflow"), fx_rate)
-    ocf_mm = _to_mm(info.get("operatingCashflow"), fx_rate)
+    fcf_mm = (
+        cf_ltm.get("fcf_ltm_mm")
+        if (cf_ltm and cf_ltm.get("fcf_ltm_mm") is not None)
+        else _to_mm(info.get("freeCashflow"), fx_rate)
+    )
+    ocf_mm = (
+        cf_ltm.get("ocf_ltm_mm")
+        if (cf_ltm and cf_ltm.get("ocf_ltm_mm") is not None)
+        else _to_mm(info.get("operatingCashflow"), fx_rate)
+    )
 
     float_pct: float | None = None
     if float_shares_mm is not None and shares_mm is not None and shares_mm > 0:
@@ -402,7 +484,7 @@ def _build_summary_metrics(info: dict[str, Any], price: float, fx_rate: float = 
             pe_ntm = round(price / fwd_eps, 2)
 
     p_to_fcf_ltm: float | None = None
-    if market_cap_mm is not None and fcf_mm is not None and fcf_mm != 0:
+    if market_cap_mm is not None and fcf_mm is not None and fcf_mm > 0:
         p_to_fcf_ltm = round(market_cap_mm / fcf_mm, 2)
 
     ebit_margin_pct = _to_pct(info.get("operatingMargins"), 1)
@@ -493,9 +575,9 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
     info = snapshot.get("info", {})
 
     profile_db = db.query(CompanyProfile).filter(CompanyProfile.ticker == ticker_upper).first()
-    
+
     desc_str = str(profile_db.description) if profile_db else ""
-    
+
     if profile_db and not desc_str.startswith("(Sin traducir)"):
         name = str(profile_db.name)
         website = str(profile_db.website)
@@ -504,20 +586,20 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
         name = info.get("longName", info.get("shortName", ticker_upper))
         website = info.get("website", "")
         raw_description = info.get("longBusinessSummary", "")
-        
+
         translated_desc = raw_description
         if raw_description:
             try:
                 if len(raw_description) > 4900:
                     raw_description = raw_description[:4900] + "..."
-                
+
                 translator = Translator()
                 translation = translator.translate(raw_description, src='en', dest='es')
                 translated_desc = translation.text
             except Exception as e:
                 print(f"ERROR EN TRADUCCION para {ticker_upper}: {e}")
                 translated_desc = f"(Sin traducir) {raw_description}"
-        
+
         if profile_db:
             db.query(CompanyProfile).filter(CompanyProfile.ticker == ticker_upper).update({
                 "name": name,
@@ -532,9 +614,9 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
                 description=translated_desc
             )
             db.add(new_profile)
-            
+
         db.commit()
-        
+
     return {
         "name": name,
         "price": price,
@@ -543,5 +625,5 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
         "website": website,
         "description": translated_desc,
         "news": news_list,
-        "summary_metrics": _build_summary_metrics(info, price, fx_rate),
+        "summary_metrics": _build_summary_metrics(info, price, fx_rate, snapshot.get("cf_ltm")),
     }

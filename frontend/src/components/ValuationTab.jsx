@@ -18,6 +18,7 @@ import { getGlossaryEntry } from '../data/metricsGlossary';
 
 function formatMult(val, suffix = 'x') {
   if (val === null || val === undefined || Number.isNaN(val)) return '-';
+  if (val === 'N/M') return 'N/M';
   const isNeg = val < 0;
   const formatted = new Intl.NumberFormat('es-AR', {
     minimumFractionDigits: 2,
@@ -389,6 +390,7 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
         { key: 'pe_ntm', label: 'P/E NTM', type: 'mult', lowerIsCheaper: true },
         { key: 'pb_ltm', label: 'P/BV LTM', type: 'mult', lowerIsCheaper: true },
         { key: 'p_fcf_ltm', label: 'P/FCF LTM', type: 'mult', lowerIsCheaper: true },
+        { key: 'fcf_yield_pct', label: 'FCF Yield', type: 'pct' },
         { key: 'ebit_margin_pct', label: 'Margen EBIT', type: 'pct' },
         { key: 'roic_pct', label: 'ROIC', type: 'pct' },
         { key: 'rev_growth_yoy_pct', label: 'Crec. Ventas', type: 'pct' },
@@ -396,6 +398,7 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
 
   const formatPeerCell = (val, type) => {
     if (val === null || val === undefined || Number.isNaN(val)) return '-';
+    if (val === 'N/M') return 'N/M';
     if (type === 'money') {
       return new Intl.NumberFormat('es-AR', {
         minimumFractionDigits: 0,
@@ -499,11 +502,21 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
                       <td className="py-2.5 px-3 text-right tabular-nums text-gray-900">
                         {formatMoney(activePeersData.base.price)}
                       </td>
-                      {peerColumns.map((col) => (
-                        <td key={col.key} className="py-2.5 px-3 text-right tabular-nums text-gray-900">
-                          {formatPeerCell(activePeersData.base[col.key], col.type)}
-                        </td>
-                      ))}
+                      {peerColumns.map((col) => {
+                        const rawVal = activePeersData.base[col.key];
+                        const isNm = rawVal === 'N/M';
+                        return (
+                          <td
+                            key={col.key}
+                            title={isNm ? 'No significativo (denominador negativo o nulo en LTM)' : undefined}
+                            className={`py-2.5 px-3 text-right tabular-nums ${
+                              isNm ? 'text-gray-400 italic font-normal' : 'text-gray-900'
+                            }`}
+                          >
+                            {formatPeerCell(rawVal, col.type)}
+                          </td>
+                        );
+                      })}
                     </tr>
                   )}
 
@@ -517,11 +530,21 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
                       <td className="py-2 px-3 text-right tabular-nums text-gray-800">
                         {formatMoney(peer.price)}
                       </td>
-                      {peerColumns.map((col) => (
-                        <td key={col.key} className="py-2 px-3 text-right tabular-nums text-gray-800">
-                          {formatPeerCell(peer[col.key], col.type)}
-                        </td>
-                      ))}
+                      {peerColumns.map((col) => {
+                        const rawVal = peer[col.key];
+                        const isNm = rawVal === 'N/M';
+                        return (
+                          <td
+                            key={col.key}
+                            title={isNm ? 'No significativo (denominador negativo o nulo en LTM)' : undefined}
+                            className={`py-2 px-3 text-right tabular-nums ${
+                              isNm ? 'text-gray-400 italic' : 'text-gray-800'
+                            }`}
+                          >
+                            {formatPeerCell(rawVal, col.type)}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
 
@@ -581,6 +604,9 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
                   </tr>
                 </tbody>
               </table>
+            </div>
+            <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 text-[11px] text-gray-500">
+              <strong>N/M</strong>: Múltiplo no significativo (flujo o resultado negativo en LTM; excluido del promedio y mediana). El promedio de múltiplos excluye outliers mayores a 250x.
             </div>
           </div>
         ) : null

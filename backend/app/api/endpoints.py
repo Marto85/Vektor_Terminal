@@ -12,7 +12,7 @@ from app.services.financial_parser import extract_annual_metrics, extract_quarte
 from app.services.ratios_calculator import calculate_ratios
 from app.services.valuation_service import build_valuation_report
 from app.services.valuation_service import build_valuation_report
-from app.services.peers_service import build_peers_comparison
+from app.services.peers_service import build_peers_comparison, build_manual_comparison
 
 router = APIRouter()
 
@@ -89,6 +89,18 @@ def get_company_peers(ticker: str, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error obteniendo comparables: {str(e)}")
 
+@router.get("/compare")
+def compare_companies(
+    tickers: str = Query(..., description="Lista de hasta 5 tickers separados por coma"),
+    db: Session = Depends(get_db),
+):
+    try:
+        ticker_list = [t.strip() for t in tickers.split(",") if t.strip()]
+        return build_manual_comparison(ticker_list, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error ejecutando comparador: {str(e)}")
 
 @router.get("/search")
 def search_ticker(q: str):

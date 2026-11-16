@@ -4,6 +4,7 @@ import {
   FileText,
   BarChart3,
   PieChart,
+  Scale,
   Search,
   Bell,
   Settings,
@@ -19,6 +20,7 @@ import {
 import StockChart from "./components/StockChart";
 import CapitalStructurePanel from "./components/CapitalStructurePanel";
 import ValuationTab from "./components/ValuationTab";
+import ComparatorTab from "./components/ComparatorTab";
 import MetricInfoDrawer from "./components/MetricInfoDrawer";
 import { getGlossaryEntry } from "./data/metricsGlossary";
 
@@ -53,6 +55,7 @@ function App() {
     { id: "Resumen", name: "Resumen y noticias", icon: FileText },
     { id: "Finanzas", name: "Finanzas", icon: BarChart3 },
     { id: "Valoracion", name: "Valoración", icon: PieChart },
+    { id: "Comparador", name: "Comparador", icon: Scale },
   ];
 
   const contentTabs = [
@@ -699,6 +702,13 @@ function App() {
             {activeSidebarTab === "Valoracion" && (
               <ValuationTab
                 ticker={currentTicker}
+                onOpenInfo={openGlossary}
+              />
+            )}
+            {/* PESTAÑA: COMPARADOR MANUAL (HASTA 5 EMPRESAS) */}
+            {activeSidebarTab === "Comparador" && (
+              <ComparatorTab
+                currentTicker={currentTicker}
                 onOpenInfo={openGlossary}
               />
             )}
