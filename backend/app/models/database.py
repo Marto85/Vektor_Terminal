@@ -28,6 +28,12 @@ class CompanyMarketCache(Base):
     market_data = Column(JSON)
     last_updated = Column(DateTime, default=datetime.utcnow)
 
+class CompanyEstimatesCache(Base):
+    __tablename__ = "company_estimates_cache"
+    ticker = Column(String, primary_key=True, index=True)
+    estimates_data = Column(JSON)
+    last_updated = Column(DateTime, default=datetime.utcnow)
+
 class PriceHistoryCache(Base):
     __tablename__ = "price_history_cache"
     cache_key = Column(String, primary_key=True, index=True)  # Ej: "MSFT:1y"

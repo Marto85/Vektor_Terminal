@@ -3,64 +3,85 @@ from datetime import datetime
 
 FINANCIAL_STATEMENTS = {
     "Cuenta de Resultados": {
-        "Ingresos Totales": ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet", "SalesRevenueGoodsNet"],
-        "Coste de los bienes vendidos": ["CostOfGoodsAndServicesSold", "CostOfRevenue", "CostOfGoodsSold"],
+        "Ingresos Totales": [
+            "RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet", "SalesRevenueGoodsNet",
+            "Revenue", "InterestRevenueExpenseNet", "InterestAndSimilarIncome"
+        ],
+        "Coste de los bienes vendidos": [
+            "CostOfGoodsAndServicesSold", "CostOfRevenue", "CostOfGoodsSold", "CostOfSales"
+        ],
         "Beneficio Bruto": ["GrossProfit"],
-        "Gastos de Venta, Generales y Administrativos": ["SellingGeneralAndAdministrativeExpense", "GeneralAndAdministrativeExpense", "SellingAndMarketingExpense"],
+        "Gastos de Venta, Generales y Administrativos": [
+            "SellingGeneralAndAdministrativeExpense", "GeneralAndAdministrativeExpense", "SellingAndMarketingExpense",
+            "AdministrativeExpense", "SellingGeneralAndAdministrativeExpenses"
+        ],
         "Investigación y Desarrollo": ["ResearchAndDevelopmentExpense"],
-        "Depreciación y Amortización": ["DepreciationDepletionAndAmortization", "DepreciationAndAmortization", "Depreciation", "AmortizationOfIntangibleAssets"],
+        "Depreciación y Amortización": [
+            "DepreciationDepletionAndAmortization", "DepreciationAndAmortization", "Depreciation",
+            "AmortizationOfIntangibleAssets", "DepreciationAndAmortisationExpense"
+        ],
         "Otros Gastos Operativos": ["OtherOperatingIncomeExpenseNet", "OperatingCostsAndExpenses"],
         "Gastos Operativos Totales": ["OperatingExpenses"],
-        "Beneficio Operativo": ["OperatingIncomeLoss"],
-        "Ingresos por Intereses": ["InvestmentIncomeInterest", "InterestIncomeExpenseNet", "InterestIncomeOperating"],
-        "Gastos por Intereses": ["InterestExpense", "InterestExpenseDebt", "InterestExpenseNet"],
+        "Beneficio Operativo": ["OperatingIncomeLoss", "ProfitLossFromOperatingActivities"],
+        "Ingresos por Intereses": ["InvestmentIncomeInterest", "InterestIncomeExpenseNet", "InterestIncomeOperating", "FinanceIncome"],
+        "Gastos por Intereses": ["InterestExpense", "InterestExpenseDebt", "InterestExpenseNet", "FinanceCosts"],
         "Ganancias (Pérdidas) Cambiarias": ["ForeignCurrencyTransactionGainLossBeforeTax"],
         "Ingresos (Gastos) No Operativos": ["OtherNonoperatingIncomeExpense", "NonoperatingIncomeExpense", "GainLossOnInvestments"],
-        "Beneficio antes de Impuestos": ["IncomeLossFromContinuingOperationsBeforeTaxesExtraordinaryItemsNoncontrollingInterest", "IncomeLossFromContinuingOperationsBeforeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments", "IncomeLossFromContinuingOperationsBeforeTaxesDomestic"],
-        "Gasto por Impuesto a las Ganancias": ["IncomeTaxExpenseBenefit", "CurrentIncomeTaxExpenseBenefit"],
-        "Beneficio Neto": ["NetIncomeLoss", "ProfitLoss"],
-        "BPA Básico": ["EarningsPerShareBasic"],
-        "BPA Diluido": ["EarningsPerShareDiluted"],
-        "Acciones en Circulación (Básicas)": ["WeightedAverageNumberOfSharesOutstandingBasic"],
-        "Acciones en Circulación (Diluidas)": ["WeightedAverageNumberOfDilutedSharesOutstanding"]
+        "Beneficio antes de Impuestos": [
+            "IncomeLossFromContinuingOperationsBeforeTaxesExtraordinaryItemsNoncontrollingInterest",
+            "IncomeLossFromContinuingOperationsBeforeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+            "IncomeLossFromContinuingOperationsBeforeTaxesDomestic",
+            "ProfitLossBeforeTax"
+        ],
+        "Gasto por Impuesto a las Ganancias": ["IncomeTaxExpenseBenefit", "CurrentIncomeTaxExpenseBenefit", "IncomeTaxExpenseContinuingOperations"],
+        "Beneficio Neto": ["NetIncomeLoss", "ProfitLoss", "ProfitLossAttributableToOwnersOfParent"],
+        "BPA Básico": ["EarningsPerShareBasic", "BasicEarningsLossPerShare"],
+        "BPA Diluido": ["EarningsPerShareDiluted", "DilutedEarningsLossPerShare"],
+        "Acciones en Circulación (Básicas)": ["WeightedAverageNumberOfSharesOutstandingBasic", "WeightedAverageShares"],
+        "Acciones en Circulación (Diluidas)": ["WeightedAverageNumberOfDilutedSharesOutstanding", "AdjustedWeightedAverageShares"]
     },
     "Balance de Situación": {
-        "Efectivo y equivalentes": ["CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalentsFairValueDisclosure"],
-        "Inversiones a corto plazo": ["ShortTermInvestments", "AvailableForSaleSecuritiesCurrent"],
-        "Cuentas por cobrar": ["AccountsReceivableNetCurrent", "ReceivablesNetCurrent"],
-        "Inventario": ["InventoryNet"],
+        "Efectivo y equivalentes": [
+            "CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalentsFairValueDisclosure", "CashAndCashEquivalents"
+        ],
+        "Inversiones a corto plazo": ["ShortTermInvestments", "AvailableForSaleSecuritiesCurrent", "OtherCurrentFinancialAssets"],
+        "Cuentas por cobrar": ["AccountsReceivableNetCurrent", "ReceivablesNetCurrent", "TradeAndOtherCurrentReceivables"],
+        "Inventario": ["InventoryNet", "Inventories"],
         "Gastos Pagados por Adelantado": ["PrepaidExpenseCurrent"],
-        "Otros activos corrientes": ["OtherAssetsCurrent"],
-        "Total activo corriente": ["AssetsCurrent"],
-        "Inmovilizado material neto (PP&E)": ["PropertyPlantAndEquipmentNet"],
-        "Activos por derecho de uso (Arrendamientos)": ["OperatingLeaseRightOfUseAsset"],
+        "Otros activos corrientes": ["OtherAssetsCurrent", "OtherCurrentNonfinancialAssets"],
+        "Total activo corriente": ["AssetsCurrent", "CurrentAssets"],
+        "Inmovilizado material neto (PP&E)": ["PropertyPlantAndEquipmentNet", "PropertyPlantAndEquipment"],
+        "Activos por derecho de uso (Arrendamientos)": ["OperatingLeaseRightOfUseAsset", "RightofuseAssets"],
         "Fondo de comercio": ["Goodwill"],
-        "Activos intangibles": ["IntangibleAssetsNetExcludingGoodwill", "IntangibleAssetsNet"],
-        "Inversiones a largo plazo": ["LongTermInvestments", "AvailableForSaleSecuritiesNoncurrent"],
+        "Activos intangibles": ["IntangibleAssetsNetExcludingGoodwill", "IntangibleAssetsNet", "IntangibleAssetsOtherThanGoodwill"],
+        "Inversiones a largo plazo": ["LongTermInvestments", "AvailableForSaleSecuritiesNoncurrent", "NoncurrentFinancialAssets"],
         "Otros activos no corrientes": ["OtherAssetsNoncurrent"],
-        "Total activo no corriente": ["AssetsNoncurrent"],
+        "Total activo no corriente": ["AssetsNoncurrent", "NoncurrentAssets"],
         "Total activo": ["Assets"],
-        "Cuentas por pagar": ["AccountsPayableCurrent"],
+        "Cuentas por pagar": ["AccountsPayableCurrent", "TradeAndOtherCurrentPayables"],
         "Gastos Acumulados": ["AccruedLiabilitiesCurrent"],
-        "Deuda a corto plazo": ["ShortTermBorrowings", "LongTermDebtCurrent", "DebtCurrent", "CommercialPaper"],
+        "Deuda a corto plazo": ["ShortTermBorrowings", "LongTermDebtCurrent", "DebtCurrent", "CommercialPaper", "CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings"],
         "Arrendamientos Operativos Corrientes": ["OperatingLeaseLiabilityCurrent"],
         "Ingresos diferidos corrientes": ["ContractWithCustomerLiabilityCurrent", "DeferredRevenueCurrent"],
         "Otros pasivos corrientes": ["OtherLiabilitiesCurrent"],
-        "Total pasivo corriente": ["LiabilitiesCurrent"],
-        "Deuda a largo plazo": ["LongTermDebtNoncurrent", "LongTermDebt"],
+        "Total pasivo corriente": ["LiabilitiesCurrent", "CurrentLiabilities"],
+        "Deuda a largo plazo": ["LongTermDebtNoncurrent", "LongTermDebt", "NoncurrentBorrowings"],
         "Arrendamientos Operativos No Corrientes": ["OperatingLeaseLiabilityNoncurrent"],
-        "Pasivos por Impuestos Diferidos": ["DeferredIncomeTaxLiabilitiesNet"],
+        "Pasivos por Impuestos Diferidos": ["DeferredIncomeTaxLiabilitiesNet", "DeferredTaxLiabilities"],
         "Otros pasivos no corrientes": ["OtherLiabilitiesNoncurrent"],
-        "Total pasivo no corriente": ["LiabilitiesNoncurrent"],
+        "Total pasivo no corriente": ["LiabilitiesNoncurrent", "NoncurrentLiabilities"],
         "Total pasivo": ["Liabilities"],
-        "Capital social": ["CommonStockValue", "CommonStockIncludingAdditionalPaidInCapital", "AdditionalPaidInCapital"],
-        "Ganancias retenidas": ["RetainedEarningsAccumulatedDeficit"],
+        "Capital social": ["CommonStockValue", "CommonStockIncludingAdditionalPaidInCapital", "AdditionalPaidInCapital", "IssuedCapital"],
+        "Ganancias retenidas": ["RetainedEarningsAccumulatedDeficit", "RetainedEarnings"],
         "Otro resultado integral acumulado": ["AccumulatedOtherComprehensiveIncomeLossNetOfTax"],
-        "Patrimonio neto": ["StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"]
+        "Patrimonio neto": [
+            "StockholdersEquity", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "Equity", "EquityAttributableToOwnersOfParent"
+        ]
     },
     "Estado de Flujo de Efectivo": {
-        "Beneficio Neto (Flujo)": ["NetIncomeLoss"],
-        "Depreciación y Amortización (CFO)": ["DepreciationDepletionAndAmortization", "DepreciationAndAmortization", "Depreciation"],
+        "Beneficio Neto (Flujo)": ["NetIncomeLoss", "ProfitLoss"],
+        "Depreciación y Amortización (CFO)": ["DepreciationDepletionAndAmortization", "DepreciationAndAmortization", "Depreciation", "AdjustmentsForDepreciationAndAmortisationExpense"],
         "Compensación basada en acciones": ["ShareBasedCompensation", "ShareBasedCompensationArrangementByShareBasedPaymentAwardOptionsGrantsInPeriodGross"],
         "Impuestos diferidos": ["DeferredIncomeTaxExpenseBenefit"],
         "Ganancia/Pérdida por venta de activos": ["GainLossOnSaleOfPropertyPlantEquipment"],
@@ -68,28 +89,44 @@ FINANCIAL_STATEMENTS = {
         "Cambios en inventario": ["IncreaseDecreaseInInventories"],
         "Cambios en cuentas por pagar": ["IncreaseDecreaseInAccountsPayable"],
         "Cambios en el capital de trabajo": ["IncreaseDecreaseInOperatingCapital", "ChangeInOperatingAssetsAndLiabilities"],
-        "Efectivo de Operaciones (CFO)": ["NetCashProvidedByUsedInOperatingActivities"],
-        "Gastos de capital (CapEx)": ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"],
+        "Efectivo de Operaciones (CFO)": ["NetCashProvidedByUsedInOperatingActivities", "CashFlowsFromUsedInOperatingActivities"],
+        "Gastos de capital (CapEx)": [
+            "PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets",
+            "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"
+        ],
         "Adquisiciones e Inversiones": ["PaymentsToAcquireBusinessesNetOfCashAcquired", "PaymentsToAcquireInvestments", "PaymentsToAcquireAvailableForSaleSecuritiesDebt"],
         "Venta de Inversiones": ["ProceedsFromSaleOfAvailableForSaleSecuritiesDebt", "ProceedsFromMaturitiesOfInvestments"],
-        "Efectivo de Inversión (CFI)": ["NetCashProvidedByUsedInInvestingActivities"],
+        "Efectivo de Inversión (CFI)": ["NetCashProvidedByUsedInInvestingActivities", "CashFlowsFromUsedInInvestingActivities"],
         "Emisión de Deuda": ["ProceedsFromIssuanceOfLongTermDebt", "ProceedsFromIssuanceOfDebt"],
         "Pago de Deuda": ["RepaymentsOfLongTermDebt", "RepaymentsOfDebt"],
-        "Pago de dividendos": ["PaymentsOfDividends", "PaymentsOfDividendsCommonStock"],
+        "Pago de dividendos": ["PaymentsOfDividends", "PaymentsOfDividendsCommonStock", "DividendsPaidClassifiedAsFinancingActivities"],
         "Recompra de acciones": ["PaymentsForRepurchaseOfCommonStock"],
-        "Efectivo de Financiación (CFF)": ["NetCashProvidedByUsedInFinancingActivities"],
+        "Efectivo de Financiación (CFF)": ["NetCashProvidedByUsedInFinancingActivities", "CashFlowsFromUsedInFinancingActivities"],
         "Efecto del tipo de cambio": ["EffectOfExchangeRateOnCashAndCashEquivalents"],
-        "Efectivo Neto Generado": ["CashAndCashEquivalentsPeriodIncreaseDecrease"],
+        "Efectivo Neto Generado": ["CashAndCashEquivalentsPeriodIncreaseDecrease", "IncreaseDecreaseInCashAndCashEquivalents"],
         "Flujo de caja libre (FCF)": ["FreeCashFlow"]
     }
 }
 
+ANNUAL_FORMS = ["10-K", "10-K/A", "20-F", "20-F/A", "40-F"]
+QUARTERLY_FORMS = ["10-Q", "10-K", "10-Q/A", "10-K/A", "20-F", "20-F/A", "6-K"]
+
+
+def _get_taxonomy_data(raw_facts: dict) -> dict:
+    facts = raw_facts.get("facts", {})
+    if "us-gaap" in facts and facts["us-gaap"]:
+        return facts["us-gaap"]
+    if "ifrs-full" in facts and facts["ifrs-full"]:
+        return facts["ifrs-full"]
+    return {}
+
 
 def extract_annual_metrics(raw_facts: dict) -> list:
-    if "us-gaap" not in raw_facts.get("facts", {}):
-        raise ValueError("El JSON no contiene la sección 'us-gaap'.")
-    
-    gaap_data = raw_facts["facts"]["us-gaap"]
+    gaap_data = _get_taxonomy_data(raw_facts)
+    yf_annual_fb: dict[str, dict[str, float]] = raw_facts.get("_yf_fallback", {}).get("annual", {})
+
+    if not gaap_data and not yf_annual_fb:
+        raise ValueError("No se encontraron datos contables en SEC ni en el respaldo de mercado.")
     
     extracted_data = []
     current_year = datetime.now().year
@@ -104,12 +141,11 @@ def extract_annual_metrics(raw_facts: dict) -> list:
                     if not units_keys:
                         continue
                     
-                    unit_key = units_keys[0] 
+                    unit_key = "USD" if "USD" in units_keys else units_keys[0]
                     units = gaap_data[tag]["units"][unit_key]
                     
                     for entry in units:
-                        if entry.get("form") in ["10-K", "10-K/A"] and entry.get("fp") == "FY":
-                            # Descartar comparativos trimestrales (< 300 días) incluidos dentro de algunos 10-K
+                        if entry.get("form") in ANNUAL_FORMS and entry.get("fp") == "FY":
                             if statement != "Balance de Situación" and entry.get("start") and entry.get("end"):
                                 try:
                                     d_start = datetime.strptime(entry["start"], "%Y-%m-%d")
@@ -120,6 +156,9 @@ def extract_annual_metrics(raw_facts: dict) -> list:
                                     pass
 
                             fy = str(entry.get("fy"))
+                            if fy not in years_range and entry.get("end"):
+                                fy = str(entry["end"])[:4]
+
                             if fy in years_range:
                                 val = entry.get("val", 0.0)
                                 if "BPA" not in standard_name:
@@ -154,6 +193,17 @@ def extract_annual_metrics(raw_facts: dict) -> list:
         if y not in df_pivot.columns:
             df_pivot[y] = 0.0
     df_pivot = df_pivot.fillna(0.0)
+
+    # Rellenar cualquier métrica/año que haya quedado en 0.0 desde el respaldo normalizado de yfinance (NU, STNE, JNJ)
+    if yf_annual_fb:
+        for idx, row in df_pivot.iterrows():
+            m_name = str(row["Métrica"])
+            fb_years = yf_annual_fb.get(m_name, {})
+            if fb_years:
+                for y in years_range:
+                    curr_v = float(str(df_pivot.at[idx, y] or 0.0))
+                    if curr_v == 0.0 and y in fb_years and fb_years[y] != 0.0:
+                        df_pivot.at[idx, y] = float(fb_years[y])
 
     def get_val(metric, y) -> float:
         idx = df_pivot.index[df_pivot['Métrica'] == metric].tolist()
@@ -197,7 +247,10 @@ def extract_annual_metrics(raw_facts: dict) -> list:
         if get_val("Total pasivo", y) == 0.0:
             set_val("Total pasivo", y, get_val("Total pasivo corriente", y) + get_val("Total pasivo no corriente", y))
         if get_val("Patrimonio neto", y) == 0.0:
-            set_val("Patrimonio neto", y, get_val("Total activo", y) - get_val("Total pasivo", y))
+            tot_act = get_val("Total activo", y)
+            tot_pas = get_val("Total pasivo", y)
+            if tot_act > 0 and tot_pas > 0:
+                set_val("Patrimonio neto", y, tot_act - tot_pas)
 
         if get_val("Flujo de caja libre (FCF)", y) == 0.0:
             cfo = get_val("Efectivo de Operaciones (CFO)", y)
@@ -210,8 +263,6 @@ def extract_annual_metrics(raw_facts: dict) -> list:
             row = df_pivot[(df_pivot['Categoría'] == cat) & (df_pivot['Métrica'] == metric)]
             if not row.empty:
                 r_dict = row.iloc[0].to_dict()
-                
-                # LIMPIEZA ESTRUCTURAL: Solo enviamos columnas autorizadas
                 clean_dict = {"Categoría": r_dict["Categoría"], "Métrica": r_dict["Métrica"]}
                 for y in years_range:
                     clean_dict[y] = r_dict.get(y, 0.0)
@@ -255,10 +306,11 @@ def extract_annual_metrics(raw_facts: dict) -> list:
 
 
 def extract_quarterly_metrics(raw_facts: dict) -> list:
-    if "us-gaap" not in raw_facts.get("facts", {}):
-        raise ValueError("El JSON no contiene la sección 'us-gaap'.")
-    
-    gaap_data = raw_facts["facts"]["us-gaap"]
+    gaap_data = _get_taxonomy_data(raw_facts)
+    yf_q_fb: dict[str, dict[str, float]] = raw_facts.get("_yf_fallback", {}).get("quarterly", {})
+
+    if not gaap_data and not yf_q_fb:
+        raise ValueError("No se encontraron datos trimestrales en SEC ni en el respaldo de mercado.")
     
     current_year = datetime.now().year
     target_years = [current_year - i for i in range(5)]
@@ -271,9 +323,13 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
                 fp = entry.get("fp", "")
                 form = entry.get("form", "")
                 
-                if fy in target_years and form in ["10-Q", "10-K", "10-Q/A", "10-K/A"]:
+                if fy in target_years and form in QUARTERLY_FORMS:
                     if fp in ["Q1", "Q2", "Q3", "Q4", "FY"]:
                         found_periods.add(f"{fy}-{fp}")
+
+    for p_map in yf_q_fb.values():
+        for p_k in p_map.keys():
+            found_periods.add(p_k)
                         
     extracted_data = []
     for statement, metrics in FINANCIAL_STATEMENTS.items():
@@ -285,7 +341,7 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
                     if not units_keys:
                         continue
                     
-                    unit_key = units_keys[0] 
+                    unit_key = "USD" if "USD" in units_keys else units_keys[0]
                     units = gaap_data[tag]["units"][unit_key]
                     
                     for entry in units:
@@ -293,10 +349,9 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
                         fp = entry.get("fp", "")
                         form = entry.get("form", "")
                         
-                        if fy in target_years and form in ["10-Q", "10-K", "10-Q/A", "10-K/A"]:
+                        if fy in target_years and form in QUARTERLY_FORMS:
                             if fp in ["Q1", "Q2", "Q3", "Q4", "FY"]:
                                 period_key = f"{fy}-{fp}"
-                                
                                 val = entry.get("val", 0.0)
                                 if "BPA" not in standard_name:
                                     val = val / 1000000.0
@@ -333,6 +388,16 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
                 df_pivot[col] = 0.0
     df_pivot = df_pivot.fillna(0.0)
 
+    if yf_q_fb:
+        for idx, row in df_pivot.iterrows():
+            m_name = str(row["Métrica"])
+            fb_periods = yf_q_fb.get(m_name, {})
+            for p_k, val in fb_periods.items():
+                if p_k in df_pivot.columns:
+                    curr_v = float(str(df_pivot.at[idx, p_k] or 0.0))
+                    if curr_v == 0.0 and val != 0.0:
+                        df_pivot.at[idx, p_k] = float(val)
+
     for y in target_years:
         fy_col = f"{y}-FY"
         q1_col = f"{y}-Q1"
@@ -342,7 +407,6 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
         
         for idx, row in df_pivot.iterrows():
             cat = row['Categoría']
-            
             fy_val = float(str(df_pivot.at[idx, fy_col]))
             q1_val = float(str(df_pivot.at[idx, q1_col]))
             q2_val = float(str(df_pivot.at[idx, q2_col]))
@@ -356,7 +420,6 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
                     calc_q4 = fy_val - (q1_val + q2_val + q3_val)
                     df_pivot.at[idx, q4_col] = calc_q4
 
-    # Generamos la lista de todos los trimestres puros (sin FY)
     active_quarters = set()
     for fp in found_periods:
         parts = fp.split('-')
@@ -415,7 +478,10 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
         if get_val("Total pasivo", p) == 0.0:
             set_val("Total pasivo", p, get_val("Total pasivo corriente", p) + get_val("Total pasivo no corriente", p))
         if get_val("Patrimonio neto", p) == 0.0:
-            set_val("Patrimonio neto", p, get_val("Total activo", p) - get_val("Total pasivo", p))
+            tot_act = get_val("Total activo", p)
+            tot_pas = get_val("Total pasivo", p)
+            if tot_act > 0 and tot_pas > 0:
+                set_val("Patrimonio neto", p, tot_act - tot_pas)
 
         if get_val("Flujo de caja libre (FCF)", p) == 0.0:
             cfo = get_val("Efectivo de Operaciones (CFO)", p)
@@ -428,7 +494,6 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
             row = df_pivot[(df_pivot['Categoría'] == cat) & (df_pivot['Métrica'] == metric)]
             if not row.empty:
                 r_dict = row.iloc[0].to_dict()
-                
                 clean_dict = {"Categoría": r_dict["Categoría"], "Métrica": r_dict["Métrica"]}
                 for p in periods_range:
                     clean_dict[p] = r_dict.get(p, 0.0)

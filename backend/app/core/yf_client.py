@@ -1,18 +1,30 @@
 from datetime import datetime, timedelta
+import json
+import math
 from typing import Any
+import urllib.request
+import pandas as pd
 import yfinance as yf
 from googletrans import Translator
 from sqlalchemy.orm import Session
-from app.models.database import CompanyProfile, CompanyMarketCache
+from app.models.database import (
+    CompanyData,
+    CompanyProfile,
+    CompanyMarketCache,
+    CompanyEstimatesCache,
+)
 
 MARKET_CACHE_TTL = timedelta(hours=4)
+ESTIMATES_CACHE_TTL = timedelta(hours=24)
+SEC_HEADERS = {"User-Agent": "MiTerminalFinanciera/1.0 (contacto@miterminal.local)"}
 
 
-def _to_mm(val: Any) -> float | None:
+def _to_mm(val: Any, fx_rate: float = 1.0) -> float | None:
     if val is None:
         return None
     try:
-        return round(float(val) / 1_000_000.0, 2)
+        f = float(val) * fx_rate
+        return None if (math.isnan(f) or math.isinf(f)) else round(f / 1_000_000.0, 2)
     except (TypeError, ValueError):
         return None
 
@@ -21,7 +33,8 @@ def _to_float(val: Any, decimals: int = 2) -> float | None:
     if val is None:
         return None
     try:
-        return round(float(val), decimals)
+        f = float(val)
+        return None if (math.isnan(f) or math.isinf(f)) else round(f, decimals)
     except (TypeError, ValueError):
         return None
 
@@ -30,14 +43,116 @@ def _to_pct(val: Any, decimals: int = 1) -> float | None:
     if val is None:
         return None
     try:
-        return round(float(val) * 100.0, decimals)
+        f = float(val)
+        return None if (math.isnan(f) or math.isinf(f)) else round(f * 100.0, decimals)
     except (TypeError, ValueError):
         return None
 
 
+def _resolve_fx_rate_to_trade_currency(info: dict[str, Any]) -> float:
+    """
+    Si `financialCurrency` (moneda de los estados contables, ej. BRL) difiere de
+    `currency` (moneda de cotización, ej. USD), devuelve el tipo de cambio multiplicador
+    para convertir magnitudes contables a la moneda de cotización.
+    """
+    trade_curr = str(info.get("currency") or "USD").upper()
+    fin_curr = str(info.get("financialCurrency") or trade_curr).upper()
+    if not fin_curr or fin_curr == trade_curr:
+        return 1.0
+
+    try:
+        fx_tk = yf.Ticker(f"{fin_curr}{trade_curr}=X")
+        fx_info = fx_tk.fast_info
+        rate = float(getattr(fx_info, "last_price", 0.0) or 0.0)
+        if rate > 0:
+            return rate
+    except Exception:
+        pass
+    return 1.0
+
+
+def _df_to_clean_dict(df: Any) -> dict[str, dict[str, Any]]:
+    """
+    Convierte un DataFrame de yfinance (revenue_estimate, earnings_estimate, growth_estimates)
+    a un diccionario JSON-serializable libre de NaN/Inf.
+    """
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return {}
+
+    result: dict[str, dict[str, Any]] = {}
+    for idx, row in df.iterrows():
+        period_key = str(idx)
+        row_dict: dict[str, Any] = {}
+        for col in df.columns:
+            raw_val = row[col]
+            if raw_val is None or (isinstance(raw_val, float) and (math.isnan(raw_val) or math.isinf(raw_val))):
+                row_dict[str(col)] = None
+            elif isinstance(raw_val, (int, float)):
+                row_dict[str(col)] = round(float(raw_val), 4)
+            else:
+                row_dict[str(col)] = str(raw_val)
+        result[period_key] = row_dict
+    return result
+
+
+def _fetch_sec_8k_item_202(cik: str | None) -> list[dict[str, Any]]:
+    """
+    Consulta el índice público de presentaciones de la SEC (submissions/CIK.json)
+    para extraer los últimos formularios 8-K con Ítem 2.02 (resultados trimestrales y guidance).
+    """
+    if not cik:
+        return []
+
+    cik_padded = str(cik).strip().zfill(10)
+    url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
+
+    try:
+        req = urllib.request.Request(url, headers=SEC_HEADERS)
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return []
+
+    recent = data.get("filings", {}).get("recent", {})
+    forms = recent.get("form", [])
+    dates = recent.get("filingDate", [])
+    report_dates = recent.get("reportDate", [])
+    items_list = recent.get("items", [])
+    accessions = recent.get("accessionNumber", [])
+    primary_docs = recent.get("primaryDocument", [])
+
+    cik_int = str(int(cik_padded))
+    filings_202: list[dict[str, Any]] = []
+
+    for i, form in enumerate(forms):
+        if form in ("8-K", "8-K/A"):
+            raw_items = items_list[i] if i < len(items_list) else ""
+            items_str = ",".join(raw_items) if isinstance(raw_items, list) else str(raw_items)
+            if "2.02" in items_str:
+                acc_no = accessions[i] if i < len(accessions) else ""
+                acc_clean = acc_no.replace("-", "")
+                doc_name = primary_docs[i] if i < len(primary_docs) else ""
+                sec_url = (
+                    f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}/{doc_name}"
+                    if (acc_clean and doc_name)
+                    else ""
+                )
+                filings_202.append({
+                    "form": form,
+                    "filing_date": dates[i] if i < len(dates) else "",
+                    "report_date": report_dates[i] if i < len(report_dates) else "",
+                    "items": items_str,
+                    "url": sec_url,
+                })
+                if len(filings_202) >= 3:
+                    break
+
+    return filings_202
+
+
 def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any]:
     """
-    Obtiene datos de mercado (precio, cambio, acciones, deuda neta, noticias e info)
+    Obtiene datos de mercado (precio, cambio, acciones, deuda neta, fx_rate, noticias e info)
     desde SQLite si tienen menos de 4 horas; caso contrario consulta Yahoo Finance y persiste.
     """
     ticker_upper = ticker_symbol.upper()
@@ -53,7 +168,7 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         updated_at: Any = cached_row.last_updated
         cached_payload: Any = cached_row.market_data
         if isinstance(updated_at, datetime) and isinstance(cached_payload, dict):
-            if (now - updated_at) < MARKET_CACHE_TTL:
+            if (now - updated_at) < MARKET_CACHE_TTL and "fx_rate" in cached_payload:
                 return cached_payload
 
     ticker = yf.Ticker(ticker_upper)
@@ -70,9 +185,10 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
     change = price - prev_close if prev_close > 0 else 0.0
     change_pct = (change / prev_close) * 100 if prev_close > 0 else 0.0
 
+    fx_rate = _resolve_fx_rate_to_trade_currency(info)
     shares_raw = info.get("sharesOutstanding") or 0
-    total_debt_raw = info.get("totalDebt") or 0
-    total_cash_raw = info.get("totalCash") or 0
+    total_debt_raw = (info.get("totalDebt") or 0) * fx_rate
+    total_cash_raw = (info.get("totalCash") or 0) * fx_rate
     shares_mm = float(shares_raw) / 1_000_000.0
     net_debt_mm = (float(total_debt_raw) - float(total_cash_raw)) / 1_000_000.0
 
@@ -91,6 +207,7 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         "price": price,
         "change": change,
         "change_pct": change_pct,
+        "fx_rate": fx_rate,
         "shares_mm": shares_mm,
         "net_debt_mm": net_debt_mm,
         "news": news_list,
@@ -117,56 +234,158 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
     return snapshot
 
 
-def _build_summary_metrics(info: dict[str, Any], price: float) -> dict[str, Any]:
+def get_cached_estimates_and_guidance(ticker_symbol: str, db: Session) -> dict[str, Any]:
+    """
+    Obtiene y persiste en SQLite (`CompanyEstimatesCache`, TTL 24h):
+    - Consenso de ingresos (`revenue_estimate`), BPA (`earnings_estimate`) y crecimiento (`growth_estimates`).
+    - Clasificación sectorial (`sector`, `industry`, `sic`) para enrutamiento de modelos.
+    - Últimos formularios SEC 8-K con Ítem 2.02 (comunicados de resultados y guidance).
+    """
+    ticker_upper = ticker_symbol.upper()
+    now = datetime.utcnow()
+
+    cached_row = (
+        db.query(CompanyEstimatesCache)
+        .filter(CompanyEstimatesCache.ticker == ticker_upper)
+        .first()
+    )
+
+    if cached_row is not None:
+        updated_at: Any = cached_row.last_updated
+        cached_payload: Any = cached_row.estimates_data
+        if isinstance(updated_at, datetime) and isinstance(cached_payload, dict):
+            if (now - updated_at) < ESTIMATES_CACHE_TTL:
+                return cached_payload
+
+    snapshot = get_cached_market_snapshot(ticker_upper, db)
+    info: dict[str, Any] = snapshot.get("info", {})
+
+    company_row = db.query(CompanyData).filter(CompanyData.ticker == ticker_upper).first()
+    cik_str = str(company_row.cik) if (company_row is not None and company_row.cik is not None) else None
+    sic_code: str | None = None
+    sic_description: str | None = None
+    if company_row is not None and isinstance(company_row.raw_facts, dict):
+        raw_sic = company_row.raw_facts.get("sic")
+        if raw_sic is not None:
+            sic_code = str(raw_sic)
+        sic_description = company_row.raw_facts.get("sicDescription")
+
+    tk = yf.Ticker(ticker_upper)
+    try:
+        rev_est = _df_to_clean_dict(tk.revenue_estimate)
+    except Exception:
+        rev_est = {}
+
+    try:
+        eps_est = _df_to_clean_dict(tk.earnings_estimate)
+    except Exception:
+        eps_est = {}
+
+    try:
+        growth_est = _df_to_clean_dict(tk.growth_estimates)
+    except Exception:
+        growth_est = {}
+
+    sec_8k_filings = _fetch_sec_8k_item_202(cik_str)
+
+    payload: dict[str, Any] = {
+        "ticker": ticker_upper,
+        "classification": {
+            "sector": info.get("sector") or "",
+            "industry": info.get("industry") or "",
+            "sic": sic_code,
+            "sic_description": sic_description or "",
+        },
+        "consensus_summary": {
+            "forward_eps": _to_float(info.get("forwardEps"), 2),
+            "trailing_eps": _to_float(info.get("trailingEps"), 2),
+            "forward_pe": _to_float(info.get("forwardPE"), 2),
+            "revenue_growth_yoy_pct": _to_pct(info.get("revenueGrowth"), 2),
+            "earnings_growth_yoy_pct": _to_pct(info.get("earningsGrowth"), 2),
+            "target_mean_price": _to_float(info.get("targetMeanPrice"), 2),
+            "target_low_price": _to_float(info.get("targetLowPrice"), 2),
+            "target_high_price": _to_float(info.get("targetHighPrice"), 2),
+            "analyst_count": info.get("numberOfAnalystOpinions"),
+        },
+        "revenue_estimate": rev_est,
+        "earnings_estimate": eps_est,
+        "growth_estimates": growth_est,
+        "sec_8k_guidance_filings": sec_8k_filings,
+    }
+
+    if cached_row is not None:
+        db.query(CompanyEstimatesCache).filter(
+            CompanyEstimatesCache.ticker == ticker_upper
+        ).update({
+            "estimates_data": payload,
+            "last_updated": now,
+        })
+    else:
+        db.add(
+            CompanyEstimatesCache(
+                ticker=ticker_upper,
+                estimates_data=payload,
+                last_updated=now,
+            )
+        )
+
+    db.commit()
+    return payload
+
+
+def _build_summary_metrics(info: dict[str, Any], price: float, fx_rate: float = 1.0) -> dict[str, Any]:
     """
     Construye las 4 secciones del panel derecho estilo TIKR en 2 columnas
-    a partir del diccionario `info` ya cacheado en SQLite (sin peticiones extra).
+    a partir del diccionario `info` ya cacheado en SQLite, convirtiendo magnitudes
+    contables a la moneda de cotización (USD) si `fx_rate != 1.0`.
     """
-    shares_mm = _to_mm(info.get("sharesOutstanding"))
-    float_shares_mm = _to_mm(info.get("floatShares"))
+    shares_mm = _to_mm(info.get("sharesOutstanding"), 1.0)
+    float_shares_mm = _to_mm(info.get("floatShares"), 1.0)
 
-    # Capitalización bursátil basada en acciones ordinarias (coincide con TIKR)
     market_cap_mm: float | None = None
     if shares_mm is not None and shares_mm > 0 and price > 0:
         market_cap_mm = round(shares_mm * price, 2)
     else:
-        market_cap_mm = _to_mm(info.get("marketCap"))
+        market_cap_mm = _to_mm(info.get("marketCap"), 1.0)
 
-    total_debt_mm = _to_mm(info.get("totalDebt"))
-    total_cash_mm = _to_mm(info.get("totalCash"))
+    total_debt_mm = _to_mm(info.get("totalDebt"), fx_rate)
+    total_cash_mm = _to_mm(info.get("totalCash"), fx_rate)
     net_debt_mm: float | None = None
     if total_debt_mm is not None and total_cash_mm is not None:
         net_debt_mm = round(total_debt_mm - total_cash_mm, 2)
 
-    ev_mm = _to_mm(info.get("enterpriseValue"))
-    if ev_mm is None and market_cap_mm is not None and net_debt_mm is not None:
+    ev_mm: float | None = None
+    if market_cap_mm is not None and net_debt_mm is not None:
         ev_mm = round(market_cap_mm + net_debt_mm, 2)
+    else:
+        ev_mm = _to_mm(info.get("enterpriseValue"), 1.0)
 
-    ebitda_mm = _to_mm(info.get("ebitda"))
-    revenue_mm = _to_mm(info.get("totalRevenue"))
-    gross_profit_mm = _to_mm(info.get("grossProfits"))
-    net_income_mm = _to_mm(info.get("netIncomeToCommon"))
-    fcf_mm = _to_mm(info.get("freeCashflow"))
-    ocf_mm = _to_mm(info.get("operatingCashflow"))
+    ebitda_mm = _to_mm(info.get("ebitda"), fx_rate)
+    revenue_mm = _to_mm(info.get("totalRevenue"), fx_rate)
+    gross_profit_mm = _to_mm(info.get("grossProfits"), fx_rate)
+    net_income_mm = _to_mm(info.get("netIncomeToCommon"), fx_rate)
+    fcf_mm = _to_mm(info.get("freeCashflow"), fx_rate)
+    ocf_mm = _to_mm(info.get("operatingCashflow"), fx_rate)
 
-    # Flotante %
     float_pct: float | None = None
     if float_shares_mm is not None and shares_mm is not None and shares_mm > 0:
         float_pct = round(min((float_shares_mm / shares_mm) * 100.0, 100.0), 1)
 
-    # Deuda neta / EBITDA LTM (permite valores negativos cuando EBITDA < 0)
     net_debt_to_ebitda: float | None = None
     if net_debt_mm is not None and ebitda_mm is not None and ebitda_mm != 0:
         net_debt_to_ebitda = round(net_debt_mm / ebitda_mm, 2)
 
-    # Múltiplos LTM y NTM
-    ev_to_sales_ltm = _to_float(info.get("enterpriseToRevenue"))
-    if ev_to_sales_ltm is None and ev_mm is not None and revenue_mm is not None and revenue_mm != 0:
+    ev_to_sales_ltm: float | None = None
+    if ev_mm is not None and revenue_mm is not None and revenue_mm != 0:
         ev_to_sales_ltm = round(ev_mm / revenue_mm, 2)
+    else:
+        ev_to_sales_ltm = _to_float(info.get("enterpriseToRevenue"))
 
-    ev_to_ebitda_ltm = _to_float(info.get("enterpriseToEbitda"))
-    if ev_to_ebitda_ltm is None and ev_mm is not None and ebitda_mm is not None and ebitda_mm != 0:
+    ev_to_ebitda_ltm: float | None = None
+    if ev_mm is not None and ebitda_mm is not None and ebitda_mm != 0:
         ev_to_ebitda_ltm = round(ev_mm / ebitda_mm, 2)
+    else:
+        ev_to_ebitda_ltm = _to_float(info.get("enterpriseToEbitda"))
 
     ev_to_gross_profit_ltm: float | None = None
     if ev_mm is not None and gross_profit_mm is not None and gross_profit_mm != 0:
@@ -186,7 +405,6 @@ def _build_summary_metrics(info: dict[str, Any], price: float) -> dict[str, Any]
     if market_cap_mm is not None and fcf_mm is not None and fcf_mm != 0:
         p_to_fcf_ltm = round(market_cap_mm / fcf_mm, 2)
 
-    # Eficiencia (ROIC / ROCE aproximados si hay capital invertido)
     ebit_margin_pct = _to_pct(info.get("operatingMargins"), 1)
     roa_pct = _to_pct(info.get("returnOnAssets"), 1)
     roe_pct = _to_pct(info.get("returnOnEquity"), 1)
@@ -201,14 +419,17 @@ def _build_summary_metrics(info: dict[str, Any], price: float) -> dict[str, Any]
             if invested_capital > 0:
                 roic_pct = round((ebit_mm / invested_capital) * 100.0, 1)
 
-    # Dividendos (Yahoo devuelve dividendYield ya en % en algunos tickers o decimal en otros)
+    is_bank_sector = "financial" in str(info.get("sector") or "").lower()
+    gross_margin_out = None if is_bank_sector else _to_pct(info.get("grossMargins"), 1)
+    roic_out = None if is_bank_sector else roic_pct
+
     raw_div_yield = info.get("dividendYield")
     div_yield_pct: float | None = None
     if raw_div_yield is not None:
         val_dy = float(raw_div_yield)
         div_yield_pct = round(val_dy if val_dy > 1 else val_dy * 100.0, 2)
 
-    avg_vol_3m = _to_mm(info.get("averageVolume") or info.get("averageDailyVolume3Month"))
+    avg_vol_3m = _to_mm(info.get("averageVolume") or info.get("averageDailyVolume3Month"), 1.0)
 
     return {
         "market_data": {
@@ -226,11 +447,11 @@ def _build_summary_metrics(info: dict[str, Any], price: float) -> dict[str, Any]
             "net_debt_to_ebitda": net_debt_to_ebitda,
         },
         "efficiency": {
-            "gross_margin_pct": _to_pct(info.get("grossMargins"), 1),
+            "gross_margin_pct": gross_margin_out,
             "ebit_margin_pct": ebit_margin_pct,
             "roa_pct": roa_pct,
             "roe_pct": roe_pct,
-            "roic_pct": roic_pct,
+            "roic_pct": roic_out,
             "net_margin_pct": _to_pct(info.get("profitMargins"), 1),
         },
         "growth_cashflow": {
@@ -263,15 +484,14 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
     """
     ticker_upper = ticker_symbol.upper()
 
-    # 1. DATOS DE MERCADO (Cache-first en SQLite)
     snapshot = get_cached_market_snapshot(ticker_upper, db)
     price = snapshot["price"]
     change = snapshot["change"]
     change_pct = snapshot["change_pct"]
+    fx_rate = float(snapshot.get("fx_rate") or 1.0)
     news_list = snapshot["news"]
     info = snapshot.get("info", {})
 
-    # 2. DATOS ESTÁTICOS (Desde SQLite)
     profile_db = db.query(CompanyProfile).filter(CompanyProfile.ticker == ticker_upper).first()
     
     desc_str = str(profile_db.description) if profile_db else ""
@@ -323,5 +543,5 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
         "website": website,
         "description": translated_desc,
         "news": news_list,
-        "summary_metrics": _build_summary_metrics(info, price),
+        "summary_metrics": _build_summary_metrics(info, price, fx_rate),
     }

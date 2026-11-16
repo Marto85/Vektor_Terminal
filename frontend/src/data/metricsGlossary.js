@@ -1,5 +1,20 @@
 export const METRICS_GLOSSARY = {
-  // --- ESTRUCTURA DE CAPITAL Y MERCADO ---
+  // --- DATOS DE MERCADO Y ESTRUCTURA DE CAPITAL ---
+  'Beta a 5 años': {
+    title: 'Beta (Sensibilidad al Mercado - 5Y)',
+    formula: 'Covarianza(Retorno Acción, Retorno S&P 500) ÷ Varianza(Retorno S&P 500)',
+    explanation:
+      'Mide cuánto oscila históricamente el precio de la acción frente a los movimientos del índice general de mercado.',
+    evaluates:
+      'El riesgo sistemático y la volatilidad relativa. Además, es el insumo clave en el modelo CAPM para calcular el Costo del Capital (Ke) exigido por el accionista.',
+    benchmarks: [
+      'Beta < 0,8: acciones defensivas (consumo básico, salud, utilities).',
+      'Beta ~ 1,0: se mueve en línea con el mercado.',
+      'Beta > 1,3: alta sensibilidad cíclica o tecnológica (amplifica subas y bajas).',
+    ],
+    example:
+      'Con Beta 1,10, tasa libre de riesgo 4,25% y prima de mercado 5,0%, el Costo del Capital (Ke) exigido es 4,25% + (1,10 × 5,0%) = 9,75%.',
+  },
   'Capitalización bursátil (MM)': {
     title: 'Capitalización Bursátil (Market Cap)',
     formula: 'Precio por acción × Acciones ordinarias en circulación',
@@ -61,6 +76,95 @@ export const METRICS_GLOSSARY = {
       'Deuda neta de US$ 6.000 MM y EBITDA anual de US$ 3.000 MM → 2,00x (tardaría 2 años de EBITDA en cancelar su deuda).',
   },
 
+  // --- EFICIENCIA Y RENTABILIDAD ---
+  'Margen bruto LTM': {
+    title: 'Margen Bruto % (Gross Margin)',
+    formula: '(Beneficio Bruto ÷ Ingresos Totales) × 100',
+    explanation:
+      'Porcentaje de cada dólar facturado que queda tras descontar los costos directos de producción, materias primas o servidores.',
+    evaluates:
+      'El poder de fijación de precios (pricing power) y la existencia de ventajas competitivas. Su expansión en el tiempo indica economías de escala.',
+    benchmarks: [
+      '> 60%: software, plataformas digitales, farmacia, lujo.',
+      '30% – 55%: consumo masivo e industriales especializados.',
+      '< 25%: retail, distribución, manufactura commodity.',
+    ],
+    example:
+      'Ventas de US$ 1.000 MM y costo directo de US$ 320 MM → Margen Bruto de 68,0%.',
+  },
+  'Margen EBIT LTM': {
+    title: 'Margen Operativo % (EBIT Margin)',
+    formula: '(Beneficio Operativo ÷ Ingresos Totales) × 100',
+    explanation:
+      'Rentabilidad operativa pura después de cubrir costos directos, gastos administrativos, comerciales, I+D y depreciaciones.',
+    evaluates:
+      'La disciplina operativa y el apalancamiento operativo: si las ventas crecen y el margen EBIT sube, la empresa escala con eficiencia.',
+    benchmarks: [
+      '> 25%: liderazgo operativo sobresaliente.',
+      '12% – 22%: rango saludable en industrias consolidadas.',
+      '< 8%: márgenes estrechos sensibles a inflación de costos.',
+    ],
+    example:
+      'EBIT de US$ 467 MM sobre ventas de US$ 1.000 MM → Margen EBIT de 46,7%.',
+  },
+  'Margen neto LTM': {
+    title: 'Margen Neto % (Net Profit Margin)',
+    formula: '(Beneficio Neto ÷ Ingresos Totales) × 100',
+    explanation:
+      'Porcentaje final de las ventas que se convierte en utilidad neta para el accionista tras pagar intereses e impuestos.',
+    evaluates:
+      'La rentabilidad final del negocio, aunque debe vigilarse que no esté inflada por ganancias financieras puntuales.',
+    benchmarks: [
+      '> 20%: altísima rentabilidad final.',
+      '8% – 15%: promedio saludable en compañías consolidadas.',
+    ],
+    example:
+      'Beneficio Neto de US$ 150 MM sobre ventas de US$ 1.000 MM → Margen Neto de 15,0%.',
+  },
+  'ROA LTM': {
+    title: 'Rentabilidad sobre Activos (ROA %)',
+    formula: '(Beneficio Neto ÷ Total Activo) × 100',
+    explanation:
+      'Mide cuánta ganancia neta genera la empresa por cada dólar de activos totales que administra en su balance.',
+    evaluates:
+      'La eficiencia en el uso de los activos. En bancos y aseguradoras es una métrica crítica porque operan con alto apalancamiento.',
+    benchmarks: [
+      'Bancos: > 1,0% – 1,3% es excelente (dada su estructura de activos).',
+      'Empresas no financieras: > 8% – 10% indica buena eficiencia de activos.',
+    ],
+    example:
+      'Un banco con US$ 4.000.000 MM en activos y US$ 52.000 MM de utilidad neta tiene un ROA de 1,30%.',
+  },
+  'ROE LTM': {
+    title: 'Rentabilidad sobre Patrimonio Neto (ROE %)',
+    formula: '(Beneficio Neto ÷ Patrimonio Neto) × 100',
+    explanation:
+      'Mide el retorno que obtiene el accionista sobre el capital propio invertido en la compañía.',
+    evaluates:
+      'Es la métrica central en bancos y financieras (donde se compara contra el Costo de Equity Ke). En empresas industriales debe analizarse junto al ROIC para verificar que no esté inflado por exceso de deuda.',
+    benchmarks: [
+      'Bancos de primera línea: 14% – 19% (crean valor si ROE > Ke ~9%–10%).',
+      'Empresas no financieras de calidad: > 15% sostenido.',
+    ],
+    example:
+      'Si un banco tiene Patrimonio Neto de US$ 300.000 MM y gana US$ 54.000 MM anuales, su ROE es 18,0%.',
+  },
+  'ROIC LTM': {
+    title: 'Retorno sobre el Capital Invertido (ROIC %)',
+    formula: 'NOPAT (EBIT × (1 − Tasa Impositiva)) ÷ (Patrimonio Neto + Deuda Neta)',
+    explanation:
+      'Mide cuánto retorna la operación sobre TODO el capital empleado (tanto de accionistas como de acreedores financieros), eliminando el efecto del apalancamiento.',
+    evaluates:
+      'La existencia de un foso económico (moat): si el ROIC supera consistentemente al WACC (ej. ROIC 22% vs WACC 9%), cada dólar reinvertido crea valor compuesto.',
+    benchmarks: [
+      '> 15% – 20%: negocio con fuertes ventajas competitivas.',
+      '9% – 14%: retorno sólido por encima del costo de capital.',
+      '< 8%: destruye valor si es inferior al WACC.',
+    ],
+    example:
+      'NOPAT de US$ 250 MM sobre un capital invertido de US$ 1.000 MM → ROIC de 25,0%.',
+  },
+
   // --- MÚLTIPLOS DE VALORACIÓN ---
   'EV / Ventas (LTM)': {
     title: 'EV / Ventas (EV / Sales)',
@@ -76,7 +180,7 @@ export const METRICS_GLOSSARY = {
       'Hipercrecimiento especulativo: > 15,0x (exige crecimiento >25% anual sostenido).',
     ],
     example:
-      'Con un EV de US$ 3.960.000 MM y ventas LTM de US$ 346.400 MM, el EV/Ventas es 11,43x: el mercado paga US$ 11,43 por cada US$ 1 de facturación anual.',
+      'Con un EV de US$ 3.960.000 MM y ventas LTM de US$ 346.400 MM, el EV/Ventas es 11,43x.',
   },
   'EV / Ingresos NTM': {
     title: 'EV / Ingresos NTM (Forward EV/Sales)',
@@ -106,7 +210,7 @@ export const METRICS_GLOSSARY = {
       '> 30x: valoración exigente que requiere alta conversión a caja y crecimiento sostenido.',
     ],
     example:
-      'Un negocio con EV de US$ 1.500 MM y EBITDA de US$ 100 MM cotiza a 15,00x EV/EBITDA (recuperaría el valor empresa en 15 años operativos constantes).',
+      'Un negocio con EV de US$ 1.500 MM y EBITDA de US$ 100 MM cotiza a 15,00x EV/EBITDA.',
   },
   'EV / EBIT (LTM)': {
     title: 'EV / EBIT',
@@ -121,7 +225,7 @@ export const METRICS_GLOSSARY = {
       'Tech / Software líder: 20x – 28x.',
     ],
     example:
-      'Dos empresas tienen EV/EBITDA de 10x, pero la que necesita mucha maquinaria tiene un EV/EBIT de 18x (más cara en términos reales).',
+      'Dos empresas tienen EV/EBITDA de 10x, pero la que necesita mucha maquinaria tiene un EV/EBIT de 18x.',
   },
   'EV / Beneficio Bruto (LTM)': {
     title: 'EV / Beneficio Bruto (EV / Gross Profit)',
@@ -129,7 +233,7 @@ export const METRICS_GLOSSARY = {
     explanation:
       'Relaciona el Valor Empresa con la ganancia que queda tras cubrir únicamente el costo directo de producir o prestar el servicio.',
     evaluates:
-      'Permite comparar empresas de software o plataformas que reinvierten agresivamente en I+D y marketing (debajo de la línea bruta) para capturar cuota de mercado.',
+      'Permite comparar empresas de software o plataformas que reinvierten agresivamente en I+D y marketing (debajo de la línea bruta).',
     benchmarks: [
       'Retail / Industrial tradicional: 3x – 7x.',
       'Software / SaaS consolidado: 10x – 18x.',
@@ -147,7 +251,7 @@ export const METRICS_GLOSSARY = {
     benchmarks: [
       'Empresas maduras de bajo CapEx: 12x – 18x.',
       'Compañías de calidad compuesta: 18x – 28x.',
-      '> 40x: suele indicar expectativas muy altas o un pico transitorio de inversión (CapEx) que deprime el FCF del año.',
+      '> 40x: suele indicar expectativas muy altas o un pico transitorio de inversión (CapEx).',
     ],
     example:
       'Si el EV es US$ 2.000 MM y el FCF anual es US$ 100 MM, el múltiplo es 20,00x.',
@@ -173,15 +277,15 @@ export const METRICS_GLOSSARY = {
     explanation:
       'Indica cuántos años de ganancias netas actuales está pagando el mercado por cada acción.',
     evaluates:
-      'El múltiplo más difundido en bolsa. Puede distorsionarse si hubo ganancias o pérdidas extraordinarias no recurrentes (venta de un inmueble, revaluaciones, juicios).',
+      'El múltiplo más difundido en bolsa. Puede distorsionarse si hubo ganancias o pérdidas extraordinarias no recurrentes.',
     benchmarks: [
       'Empresas cíclicas / bancos / maduras de bajo crecimiento: 8x – 14x.',
       'Promedio histórico S&P 500 / empresas estables de calidad: 15x – 22x.',
       'Crecimiento tecnológico consolidado: 22x – 35x.',
-      '> 40x: descuenta fuerte expansión futura de beneficios (o ganancias actuales deprimidas).',
+      '> 40x: descuenta fuerte expansión futura de beneficios.',
     ],
     example:
-      'Acción a US$ 100 con ganancia neta de US$ 5 por acción → P/E de 20,00x (equivale a un rendimiento inicial de ganancias del 5% anual).',
+      'Acción a US$ 100 con ganancia neta de US$ 5 por acción → P/E de 20,00x (rendimiento inicial de ganancias del 5% anual).',
   },
   'NTM Price / Earnings (P/E)': {
     title: 'P/E Futuro (Forward P/E NTM)',
@@ -191,7 +295,7 @@ export const METRICS_GLOSSARY = {
     evaluates:
       'Si el P/E futuro es bastante más bajo que el P/E LTM, se espera aceleración de márgenes o crecimiento de utilidades.',
     benchmarks: [
-      'Value / Estables: 10x – 16x.',
+      'Value / Estables / Bancos: 9x – 15x.',
       'Growth / Tech líder: 18x – 28x.',
     ],
     example:
@@ -203,10 +307,10 @@ export const METRICS_GLOSSARY = {
     explanation:
       'Compara el valor de mercado de las acciones contra el valor neto en libros (Activos Totales − Pasivos Totales).',
     evaluates:
-      'Muy relevante en bancos, aseguradoras e inmobiliarias donde los activos valen cerca de su registro contable. Menos útil en empresas de software con altos intangibles.',
+      'Muy relevante en bancos, aseguradoras e inmobiliarias donde los activos valen cerca de su registro contable.',
     benchmarks: [
-      '< 1,0x: cotiza por debajo de su valor contable líquido (posible ganga o deterioro de activos).',
-      'Bancos / Industriales: 1,0x – 2,5x.',
+      '< 1,0x: cotiza por debajo de su valor contable líquido.',
+      'Bancos / Industriales: 1,0x – 2,5x (bancos con ROE > 15% suelen cotizar a 1,8x–2,5x).',
       'Empresas de alto ROE con pocos activos físicos (Tech/Consumo): 5,0x – 15,0x.',
     ],
     example:
@@ -218,9 +322,9 @@ export const METRICS_GLOSSARY = {
     explanation:
       'Excluye el Goodwill (sobreprecio pagado en adquisiciones pasadas) y los intangibles para medir el respaldo físico y financiero neto.',
     evaluates:
-      'El piso patrimonial duro del accionista, especialmente útil en empresas que crecieron comprando competidores.',
+      'Métrica de referencia en banca y seguros para medir la valoración sobre el capital tangible real.',
     benchmarks: [
-      'Bancos e industriales: 1,2x – 3,0x.',
+      'Bancos comerciales sólidos: 1,4x – 2,8x.',
       'Empresas con fuerte historial de adquisiciones (M&A): suele ser bastante mayor al P/BV.',
     ],
     example:
@@ -249,15 +353,15 @@ export const METRICS_GLOSSARY = {
     evaluates:
       'Permite comparar directamente el atractivo de una acción frente a la tasa de un bono del Tesoro (ej. 4%–4,5%).',
     benchmarks: [
-      '> 6% – 8%: generación de caja muy atractiva (típico en value o empresas maduras).',
+      '> 6% – 8%: generación de caja muy atractiva.',
       '3,5% – 5,5%: rango equilibrado para empresas de calidad.',
-      '< 2,5%: exigente; exige que el FCF crezca rápido en los próximos años para justificar el precio.',
+      '< 2,5%: exigente; exige fuerte crecimiento futuro del FCF.',
     ],
     example:
       'Con un FCF de US$ 100 MM y un Market Cap de US$ 2.000 MM, el FCF Yield es 5,00% anual.',
   },
 
-  // --- PARÁMETROS DEL DCF ---
+  // --- PARÁMETROS DEL DCF Y MODELO BANCARIO ---
   'Ajuste puntual FCF (+/- MM)': {
     title: 'Ajuste Puntual al Flujo de Caja Libre (DCF)',
     formula: 'FCF Proyectado Ajustado = FCF Operativo del Modelo ± Ajuste Manual (en millones)',
@@ -274,8 +378,23 @@ export const METRICS_GLOSSARY = {
     example:
       'Si una tecnológica reporta US$ 50.000 MM de FCF pero entrega US$ 10.000 MM anuales en acciones a empleados (SBC), ingresás -10000 para calcular su valor intrínseco real libre de dilución.',
   },
+  'Excess Return Model (Bancos)': {
+    title: 'Modelo de Retorno Excedente (Excess Return)',
+    formula: 'Valor Intrínseco = Valor Libros Actual + VP(Retornos Excedentes sobre Ke)',
+    explanation:
+      'En bancos y financieras, la deuda es materia prima operativa y no existe un FCF industrial tradicional. Este modelo valúa el patrimonio actual más el valor presente de la rentabilidad que el banco logra por encima del costo exigido por sus accionistas (ROE − Ke).',
+    evaluates:
+      'Si el banco crea o destruye valor patrimonial: cuando ROE > Ke, merece cotizar por encima de 1,0x Valor Libros (P/BV > 1).',
+    benchmarks: [
+      'ROE > Ke en +4% a +8%: franquicia bancaria de alta calidad (P/BV justo entre 1,5x y 2,4x).',
+      'ROE ≈ Ke: valoración justa cercana a 1,0x Valor Libros.',
+      'ROE < Ke: destruye valor económico (debería cotizar con descuento sobre libros, P/BV < 1).',
+    ],
+    example:
+      'Un banco con Valor Libros de US$ 110/acción, ROE del 16% y Costo de Equity (Ke) del 9,5% genera un exceso de 6,5% anual sobre su capital, justificando un valor intrínseco cercano a US$ 190–210/acción.',
+  },
 
-  // --- RUBROS CONTABLES (PESTAÑA FINANZAS) ---
+  // --- RUBROS CONTABLES Y RATIOS (PESTAÑA FINANZAS) ---
   'Ingresos Totales': {
     title: 'Ingresos Totales (Revenue / Top Line)',
     formula: 'Ventas netas de bienes y servicios (descontando devoluciones y bonificaciones)',
@@ -297,7 +416,7 @@ export const METRICS_GLOSSARY = {
     evaluates:
       'El poder de fijación de precios (pricing power) y la eficiencia productiva básica.',
     benchmarks: [
-      'Margen bruto > 60%: software, farmacia, marcas de lujo (altas ventajas competitivas).',
+      'Margen bruto > 60%: software, farmacia, marcas de lujo.',
       'Margen bruto 30% – 50%: consumo masivo e industriales especializados.',
       'Margen bruto < 25%: retail, aerolíneas, manufactura commodity.',
     ],
@@ -354,13 +473,39 @@ export const METRICS_GLOSSARY = {
     ],
     example: 'CFO de US$ 180 MM − CapEx de US$ 50 MM = FCF de US$ 130 MM.',
   },
+  'Ratio de liquidez (x)': {
+    title: 'Ratio de Liquidez Corriente (Current Ratio)',
+    formula: 'Total Activo Corriente ÷ Total Pasivo Corriente',
+    explanation:
+      'Mide la capacidad de la empresa para cubrir sus obligaciones de corto plazo (< 12 meses) con sus activos líquidos o convertibles en efectivo en el corto plazo.',
+    evaluates:
+      'La holgura financiera operativa en el corto plazo.',
+    benchmarks: [
+      '1,2x – 2,5x: liquidez saludable.',
+      '< 1,0x: los pasivos de corto plazo superan a los activos corrientes (vigilar flujo de caja).',
+    ],
+    example: 'Activo corriente de US$ 180 MM y pasivo corriente de US$ 100 MM → 1,80x.',
+  },
+  'EBIT / Gastos por intereses (x)': {
+    title: 'Cobertura de Intereses (Interest Coverage)',
+    formula: 'Beneficio Operativo (EBIT) ÷ Gastos por Intereses',
+    explanation:
+      'Indica cuántas veces las ganancias operativas cubren el pago anual de intereses de la deuda.',
+    evaluates:
+      'El margen de seguridad frente al costo financiero de la deuda.',
+    benchmarks: [
+      '> 8x – 10x: cobertura holgada de grado de inversión.',
+      '3x – 6x: cobertura aceptable.',
+      '< 2x: riesgo financiero elevado.',
+    ],
+    example: 'EBIT de US$ 500 MM e intereses anuales de US$ 50 MM → cobertura de 10,00x.',
+  },
 };
 
 export function getGlossaryEntry(metricName) {
   if (!metricName) return null;
   if (METRICS_GLOSSARY[metricName]) return METRICS_GLOSSARY[metricName];
 
-  // Búsqueda flexible para variantes de nombre (ej. con o sin "(LTM)")
   const clean = metricName.replace(/\s*\(LTM\)|\s*\(MM\)/gi, '').trim();
   const matchedKey = Object.keys(METRICS_GLOSSARY).find(
     (k) => k.toLowerCase().startsWith(clean.toLowerCase())

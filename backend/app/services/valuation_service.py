@@ -8,14 +8,39 @@ from sqlalchemy.orm import Session
 from app.models.database import PriceHistoryCache
 from app.services.company_service import get_raw_financials
 from app.services.financial_parser import extract_annual_metrics
-from app.core.yf_client import get_cached_market_snapshot
+from app.core.yf_client import (
+    get_cached_market_snapshot,
+    get_cached_estimates_and_guidance,
+)
 
 
-def _get_annual_closing_prices(ticker_upper: str, db: Session) -> dict[str, float]:
+def _compute_split_factors_by_year(tk: yf.Ticker, years_range: list[str]) -> dict[str, float]:
     """
-    Obtiene el precio de cierre de fin de cada año calendario desde la serie mensual
-    cacheada en SQLite (`PriceHistoryCache`). Si no existe, descarga `10y` mensual una vez.
+    Calcula para cada año calendario el factor acumulado de stock splits ocurridos
+    DESPUÉS del 31/12 de ese año, para homogeneizar las acciones históricas pre-split
+    de los 10-K con los precios ajustados por split de Yahoo Finance.
     """
+    factors = {y: 1.0 for y in years_range}
+    try:
+        splits = tk.splits
+        if splits is None or splits.empty:
+            return factors
+        splits_idx = pd.to_datetime(splits.index).tz_localize(None)
+        for y in years_range:
+            cutoff = datetime(int(y), 12, 31)
+            mult = 1.0
+            for dt, ratio in zip(splits_idx, splits.values):
+                if dt > cutoff and float(ratio) > 0:
+                    mult *= float(ratio)
+            factors[y] = round(mult, 6)
+    except Exception:
+        pass
+    return factors
+
+
+def _get_annual_prices_and_splits(
+    ticker_upper: str, years_range: list[str], db: Session
+) -> tuple[dict[str, float], dict[str, float]]:
     now = datetime.utcnow()
     ttl = timedelta(hours=24)
 
@@ -31,7 +56,8 @@ def _get_annual_closing_prices(ticker_upper: str, db: Session) -> dict[str, floa
             if isinstance(updated_at, datetime) and isinstance(payload, dict):
                 if (now - updated_at) < ttl:
                     candles = payload.get("seriesByMetric", {}).get("Price", [])
-                    if candles:
+                    cached_splits = payload.get("splitFactorsByYear")
+                    if candles and isinstance(cached_splits, dict):
                         by_year: dict[str, float] = {}
                         for c in candles:
                             yr = str(c.get("time", ""))[:4]
@@ -39,12 +65,15 @@ def _get_annual_closing_prices(ticker_upper: str, db: Session) -> dict[str, floa
                             if yr and isinstance(close_val, (int, float)) and close_val > 0:
                                 by_year[yr] = float(close_val)
                         if by_year:
-                            return by_year
+                            factors = {y: float(cached_splits.get(y, 1.0)) for y in years_range}
+                            return by_year, factors
 
     tk = yf.Ticker(ticker_upper)
     hist = tk.history(period="10y", interval="1mo", auto_adjust=False)
+    split_factors = _compute_split_factors_by_year(tk, years_range)
+
     if hist is None or hist.empty:
-        return {}
+        return {}, split_factors
 
     hist = hist.dropna(subset=["Open", "High", "Low", "Close"]).reset_index()
     date_col = "Date" if "Date" in hist.columns else hist.columns[0]
@@ -76,6 +105,7 @@ def _get_annual_closing_prices(ticker_upper: str, db: Session) -> dict[str, floa
         "years": 10.0,
         "totalReturnPct": 0.0,
         "cagrPct": 0.0,
+        "splitFactorsByYear": split_factors,
         "seriesByMetric": {"Price": price_series},
     }
     if existing is not None:
@@ -94,7 +124,7 @@ def _get_annual_closing_prices(ticker_upper: str, db: Session) -> dict[str, floa
             )
         )
     db.commit()
-    return by_year
+    return by_year, split_factors
 
 
 def _safe_multiple(num: float | None, den: float | None) -> float | None:
@@ -106,18 +136,223 @@ def _safe_multiple(num: float | None, den: float | None) -> float | None:
     return round(val, 2)
 
 
+def _detect_sector_profile(classification: dict[str, Any]) -> dict[str, Any]:
+    sector = str(classification.get("sector") or "").lower()
+    industry = str(classification.get("industry") or "").lower()
+    sic_raw = classification.get("sic")
+
+    sic_int: int | None = None
+    if sic_raw is not None:
+        try:
+            sic_int = int(str(sic_raw).strip())
+        except ValueError:
+            sic_int = None
+
+    is_financial = (
+        (sic_int is not None and 6000 <= sic_int <= 6499)
+        or "financial" in sector
+        or any(k in industry for k in ("bank", "insurance", "capital markets", "credit", "asset management"))
+    )
+
+    is_reit = (sic_int == 6798) or ("reit" in industry)
+
+    if is_financial:
+        return {
+            "profile": "financial",
+            "label": "Entidad Financiera / Bancaria",
+            "primary_model": "Excess Return (ROE vs. Costo de Equity) & P/TBV",
+            "rationale": (
+                "En bancos y financieras la deuda es materia prima operativa y el CapEx tradicional "
+                "no refleja reinversión. Se priorizan ROE, P/BV, P/TBV y generación de retorno excedente."
+            ),
+        }
+
+    if is_reit:
+        return {
+            "profile": "reit",
+            "label": "REIT / Inmobiliaria",
+            "primary_model": "DCF sobre Flujo Operativo Ajustado (FFO proxy) & Dividend Yield",
+            "rationale": (
+                "La amortización contable de inmuebles deprime el Beneficio Neto GAAP; "
+                "se prioriza la generación de caja operativa recurrente."
+            ),
+        }
+
+    return {
+        "profile": "standard",
+        "label": "Corporativo Estándar / Crecimiento",
+        "primary_model": "DCF en 2 Etapas (Expansión vs. Mantenimiento) + Doble Valor Terminal",
+        "rationale": (
+            "Se proyectan ingresos, márgenes operativos y reinversión de capital diferenciando "
+            "la etapa de expansión del estado estacionario."
+        ),
+    }
+
+
+def _analyze_trajectory_and_margins(
+    valid_years: list[str],
+    get_m: Any,
+    estimates_data: dict[str, Any],
+    fallback_ebit_margin_pct: float = 15.0,
+    fx_rate: float = 1.0,
+) -> dict[str, Any]:
+    rev_est = estimates_data.get("revenue_estimate", {})
+    eps_est = estimates_data.get("earnings_estimate", {})
+    growth_est = estimates_data.get("growth_estimates", {})
+    consensus_summary = estimates_data.get("consensus_summary", {})
+
+    yoy_rates: list[float] = []
+    for i in range(1, len(valid_years)):
+        prev_r = get_m("Ingresos Totales", valid_years[i - 1])
+        curr_r = get_m("Ingresos Totales", valid_years[i])
+        if prev_r > 0 and curr_r > 0:
+            yoy = ((curr_r - prev_r) / prev_r) * 100.0
+            if -40.0 <= yoy <= 85.0:
+                yoy_rates.append(round(yoy, 2))
+
+    recent_yoy = yoy_rates[-3:] if len(yoy_rates) >= 3 else yoy_rates
+    hist_avg_growth = round(mean(recent_yoy), 2) if recent_yoy else 8.0
+    spread_yoy = (max(recent_yoy) - min(recent_yoy)) if len(recent_yoy) >= 2 else 99.0
+    is_consistent_hist = len(recent_yoy) >= 2 and spread_yoy <= 8.0 and hist_avg_growth > 0
+
+    g_rev_0y = rev_est.get("0y", {}).get("growth")
+    g_rev_1y = rev_est.get("+1y", {}).get("growth")
+    g_eps_0y = eps_est.get("0y", {}).get("growth")
+    g_eps_1y = eps_est.get("+1y", {}).get("growth")
+
+    rev_0y_pct = round(float(g_rev_0y) * 100.0, 2) if g_rev_0y is not None else consensus_summary.get("revenue_growth_yoy_pct")
+    rev_1y_pct = round(float(g_rev_1y) * 100.0, 2) if g_rev_1y is not None else rev_0y_pct
+    eps_0y_pct = round(float(g_eps_0y) * 100.0, 2) if g_eps_0y is not None else consensus_summary.get("earnings_growth_yoy_pct")
+    eps_1y_pct = round(float(g_eps_1y) * 100.0, 2) if g_eps_1y is not None else eps_0y_pct
+
+    g_5y_raw = None
+    for period_k in ("+5y", "5y"):
+        if period_k in growth_est:
+            row_g = growth_est[period_k]
+            g_5y_raw = row_g.get("stockTrend") or row_g.get("stock")
+            if g_5y_raw is not None:
+                break
+    consensus_5y_pct = round(float(g_5y_raw) * 100.0, 2) if g_5y_raw is not None else None
+
+    forward_candidates = [v for v in (rev_0y_pct, rev_1y_pct, consensus_5y_pct) if v is not None]
+    forward_avg_growth = round(mean(forward_candidates), 2) if forward_candidates else hist_avg_growth
+
+    if forward_candidates:
+        weight_hist = 0.45 if is_consistent_hist else 0.30
+        blended_growth = (hist_avg_growth * weight_hist) + (forward_avg_growth * (1.0 - weight_hist))
+    else:
+        blended_growth = hist_avg_growth
+
+    recommended_rev_growth = round(min(max(blended_growth, -5.0), 35.0), 1)
+
+    margin_history: list[dict[str, Any]] = []
+    for y in valid_years[-5:]:
+        rev = get_m("Ingresos Totales", y)
+        if rev > 0:
+            gm = round((get_m("Beneficio Bruto", y) / rev) * 100.0, 1)
+            ebit_y = get_m("Beneficio Operativo", y)
+            om = round((ebit_y / rev) * 100.0, 1) if ebit_y != 0.0 else round(fallback_ebit_margin_pct, 1)
+            nm = round((get_m("Beneficio Neto", y) / rev) * 100.0, 1)
+            margin_history.append({
+                "year": y,
+                "gross_margin_pct": gm,
+                "operating_margin_pct": om,
+                "net_margin_pct": nm,
+            })
+
+    gm_delta = 0.0
+    om_delta = 0.0
+    nm_delta = 0.0
+    if len(margin_history) >= 2:
+        first_m = margin_history[0]
+        last_m = margin_history[-1]
+        gm_delta = round(last_m["gross_margin_pct"] - first_m["gross_margin_pct"], 1)
+        om_delta = round(last_m["operating_margin_pct"] - first_m["operating_margin_pct"], 1)
+        nm_delta = round(last_m["net_margin_pct"] - first_m["net_margin_pct"], 1)
+
+    leverage_signal = "stable"
+    leverage_label = "Márgenes estables (crecimiento alineado de ventas y beneficios)"
+    margin_step_pct_yr = 0.0
+
+    if rev_1y_pct is not None and eps_1y_pct is not None:
+        spread_eps_rev = eps_1y_pct - rev_1y_pct
+        if spread_eps_rev >= 2.5:
+            leverage_signal = "expanding"
+            leverage_label = (
+                f"Expansión esperada de márgenes: el consenso proyecta BPA +{eps_1y_pct:.1f}% "
+                f"vs. Ventas +{rev_1y_pct:.1f}% (apalancamiento operativo positivo)."
+            )
+            margin_step_pct_yr = 0.30
+        elif spread_eps_rev <= -2.5:
+            leverage_signal = "compressing"
+            leverage_label = (
+                f"Compresión esperada de márgenes: el consenso proyecta BPA +{eps_1y_pct:.1f}% "
+                f"vs. Ventas +{rev_1y_pct:.1f}% (presión por costos, CapEx o depreciación)."
+            )
+            margin_step_pct_yr = -0.30
+
+    period_labels = {
+        "0q": "Trimestre Actual (0Q)",
+        "+1q": "Próximo Trimestre (+1Q)",
+        "0y": "Año Fiscal Actual (0Y)",
+        "+1y": "Próximo Año Fiscal (+1Y)",
+    }
+    consensus_rows: list[dict[str, Any]] = []
+    for p_key, p_label in period_labels.items():
+        r_row = rev_est.get(p_key, {})
+        e_row = eps_est.get(p_key, {})
+        if r_row or e_row:
+            rev_avg_raw = r_row.get("avg")
+            rev_low_raw = r_row.get("low")
+            rev_high_raw = r_row.get("high")
+            rev_g_raw = r_row.get("growth")
+            eps_g_raw = e_row.get("growth")
+
+            consensus_rows.append({
+                "period_key": p_key,
+                "period_label": p_label,
+                "rev_avg_mm": round((float(rev_avg_raw) * fx_rate) / 1_000_000.0, 2) if rev_avg_raw is not None else None,
+                "rev_low_mm": round((float(rev_low_raw) * fx_rate) / 1_000_000.0, 2) if rev_low_raw is not None else None,
+                "rev_high_mm": round((float(rev_high_raw) * fx_rate) / 1_000_000.0, 2) if rev_high_raw is not None else None,
+                "rev_growth_pct": round(float(rev_g_raw) * 100.0, 2) if rev_g_raw is not None else None,
+                "rev_analysts": r_row.get("numberOfAnalysts"),
+                "eps_avg": round(float(e_row["avg"]), 2) if e_row.get("avg") is not None else None,
+                "eps_low": round(float(e_row["low"]), 2) if e_row.get("low") is not None else None,
+                "eps_high": round(float(e_row["high"]), 2) if e_row.get("high") is not None else None,
+                "eps_growth_pct": round(float(eps_g_raw) * 100.0, 2) if eps_g_raw is not None else None,
+                "eps_analysts": e_row.get("numberOfAnalysts"),
+            })
+
+    return {
+        "recent_yoy_rates": recent_yoy,
+        "hist_avg_growth_pct": hist_avg_growth,
+        "is_consistent_hist": is_consistent_hist,
+        "forward_avg_growth_pct": forward_avg_growth,
+        "consensus_5y_pct": consensus_5y_pct,
+        "recommended_rev_growth_pct": recommended_rev_growth,
+        "margin_history": margin_history,
+        "margin_deltas": {
+            "gross_margin_delta_pct": gm_delta,
+            "operating_margin_delta_pct": om_delta,
+            "net_margin_delta_pct": nm_delta,
+        },
+        "leverage_signal": leverage_signal,
+        "leverage_label": leverage_label,
+        "margin_step_pct_yr": margin_step_pct_yr,
+        "consensus_rows": consensus_rows,
+        "sec_8k_filings": estimates_data.get("sec_8k_guidance_filings", []),
+    }
+
+
 def _audit_anomalies_and_adjustments(
     valid_years: list[str],
     get_m: Any,
     current_mcap_mm: float | None,
     current_ev_mm: float | None,
     ltm_multiples: dict[str, float | None],
+    is_financial: bool = False,
+    fallback_ebit_margin_pct: float = 15.0,
 ) -> dict[str, Any]:
-    """
-    Audita estadísticamente el último ejercicio 10-K frente a la mediana histórica
-    de la propia empresa para detectar distorsiones materiales en CapEx, partidas no
-    operativas, compensación basada en acciones (SBC) y capital de trabajo.
-    """
     if not valid_years:
         return {
             "has_anomalies": False,
@@ -126,7 +361,7 @@ def _audit_anomalies_and_adjustments(
             "adjusted_fcf_mm": 0.0,
             "capex_current_pct": 10.0,
             "capex_maint_pct": 8.0,
-            "ebit_margin_pct": 15.0,
+            "ebit_margin_pct": round(fallback_ebit_margin_pct, 2),
             "tax_rate_pct": 21.0,
         }
 
@@ -135,6 +370,15 @@ def _audit_anomalies_and_adjustments(
 
     rev_curr = get_m("Ingresos Totales", latest_y)
     ebit_curr = get_m("Beneficio Operativo", latest_y)
+    if ebit_curr == 0.0 and rev_curr > 0 and fallback_ebit_margin_pct > 0:
+        ebit_curr = rev_curr * (fallback_ebit_margin_pct / 100.0)
+
+    int_exp_curr = abs(get_m("Gastos por Intereses", latest_y))
+    effective_operating_profit = ebit_curr
+    if not is_financial and ebit_curr > 0 and int_exp_curr > (ebit_curr * 0.20):
+        # En fintechs de pagos/crédito (ej. STNE), el costo de fondeo operativo está en intereses
+        effective_operating_profit = max(ebit_curr - int_exp_curr, 0.0)
+
     da_curr = get_m("Depreciación y Amortización", latest_y)
     net_inc_curr = get_m("Beneficio Neto", latest_y)
     ebt_curr = get_m("Beneficio antes de Impuestos", latest_y)
@@ -146,12 +390,15 @@ def _audit_anomalies_and_adjustments(
     wc_curr = get_m("Cambios en el capital de trabajo", latest_y)
     non_op_curr = get_m("Ingresos (Gastos) No Operativos", latest_y) + get_m("Ganancia/Pérdida por venta de activos", latest_y)
 
-    # Tasa impositiva efectiva acotada entre 10% y 35%
     eff_tax = 0.21
     if ebt_curr > 0 and tax_curr > 0:
         eff_tax = min(max(tax_curr / ebt_curr, 0.10), 0.35)
 
-    ebit_margin_pct = round((ebit_curr / rev_curr) * 100.0, 2) if rev_curr > 0 else 15.0
+    ebit_margin_pct = (
+        round((effective_operating_profit / rev_curr) * 100.0, 2)
+        if (rev_curr > 0 and effective_operating_profit != 0.0)
+        else round(fallback_ebit_margin_pct, 2)
+    )
     capex_curr_pct = round((capex_curr / rev_curr) * 100.0, 2) if rev_curr > 0 else 10.0
 
     hist_capex_ratios = [
@@ -169,7 +416,7 @@ def _audit_anomalies_and_adjustments(
     adjusted_net_inc = net_inc_curr
 
     # 1. Auditoría de Ciclo de Expansión de CapEx
-    if rev_curr > 0 and capex_curr > 0:
+    if not is_financial and rev_curr > 0 and capex_curr > 0:
         maint_capex_mm = max(rev_curr * med_capex_ratio, da_curr * 0.85)
         excess_capex_mm = capex_curr - maint_capex_mm
 
@@ -210,40 +457,37 @@ def _audit_anomalies_and_adjustments(
                     "note": "Normalizando CapEx a tasa histórica",
                 })
 
-    # 2. Auditoría de Partidas No Operativas Extraordinarias (venta de activos, revaluaciones, etc.)
-    nopat_curr = ebit_curr * (1.0 - eff_tax)
-    non_op_gap = net_inc_curr - nopat_curr
-    if abs(ebit_curr) > 0 and (
-        abs(non_op_curr) > abs(ebit_curr) * 0.15
-        or abs(non_op_gap) > abs(ebit_curr) * 0.25
-    ):
-        # Si hay partida no operativa explícita la aislamos; si no, usamos NOPAT como proxy operativo limpio
-        extra_item = non_op_curr * (1.0 - eff_tax) if abs(non_op_curr) > abs(ebit_curr) * 0.10 else non_op_gap
-        adjusted_net_inc = round(net_inc_curr - extra_item, 2)
-        direction = "inflando" if extra_item > 0 else "reduciendo"
-        flags.append({
-            "code": "NON_OPERATING_SHOCK",
-            "severity": "info" if extra_item > 0 else "warning",
-            "title": "Partidas no operativas materiales debajo del EBIT",
-            "detail": (
-                f"Se detectan resultados no operativos / extraordinarios por US$ {extra_item:,.2f} MM netos, "
-                f"{direction} el Beneficio Neto reportado (US$ {net_inc_curr:,.2f} MM) respecto al resultado operativo recurrente."
-            ),
-            "impact_mm": round(extra_item, 2),
-        })
-
-        rep_pe = ltm_multiples.get("pe")
-        adj_pe = _safe_multiple(current_mcap_mm, adjusted_net_inc)
-        if rep_pe is not None and adj_pe is not None:
-            comparisons.append({
-                "metric": "P / E (LTM)",
-                "reported": f"{rep_pe:.2f}x",
-                "adjusted": f"{adj_pe:.2f}x",
-                "note": "Excluyendo impacto no operativo neto",
+    # 2. Auditoría de Partidas No Operativas Extraordinarias
+    if not is_financial and abs(ebit_curr) > 0:
+        nopat_curr = ebit_curr * (1.0 - eff_tax)
+        non_op_gap = net_inc_curr - nopat_curr
+        if abs(non_op_curr) > abs(ebit_curr) * 0.15 or abs(non_op_gap) > abs(ebit_curr) * 0.25:
+            extra_item = non_op_curr * (1.0 - eff_tax) if abs(non_op_curr) > abs(ebit_curr) * 0.10 else non_op_gap
+            adjusted_net_inc = round(net_inc_curr - extra_item, 2)
+            direction = "inflando" if extra_item > 0 else "reduciendo"
+            flags.append({
+                "code": "NON_OPERATING_SHOCK",
+                "severity": "info" if extra_item > 0 else "warning",
+                "title": "Partidas no operativas materiales debajo del EBIT",
+                "detail": (
+                    f"Se detectan resultados no operativos / extraordinarios por US$ {extra_item:,.2f} MM netos, "
+                    f"{direction} el Beneficio Neto reportado (US$ {net_inc_curr:,.2f} MM) respecto al resultado operativo recurrente."
+                ),
+                "impact_mm": round(extra_item, 2),
             })
 
+            rep_pe = ltm_multiples.get("pe")
+            adj_pe = _safe_multiple(current_mcap_mm, adjusted_net_inc)
+            if rep_pe is not None and adj_pe is not None:
+                comparisons.append({
+                    "metric": "P / E (LTM)",
+                    "reported": f"{rep_pe:.2f}x",
+                    "adjusted": f"{adj_pe:.2f}x",
+                    "note": "Excluyendo impacto no operativo neto",
+                })
+
     # 3. Auditoría de Compensación Basada en Acciones (SBC)
-    if cfo_curr > 0 and (sbc_curr / cfo_curr) > 0.25:
+    if not is_financial and cfo_curr > 0 and (sbc_curr / cfo_curr) > 0.25:
         fcf_ex_sbc = round(fcf_curr - sbc_curr, 2)
         flags.append({
             "code": "HIGH_SBC",
@@ -266,7 +510,7 @@ def _audit_anomalies_and_adjustments(
             })
 
     # 4. Auditoría de Shock de Capital de Trabajo
-    if abs(cfo_curr) > 0 and abs(wc_curr) > abs(cfo_curr) * 0.20:
+    if not is_financial and abs(cfo_curr) > 0 and abs(wc_curr) > abs(cfo_curr) * 0.20:
         direction_wc = "consumo" if wc_curr < 0 else "liberación puntual"
         flags.append({
             "code": "WORKING_CAPITAL_SWING",
@@ -292,18 +536,27 @@ def _audit_anomalies_and_adjustments(
 
 
 def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
-    """
-    Construye la tabla histórica de múltiplos, ejecuta la auditoría de anomalías contables
-    y prepara los inputs para el DCF en 2 etapas con doble método de Valor Terminal.
-    """
     ticker_upper = ticker_symbol.upper()
 
     raw_facts = get_raw_financials(ticker_upper, db)
-    annual_rows = extract_annual_metrics(raw_facts)
+    try:
+        annual_rows = extract_annual_metrics(raw_facts)
+    except ValueError:
+        annual_rows = []
+
     market_snapshot = get_cached_market_snapshot(ticker_upper, db)
-    annual_prices = _get_annual_closing_prices(ticker_upper, db)
+    estimates_data = get_cached_estimates_and_guidance(ticker_upper, db)
+
+    current_year = datetime.now().year
+    years_range = [str(y) for y in range(current_year - 6, current_year + 1)]
+    annual_prices, split_factors = _get_annual_prices_and_splits(ticker_upper, years_range, db)
+
+    classification = estimates_data.get("classification", {})
+    sector_routing = _detect_sector_profile(classification)
+    is_financial = sector_routing["profile"] == "financial"
 
     info: dict[str, Any] = market_snapshot.get("info", {})
+    fx_rate = float(market_snapshot.get("fx_rate") or 1.0)
     current_price = float(market_snapshot.get("price") or 0.0)
     current_shares_mm = float(market_snapshot.get("shares_mm") or 0.0)
     current_net_debt_mm = float(market_snapshot.get("net_debt_mm") or 0.0)
@@ -311,24 +564,30 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
     current_mcap_mm = round(current_price * current_shares_mm, 2) if (current_price > 0 and current_shares_mm > 0) else None
     current_ev_mm = round(current_mcap_mm + current_net_debt_mm, 2) if current_mcap_mm is not None else None
 
-    current_year = datetime.now().year
-    years_range = [str(y) for y in range(current_year - 6, current_year + 1)]
+    ebit_margin_raw = info.get("operatingMargins")
+    fallback_ebit_margin_pct = round(float(ebit_margin_raw) * 100.0, 2) if ebit_margin_raw is not None else 15.0
 
     lookup: dict[str, dict[str, float]] = {}
     for row in annual_rows:
         m = row.get("Métrica", "")
-        lookup[m] = {y: float(row.get(y, 0.0) or 0.0) for y in years_range}
+        is_share_metric = "Acciones" in m or "BPA" in m or row.get("is_pct")
+        mult = 1.0 if is_share_metric else fx_rate
+        lookup[m] = {y: float(row.get(y, 0.0) or 0.0) * mult for y in years_range}
 
     def get_m(metric: str, y: str) -> float:
         return lookup.get(metric, {}).get(y, 0.0)
 
     yearly_multiples: dict[str, dict[str, float | None]] = {}
     valid_years: list[str] = []
+    roe_series: list[float] = []
 
     for y in years_range:
         rev = get_m("Ingresos Totales", y)
         gp = get_m("Beneficio Bruto", y)
         ebit = get_m("Beneficio Operativo", y)
+        if ebit == 0.0 and rev > 0 and ebit_margin_raw is not None:
+            ebit = rev * float(ebit_margin_raw)
+
         da = get_m("Depreciación y Amortización", y)
         ebitda = ebit + da if (ebit != 0.0 or da != 0.0) else 0.0
         net_inc = get_m("Beneficio Neto", y)
@@ -336,16 +595,23 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         equity = get_m("Patrimonio neto", y)
         goodwill = get_m("Fondo de comercio", y)
         intangibles = get_m("Activos intangibles", y)
-        tangible_equity = equity - goodwill - intangibles
+
+        tangible_equity = (equity - goodwill - intangibles) if equity > 0 else 0.0
 
         cash = get_m("Efectivo y equivalentes", y) + get_m("Inversiones a corto plazo", y)
         debt = get_m("Deuda a corto plazo", y) + get_m("Deuda a largo plazo", y)
         net_debt = debt - cash
 
-        shares = get_m("Acciones en Circulación (Diluidas)", y)
-        if shares <= 0:
-            shares = get_m("Acciones en Circulación (Básicas)", y)
-        if shares <= 0:
+        # Ajustamos las acciones históricas del 10-K/20-F por los stock splits posteriores
+        # y validamos que no vengan en escala errónea (ej. NU en 2022)
+        shares_raw_y = get_m("Acciones en Circulación (Diluidas)", y)
+        if shares_raw_y <= 0:
+            shares_raw_y = get_m("Acciones en Circulación (Básicas)", y)
+        if shares_raw_y > 0:
+            shares = shares_raw_y * split_factors.get(y, 1.0)
+            if current_shares_mm > 0 and shares < (current_shares_mm * 0.15):
+                shares = current_shares_mm
+        else:
             shares = current_shares_mm
 
         price_y = annual_prices.get(y)
@@ -354,6 +620,9 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
             continue
 
         valid_years.append(y)
+        if equity > 0 and net_inc != 0.0:
+            roe_series.append(round((net_inc / equity) * 100.0, 2))
+
         mcap_y = round(price_y * shares, 2) if (price_y is not None and shares > 0) else None
         ev_y = round(mcap_y + net_debt, 2) if mcap_y is not None else None
         fcf_yield = round((fcf / mcap_y) * 100.0, 2) if (mcap_y is not None and mcap_y > 0 and fcf != 0.0) else None
@@ -367,8 +636,8 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
             "ev_ebit": _safe_multiple(ev_y, ebit),
             "ev_gp": _safe_multiple(ev_y, gp),
             "pe": _safe_multiple(mcap_y, net_inc),
-            "pb": _safe_multiple(mcap_y, equity),
-            "ptbv": _safe_multiple(mcap_y, tangible_equity),
+            "pb": _safe_multiple(mcap_y, equity) if equity > 0 else None,
+            "ptbv": _safe_multiple(mcap_y, tangible_equity) if tangible_equity > 0 else None,
             "ev_fcf": _safe_multiple(ev_y, fcf),
             "pfcf": _safe_multiple(mcap_y, fcf),
             "fcf_yield": fcf_yield,
@@ -377,19 +646,18 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
             "factor_mcap": mcap_y,
         }
 
-    # Métricas LTM / Forward
-    rev_ltm = (info.get("totalRevenue") or 0) / 1_000_000.0
-    gp_ltm = (info.get("grossProfits") or 0) / 1_000_000.0
-    ebitda_ltm = (info.get("ebitda") or 0) / 1_000_000.0
-    ebit_margin = info.get("operatingMargins")
-    ebit_ltm = (rev_ltm * float(ebit_margin)) if (rev_ltm > 0 and ebit_margin is not None) else 0.0
-    net_inc_ltm = (info.get("netIncomeToCommon") or 0) / 1_000_000.0
+    # Métricas LTM / Forward convertidas a moneda de cotización (USD)
+    rev_ltm = ((info.get("totalRevenue") or 0) * fx_rate) / 1_000_000.0
+    gp_ltm = ((info.get("grossProfits") or 0) * fx_rate) / 1_000_000.0
+    ebitda_ltm = ((info.get("ebitda") or 0) * fx_rate) / 1_000_000.0
+    ebit_ltm = (rev_ltm * float(ebit_margin_raw)) if (rev_ltm > 0 and ebit_margin_raw is not None) else 0.0
+    net_inc_ltm = ((info.get("netIncomeToCommon") or 0) * fx_rate) / 1_000_000.0
 
     latest_sec_fcf = get_m("Flujo de caja libre (FCF)", valid_years[-1]) if valid_years else 0.0
     latest_sec_rev = get_m("Ingresos Totales", valid_years[-1]) if valid_years else 0.0
     latest_sec_da = get_m("Depreciación y Amortización", valid_years[-1]) if valid_years else 0.0
-    yf_ocf = (info.get("operatingCashflow") or 0) / 1_000_000.0
-    yf_fcf = (info.get("freeCashflow") or 0) / 1_000_000.0
+    yf_ocf = ((info.get("operatingCashflow") or 0) * fx_rate) / 1_000_000.0
+    yf_fcf = ((info.get("freeCashflow") or 0) * fx_rate) / 1_000_000.0
 
     fcf_ltm = latest_sec_fcf if latest_sec_fcf != 0.0 else (yf_fcf if yf_fcf != 0.0 else yf_ocf)
     rev_base = rev_ltm if rev_ltm > 0 else latest_sec_rev
@@ -407,6 +675,16 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         if fwd_eps != 0:
             pe_ntm = round(current_price / fwd_eps, 2)
 
+    latest_goodwill_ltm = get_m("Fondo de comercio", valid_years[-1]) if valid_years else 0.0
+    latest_intangibles_ltm = get_m("Activos intangibles", valid_years[-1]) if valid_years else 0.0
+    implied_eq_ltm = (current_mcap_mm / pb_ltm) if (current_mcap_mm and pb_ltm and pb_ltm > 0) else 0.0
+    implied_tangible_ltm = implied_eq_ltm - latest_goodwill_ltm - latest_intangibles_ltm
+    ptbv_ltm = (
+        yearly_multiples[valid_years[-1]]["ptbv"]
+        if (valid_years and yearly_multiples[valid_years[-1]]["ptbv"] is not None)
+        else (_safe_multiple(current_mcap_mm, implied_tangible_ltm) if implied_tangible_ltm > 0 else None)
+    )
+
     ltm_multiples: dict[str, float | None] = {
         "ev_sales_ntm": _safe_multiple(current_ev_mm, rev_ntm),
         "pe_ntm": pe_ntm,
@@ -417,7 +695,7 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         "ev_gp": _safe_multiple(current_ev_mm, gp_ltm),
         "pe": _safe_multiple(current_mcap_mm, net_inc_ltm),
         "pb": pb_ltm,
-        "ptbv": yearly_multiples[valid_years[-1]]["ptbv"] if valid_years else None,
+        "ptbv": ptbv_ltm,
         "ev_fcf": _safe_multiple(current_ev_mm, fcf_ltm),
         "pfcf": _safe_multiple(current_mcap_mm, fcf_ltm),
         "fcf_yield": fcf_yield_ltm,
@@ -426,33 +704,53 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         "factor_mcap": current_mcap_mm,
     }
 
-    # Auditoría de distorsiones contables
     audit = _audit_anomalies_and_adjustments(
         valid_years=valid_years,
         get_m=get_m,
         current_mcap_mm=current_mcap_mm,
         current_ev_mm=current_ev_mm,
         ltm_multiples=ltm_multiples,
+        is_financial=is_financial,
+        fallback_ebit_margin_pct=fallback_ebit_margin_pct,
     )
 
-    metric_definitions = [
-        {"key": "ev_sales_ntm", "label": "EV / Ingresos NTM", "suffix": "x", "section": "Múltiplos Futuros (NTM)"},
-        {"key": "pe_ntm", "label": "NTM Price / Earnings (P/E)", "suffix": "x", "section": "Múltiplos Futuros (NTM)"},
-        {"key": "ev_sales", "label": "EV / Ventas (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
-        {"key": "ev_ebitda", "label": "EV / EBITDA (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
-        {"key": "ev_ebit", "label": "EV / EBIT (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
-        {"key": "ev_gp", "label": "EV / Beneficio Bruto (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
-        {"key": "ev_fcf", "label": "EV / Flujo de Caja Libre (Unlevered)", "suffix": "x", "section": "Trailing Multiples (EV)"},
-        {"key": "ps", "label": "Precio / Ventas (P/S)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
-        {"key": "pe", "label": "Precio / Beneficio (P/E)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
-        {"key": "pb", "label": "Precio / Valor Libros (P/BV)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
-        {"key": "ptbv", "label": "Precio / Valor Contable Tangible (P/TBV)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
-        {"key": "pfcf", "label": "Precio / Flujo de Caja Libre (P/FCF)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
-        {"key": "fcf_yield", "label": "FCF Yield %", "suffix": "%", "section": "Trailing Multiples (Equity)"},
-        {"key": "factor_price", "label": "Precio de cierre (US$)", "suffix": "", "section": "Price Factors"},
-        {"key": "factor_ev", "label": "Valor Empresarial Total (MM)", "suffix": "", "section": "Price Factors"},
-        {"key": "factor_mcap", "label": "Capitalización Bursátil (MM)", "suffix": "", "section": "Price Factors"},
-    ]
+    trajectory = _analyze_trajectory_and_margins(
+        valid_years=valid_years,
+        get_m=get_m,
+        estimates_data=estimates_data,
+        fallback_ebit_margin_pct=fallback_ebit_margin_pct,
+        fx_rate=fx_rate,
+    )
+
+    if is_financial:
+        metric_definitions = [
+            {"key": "pe_ntm", "label": "NTM Price / Earnings (P/E)", "suffix": "x", "section": "Múltiplos Futuros (NTM)"},
+            {"key": "pe", "label": "Precio / Beneficio (P/E)", "suffix": "x", "section": "Múltiplos Bancarios y Patrimoniales"},
+            {"key": "pb", "label": "Precio / Valor Libros (P/BV)", "suffix": "x", "section": "Múltiplos Bancarios y Patrimoniales"},
+            {"key": "ptbv", "label": "Precio / Valor Contable Tangible (P/TBV)", "suffix": "x", "section": "Múltiplos Bancarios y Patrimoniales"},
+            {"key": "ps", "label": "Precio / Ingresos Financieros (P/S)", "suffix": "x", "section": "Múltiplos Bancarios y Patrimoniales"},
+            {"key": "factor_price", "label": "Precio de cierre (US$)", "suffix": "", "section": "Price Factors"},
+            {"key": "factor_mcap", "label": "Capitalización Bursátil (MM)", "suffix": "", "section": "Price Factors"},
+        ]
+    else:
+        metric_definitions = [
+            {"key": "ev_sales_ntm", "label": "EV / Ingresos NTM", "suffix": "x", "section": "Múltiplos Futuros (NTM)"},
+            {"key": "pe_ntm", "label": "NTM Price / Earnings (P/E)", "suffix": "x", "section": "Múltiplos Futuros (NTM)"},
+            {"key": "ev_sales", "label": "EV / Ventas (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
+            {"key": "ev_ebitda", "label": "EV / EBITDA (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
+            {"key": "ev_ebit", "label": "EV / EBIT (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
+            {"key": "ev_gp", "label": "EV / Beneficio Bruto (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
+            {"key": "ev_fcf", "label": "EV / Flujo de Caja Libre (Unlevered)", "suffix": "x", "section": "Trailing Multiples (EV)"},
+            {"key": "ps", "label": "Precio / Ventas (P/S)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
+            {"key": "pe", "label": "Precio / Beneficio (P/E)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
+            {"key": "pb", "label": "Precio / Valor Libros (P/BV)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
+            {"key": "ptbv", "label": "Precio / Valor Contable Tangible (P/TBV)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
+            {"key": "pfcf", "label": "Precio / Flujo de Caja Libre (P/FCF)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
+            {"key": "fcf_yield", "label": "FCF Yield %", "suffix": "%", "section": "Trailing Multiples (Equity)"},
+            {"key": "factor_price", "label": "Precio de cierre (US$)", "suffix": "", "section": "Price Factors"},
+            {"key": "factor_ev", "label": "Valor Empresarial Total (MM)", "suffix": "", "section": "Price Factors"},
+            {"key": "factor_mcap", "label": "Capitalización Bursátil (MM)", "suffix": "", "section": "Price Factors"},
+        ]
 
     table_rows: list[dict[str, Any]] = []
     med_by_key: dict[str, float | None] = {}
@@ -484,23 +782,54 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
 
     da_sales_pct = round((latest_sec_da / latest_sec_rev) * 100.0, 2) if latest_sec_rev > 0 else 8.0
 
-    # Para el Múltiplo de Salida (Año +5, etapa madura), evitamos usar EV/FCF crudo si estuvo
-    # distorsionado por CapEx de expansión; priorizamos EV/FCF normalizado o mediana 5Y de EV/EBITDA.
     adj_ev_fcf = _safe_multiple(current_ev_mm, audit["adjusted_fcf_mm"])
     med_ev_ebitda = med_by_key.get("ev_ebitda")
     raw_exit = adj_ev_fcf or med_ev_ebitda or med_by_key.get("ev_fcf") or 20.0
     exit_ev_fcf_default = min(max(float(raw_exit), 12.0), 28.0)
 
+    beta_val = float(info.get("beta") or 1.0)
+    suggested_wacc_pct = round(min(max(4.25 + beta_val * 4.5, 7.2), 12.5), 1)
+    cost_of_equity_pct = round(min(max(4.25 + beta_val * 5.0, 8.0), 14.5), 1)
+
+    # Inputs para modelo Excess Return (Entidades Financieras / Bancos)
+    latest_equity_mm = get_m("Patrimonio neto", valid_years[-1]) if valid_years else 0.0
+    if latest_equity_mm <= 0 and pb_ltm and pb_ltm > 0 and current_mcap_mm:
+        latest_equity_mm = round(current_mcap_mm / pb_ltm, 2)
+
+    latest_goodwill = get_m("Fondo de comercio", valid_years[-1]) if valid_years else 0.0
+    latest_intangibles = get_m("Activos intangibles", valid_years[-1]) if valid_years else 0.0
+    tangible_equity_mm = max(latest_equity_mm - latest_goodwill - latest_intangibles, 0.0)
+
+    bvps = round(latest_equity_mm / current_shares_mm, 2) if (current_shares_mm > 0 and latest_equity_mm > 0) else 0.0
+    tbvps = round(tangible_equity_mm / current_shares_mm, 2) if (current_shares_mm > 0 and tangible_equity_mm > 0) else bvps
+
+    yf_roe = info.get("returnOnEquity")
+    yf_roe_pct = round(float(yf_roe) * 100.0, 2) if yf_roe is not None else None
+    hist_roe_med = round(median(roe_series[-5:]), 2) if roe_series else 12.0
+    base_roe_pct = yf_roe_pct if (yf_roe_pct is not None and -20.0 <= yf_roe_pct <= 45.0) else hist_roe_med
+
+    payout_raw = info.get("payoutRatio")
+    payout_pct = round(min(max(float(payout_raw) * 100.0, 10.0), 75.0), 1) if payout_raw is not None else 35.0
+
+    med_ptbv = med_by_key.get("ptbv") or ltm_multiples.get("ptbv") or 1.8
+    exit_ptbv_default = round(min(max(float(med_ptbv), 1.0), 2.8), 2)
+
     return {
         "ticker": ticker_upper,
+        "classification": classification,
+        "sector_routing": sector_routing,
         "years": valid_years,
         "rows": table_rows,
         "audit": audit,
+        "trajectory": trajectory,
         "dcf_inputs": {
             "current_price": round(current_price, 2),
             "shares_mm": round(current_shares_mm, 2),
             "net_debt_mm": round(current_net_debt_mm, 2),
             "revenue_base_mm": round(rev_base, 2),
+            "recommended_rev_growth_pct": trajectory["recommended_rev_growth_pct"],
+            "suggested_wacc_pct": suggested_wacc_pct,
+            "margin_step_pct_yr": trajectory["margin_step_pct_yr"],
             "fcf_reported_mm": round(fcf_ltm, 2),
             "fcf_adjusted_mm": audit["adjusted_fcf_mm"],
             "ebit_margin_pct": audit["ebit_margin_pct"],
@@ -509,6 +838,21 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
             "capex_expansion_pct": audit["capex_current_pct"],
             "capex_maintenance_pct": audit["capex_maint_pct"],
             "exit_multiple_default": round(exit_ev_fcf_default, 1),
+            "target_price": info.get("targetMeanPrice"),
+        },
+        "financial_sector_inputs": {
+            "current_price": round(current_price, 2),
+            "shares_mm": round(current_shares_mm, 2),
+            "book_value_mm": round(latest_equity_mm, 2),
+            "tangible_book_value_mm": round(tangible_equity_mm, 2),
+            "bvps": bvps,
+            "tbvps": tbvps,
+            "roe_pct": round(base_roe_pct, 1),
+            "roe_hist_med_pct": hist_roe_med,
+            "roa_pct": round(float(info["returnOnAssets"]) * 100.0, 2) if info.get("returnOnAssets") is not None else None,
+            "cost_of_equity_pct": cost_of_equity_pct,
+            "payout_ratio_pct": payout_pct,
+            "exit_ptbv_default": exit_ptbv_default,
             "target_price": info.get("targetMeanPrice"),
         },
     }
