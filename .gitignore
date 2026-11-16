@@ -1,0 +1,21 @@
+# Entornos virtuales y caché de Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Bases de datos SQLite locales
+*.db
+*.sqlite
+*.sqlite3
+
+# Variables de entorno y frontend
+.env
+node_modules/
+dist/
+
+*.db
+*.sqlite
+venv/
+.venv/
+__pycache__/
