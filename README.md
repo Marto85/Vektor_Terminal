@@ -1,34 +1,42 @@
-# Terminal Financiera (Clon TIKR)
+# Terminal Financiera
 
-Plataforma de análisis fundamental orientada a la extracción y estandarización automatizada de estados financieros mediante la API de EDGAR (SEC) y Yahoo Finance.
+Plataforma web full-stack de análisis fundamental, valoración intrínseca y screening cuantitativo de empresas cotizantes globales y ADRs, construida sobre datos oficiales de la SEC (EDGAR) y Yahoo Finance con persistencia y caché local en SQLite.
 
-## Arquitectura (Etapa 1)
-- **Backend:** Python (FastAPI) para gestión de API REST.
-- **Datos:** Pandas para limpieza/pivot de XBRL, SQLite para caché local.
-- **Fuentes:** 
-  - `data.sec.gov` (Estados Financieros Históricos).
-  - `yfinance` (Datos de mercado y perfil de empresa).
+## Arquitectura y Stack Tecnológico (Etapas 1 y 2)
 
-## Configuración Inicial
-1. Abrir Git Bash en `C:\Users\marto\Desktop\Martin\Finanzas-IA\Terminal Financiera`
-2. Activar entorno: `source backend/venv/Scripts/activate`
-3. Instalar dependencias: `pip install -r backend/requirements.txt`
-4. Ajustar el `SEC_USER_AGENT` en `backend/app/core/config.py` con credenciales reales para evitar bloqueos HTTP 403.
+- **Backend:** Python 3 + FastAPI (`backend/app`)
+  - **Estados Contables y Ratios:** Extracción y estandarización XBRL desde `data.sec.gov` (formularios 10-K y comunicados 8-K Ítem 2.02) con cálculo histórico de márgenes, retornos y solvencia.
+  - **Datos de Mercado y Normalización FX / FCF:** Cliente `yfinance` con conversión automática de moneda contable a moneda de cotización (`{FIN}{TRADE}=X` para ADRs de LatAm/internacionales), cálculo auditado de flujo de caja libre móvil ($\text{FCF LTM} = \text{OCF}_{\text{LTM}} - \vert{}\text{CapEx}_{\text{LTM}}\vert{}$) y exclusión sectorial de métricas no aplicables en entidades financieras.
+  - **Motores de Valoración y Comparables:** DCF en 2 etapas (expansión vs. mantenimiento) con doble valor terminal, modelo bancario *Excess Return*, comparables sectoriales automáticos, comparador manual multi-empresa y Screener Fundamental sobre universo curado.
+  - **Caché Local:** SQLite (`CompanyData`, `CompanyProfile`, `CompanyMarketCache` con TTL de 4 h, `CompanyEstimatesCache` con TTL de 24 h).
+- **Frontend:** React + Vite + Tailwind CSS (`frontend/src`)
+  - Gráficos interactivos OHLCV (`TradingView Lightweight Charts`), tablas financieras con encabezados fijos, glosario lateral interactivo y exportación a CSV.
 
-## Ejecución del Proyecto
+## Estructura Principal del Proyecto
 
-Para levantar la aplicación completa, necesitás ejecutar el backend y el frontend en paralelo. Abrí dos instancias de **Git Bash** en la raíz del proyecto (`Terminal Financiera`) y seguí estos pasos:
-
-### 1. Iniciar el Backend (Python / FastAPI)
-En la primera terminal, ingresá a la carpeta del backend, activá el entorno virtual y levantá el servidor:
-
-```bash
-cd backend
-source venv/Scripts/activate
-uvicorn app.main:app --reload
-
-### 2. Iniciar el Frontend (React)
-En otra terminal, ingresá a la carpeta del frontend y ejecuta el siguiente comando:
-
-```bash
-npm run dev
+```text
+Terminal Financiera/
+├── backend/
+│   ├── app/
+│   │   ├── api/endpoints.py            # Rutas REST (/profile, /financials, /valuation, /peers, /compare, /screener, /search, /history)
+│   │   ├── core/yf_client.py           # Caché de mercado (TTL 4h), normalización FX y cálculo FCF LTM
+│   │   ├── models/database.py          # Esquema SQLite y sesiones SQLAlchemy
+│   │   └── services/
+│   │       ├── company_service.py      # Descarga y caché de hechos XBRL SEC
+│   │       ├── financial_parser.py     # Estandarización de Balance, Resultados y Flujo de Efectivo
+│   │       ├── ratios_calculator.py    # Cálculo de ratios financieros históricos
+│   │       ├── valuation_service.py    # Auditoría contable, consenso WS, DCF 2 etapas y Excess Return
+│   │       ├── peers_service.py        # Comparables sectoriales y matriz manual (hasta 5 tickers)
+│   │       └── screener_service.py     # Universo curado (~68 emisores) y sincronización por lotes
+│   └── requirements.txt
+└── frontend/
+    └── src/
+        ├── components/
+        │   ├── StockChart.jsx              # Gráfico histórico multi-métrica
+        │   ├── CapitalStructurePanel.jsx   # Panel de escala, eficiencia, caja y múltiplos
+        │   ├── ValuationTab.jsx            # Múltiplos históricos, modelos DCF/Excess Return y Competidores
+        │   ├── ComparatorTab.jsx           # Comparador manual lado a lado (hasta 5 empresas)
+        │   ├── ScreenerTab.jsx             # Buscador fundamental con presets, agrupación y CSV
+        │   └── MetricInfoDrawer.jsx        # Glosario lateral de definiciones y rangos
+        ├── data/metricsGlossary.js
+        └── App.jsx
