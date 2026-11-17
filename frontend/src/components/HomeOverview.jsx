@@ -503,7 +503,7 @@ export default function HomeOverview({
             </div>
           </div>
 
-          <div className="flex-1 divide-y divide-gray-100 max-h-[380px] overflow-y-auto">
+          <div className="flex-1 divide-y divide-gray-100 max-h-95 overflow-y-auto">
             {filteredNews.length === 0 ? (
               <div className="py-12 px-5 text-center text-xs text-gray-500">
                 No hay titulares disponibles en esta categoría en este momento.
