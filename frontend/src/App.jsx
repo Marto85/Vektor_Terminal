@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
 import {
   FileText,
   BarChart3,
   PieChart,
   Scale,
+  Filter,
   Search,
   Bell,
   Settings,
@@ -21,6 +22,7 @@ import StockChart from "./components/StockChart";
 import CapitalStructurePanel from "./components/CapitalStructurePanel";
 import ValuationTab from "./components/ValuationTab";
 import ComparatorTab from "./components/ComparatorTab";
+import ScreenerTab from "./components/ScreenerTab";
 import MetricInfoDrawer from "./components/MetricInfoDrawer";
 import { getGlossaryEntry } from "./data/metricsGlossary";
 
@@ -56,6 +58,7 @@ function App() {
     { id: "Finanzas", name: "Finanzas", icon: BarChart3 },
     { id: "Valoracion", name: "Valoración", icon: PieChart },
     { id: "Comparador", name: "Comparador", icon: Scale },
+    { id: "Screener", name: "Screener", icon: Filter },
   ];
 
   const contentTabs = [
@@ -93,6 +96,36 @@ function App() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const initDefaultCompany = async () => {
+      try {
+        const [finResponse, profResponse] = await Promise.all([
+          axios.get("http://127.0.0.1:8000/api/v1/company/MSFT/financials/annual"),
+          axios.get("http://127.0.0.1:8000/api/v1/company/MSFT/profile"),
+        ]);
+        if (!cancelled) {
+          setFinancialData(finResponse.data);
+          setProfileData(profResponse.data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Error cargando empresa inicial:", err);
+        }
+      }
+    };
+
+    initDefaultCompany();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleOpenFromScreener = (selectedSym) => {
+    setActiveSidebarTab("Resumen");
+    executeSearch(selectedSym, period);
   };
 
   const handlePeriodChange = (newPeriod) => {
@@ -356,15 +389,13 @@ function App() {
         <div className="flex-1 overflow-auto">
           <div className="max-w-7xl mx-auto px-6 py-6">
             {/* BLOQUE GLOBAL: Tarjeta Unificada Gráfico (Izq) y Panel de Datos 2 Columnas (Der) */}
-            {showChart && (
+            {showChart && activeSidebarTab !== "Screener" && (
               <div className="bg-white border border-gray-200 rounded-lg shadow-sm flex flex-col lg:flex-row mb-6 overflow-hidden">
-                {/* GRÁFICO ESTILO TIKR (TradingView Lightweight Charts) */}
                 <StockChart
                   ticker={currentTicker}
                   companyName={profileData?.name}
                 />
 
-                {/* PANEL DE DATOS DERECHO */}
                 <CapitalStructurePanel
                   summaryMetrics={profileData?.summary_metrics}
                   onOpenInfo={openGlossary}
@@ -433,8 +464,7 @@ function App() {
                               className="border-b border-gray-100 pb-3 last:border-0 last:pb-0"
                             >
                               <span className="text-[10px] font-bold text-gray-400 uppercase">
--                                 {date}
-{n.publisher}
+                                {date} · {n.publisher}
                               </span>
                               <a
                                 href={n.link}
@@ -510,7 +540,6 @@ function App() {
                 <div className="bg-white rounded-lg border border-gray-200 shadow-sm min-h-100 flex flex-col overflow-hidden">
                   <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 bg-gray-50">
                     <div className="flex space-x-2">
-                      {/* Botones dinámicos para Anual/Trimestral */}
                       <div className="flex border border-gray-300 rounded overflow-hidden">
                         <button
                           onClick={() => handlePeriodChange("annual")}
@@ -554,7 +583,6 @@ function App() {
                     ) : currentTabData.length > 0 ? (
                       <div className="w-full overflow-x-auto">
                         <table className="w-full text-[13px] text-left whitespace-nowrap">
-                          {/* ENCABEZADO OSCURO ESTILO TIKR */}
                           <thead>
                             <tr className="bg-[#333333] text-white">
                               <th className="py-2.5 px-4 font-bold sticky left-0 bg-[#333333] z-10 w-72">
@@ -705,12 +733,18 @@ function App() {
                 onOpenInfo={openGlossary}
               />
             )}
+
             {/* PESTAÑA: COMPARADOR MANUAL (HASTA 5 EMPRESAS) */}
             {activeSidebarTab === "Comparador" && (
               <ComparatorTab
                 currentTicker={currentTicker}
                 onOpenInfo={openGlossary}
               />
+            )}
+
+            {/* PESTAÑA: SCREENER FUNDAMENTAL */}
+            {activeSidebarTab === "Screener" && (
+              <ScreenerTab onSelectCompany={handleOpenFromScreener} />
             )}
           </div>
         </div>

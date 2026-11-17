@@ -11,10 +11,11 @@ from app.services.company_service import get_raw_financials
 from app.services.financial_parser import extract_annual_metrics, extract_quarterly_metrics
 from app.services.ratios_calculator import calculate_ratios
 from app.services.valuation_service import build_valuation_report
-from app.services.valuation_service import build_valuation_report
 from app.services.peers_service import build_peers_comparison, build_manual_comparison
+from app.services.screener_service import get_screener_universe, sync_screener_batch
 
 router = APIRouter()
+
 
 def get_db():
     db = SessionLocal()
@@ -23,53 +24,45 @@ def get_db():
     finally:
         db.close()
 
+
 @router.get("/company/{ticker}/profile")
 def get_profile(ticker: str, db: Session = Depends(get_db)):
     try:
-        # Pasamos la conexión de la base de datos al cliente de YF
         return get_company_profile(ticker, db)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/company/{ticker}/financials/annual")
 def get_annual_financials(ticker: str, db: Session = Depends(get_db)):
     try:
-        # 1. Obtener datos crudos de la SEC (o desde la caché en SQLite)
         raw_data = get_raw_financials(ticker, db)
-        
-        # 2. Parsear y armar el diccionario base de Estados Financieros
         financial_data = extract_annual_metrics(raw_data)
-        
-        # 3. Calcular Ratios inyectando la data parseada
+
         current_year = datetime.now().year
         years_range = [str(y) for y in range(current_year - 6, current_year + 1)]
         financial_data_with_ratios = calculate_ratios(financial_data, years_range)
-        
+
         return financial_data_with_ratios
-        
+
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/company/{ticker}/financials/quarterly")
 def get_quarterly_financials(ticker: str, db: Session = Depends(get_db)):
     try:
-        # TODO: Necesitamos adaptar company_service.py para que extraiga formularios 10-Q en vez de 10-K
-        raw_data = get_raw_financials(ticker, db, is_quarterly=True) 
-        
-        # TODO: Crear parser específico (extract_quarterly_metrics) para lidiar con el motor de 
-        # contingencias contables, ya que los trimestres tienen más baches de datos que los anuales
+        raw_data = get_raw_financials(ticker, db, is_quarterly=True)
         financial_data = extract_quarterly_metrics(raw_data)
-        
-        # TODO: Calcular ratios pasando el rango de trimestres (ej: ["Q3-25", "Q4-25", "Q1-26..."])
-        
         return financial_data
-        
+
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/company/{ticker}/valuation")
 def get_company_valuation(ticker: str, db: Session = Depends(get_db)):
@@ -80,6 +73,7 @@ def get_company_valuation(ticker: str, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error calculando valoración: {str(e)}")
 
+
 @router.get("/company/{ticker}/peers")
 def get_company_peers(ticker: str, db: Session = Depends(get_db)):
     try:
@@ -88,6 +82,7 @@ def get_company_peers(ticker: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error obteniendo comparables: {str(e)}")
+
 
 @router.get("/compare")
 def compare_companies(
@@ -102,20 +97,38 @@ def compare_companies(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error ejecutando comparador: {str(e)}")
 
+
+@router.get("/screener")
+def get_screener(db: Session = Depends(get_db)):
+    try:
+        return get_screener_universe(db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cargando screener: {str(e)}")
+
+
+@router.post("/screener/sync")
+def post_screener_sync(
+    batch_size: int = Query(15, ge=1, le=25),
+    db: Session = Depends(get_db),
+):
+    try:
+        return sync_screener_batch(db, batch_size=batch_size)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error sincronizando lote de screener: {str(e)}")
+
+
 @router.get("/search")
 def search_ticker(q: str):
     """
     Busca coincidencias parciales de tickers y nombres de empresas usando la API pública de YF.
     """
-    # Separamos el string para evitar que el visor HTML convierta '"' en una comilla doble
     url = f"https://query2.finance.yahoo.com/v1/finance/search?q={q}&" + "quotesCount=6&newsCount=0"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
         resp = requests.get(url, headers=headers, timeout=5)
         data = resp.json()
         quotes = data.get("quotes", [])
-        
-        # Filtramos para devolver solo nombre, ticker y tipo de activo
+
         results = [
             {
                 "ticker": item.get("symbol"),
@@ -164,7 +177,6 @@ def get_company_history(
         date_col = "Date" if "Date" in hist.columns else hist.columns[0]
         hist[date_col] = pd.to_datetime(hist[date_col]).dt.tz_localize(None)
 
-        # Datos de capitalización y deuda neta (en millones) para Market Cap y EV
         shares_mm = 0.0
         net_debt_mm = 0.0
         try:
@@ -199,7 +211,6 @@ def get_company_history(
             prev_c = prev_vals[metric_name]
             chg = round(c - prev_c, 2) if prev_c is not None else round(c - o, 2)
             if is_pct:
-                # En series ya expresadas en %, la variación diaria es la diferencia en puntos porcentuales
                 chg_pct = chg
             else:
                 ref = prev_c if (prev_c is not None and prev_c != 0) else o
@@ -225,17 +236,14 @@ def get_company_history(
             v = int(row["Volume"]) if pd.notna(row["Volume"]) else 0
             date_str = row[date_col].strftime("%Y-%m-%d")
 
-            # Factor de ajuste por dividendos y splits para Total Return y 10k Growth
             adj_c = float(row["Adj Close"]) if (has_adj and pd.notna(row["Adj Close"])) else c
             adj_factor = (adj_c / c) if c != 0 else 1.0
             adj_o = o * adj_factor
             adj_h = h * adj_factor
             adj_l = l * adj_factor
 
-            # 1. Price
             build_point("Price", date_str, o, h, l, c, v, is_pct=False)
 
-            # 2. % Change (variación acumulada del precio respecto al inicio del período)
             if first_close > 0:
                 build_point(
                     "% Change",
@@ -248,7 +256,6 @@ def get_company_history(
                     is_pct=True,
                 )
 
-            # 3. Total Return (% acumulado con dividendos reinvertidos)
             if first_adj > 0:
                 build_point(
                     "Total Return",
@@ -261,7 +268,6 @@ def get_company_history(
                     is_pct=True,
                 )
 
-                # 5. 10k Growth (evolución de USD 10.000 invertidos al inicio con dividendos)
                 build_point(
                     "10k Growth",
                     date_str,
@@ -273,7 +279,6 @@ def get_company_history(
                     is_pct=False,
                 )
 
-            # 4. Drawdowns (caída % desde el máximo alcanzado en el período)
             peak_before = running_peak
             running_peak = max(running_peak, h)
             dd_o = ((o - peak_before) / peak_before) * 100 if peak_before > 0 else 0.0
@@ -282,7 +287,6 @@ def get_company_history(
             dd_c = ((c - running_peak) / running_peak) * 100 if running_peak > 0 else 0.0
             build_point("Drawdowns", date_str, dd_o, dd_h, dd_l, dd_c, v, is_pct=True)
 
-            # 6. Market Cap (MM) y 7. Enterprise Value (MM)
             if shares_mm > 0:
                 mc_o, mc_h, mc_l, mc_c = o * shares_mm, h * shares_mm, l * shares_mm, c * shares_mm
                 build_point("Market Cap", date_str, mc_o, mc_h, mc_l, mc_c, v, is_pct=False)

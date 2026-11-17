@@ -16,6 +16,7 @@ from app.models.database import (
 
 MARKET_CACHE_TTL = timedelta(hours=4)
 ESTIMATES_CACHE_TTL = timedelta(hours=24)
+CF_LTM_SCHEMA_VERSION = 3
 SEC_HEADERS = {"User-Agent": "MiTerminalFinanciera/1.0 (contacto@miterminal.local)"}
 
 
@@ -51,9 +52,10 @@ def _to_pct(val: Any, decimals: int = 1) -> float | None:
 
 def _resolve_fx_rate_to_trade_currency(info: dict[str, Any]) -> float:
     """
-    Si `financialCurrency` (moneda de los estados contables, ej. BRL) difiere de
+    Si `financialCurrency` (moneda de los estados contables, ej. BRL, ARS) difiere de
     `currency` (moneda de cotización, ej. USD), devuelve el tipo de cambio multiplicador
-    para convertir magnitudes contables a la moneda de cotización.
+    actualizado desde Yahoo Finance (`{FIN}{TRADE}=X`) para convertir magnitudes contables
+    a la moneda de cotización.
     """
     trade_curr = str(info.get("currency") or "USD").upper()
     fin_curr = str(info.get("financialCurrency") or trade_curr).upper()
@@ -152,11 +154,12 @@ def _fetch_sec_8k_item_202(cik: str | None) -> list[dict[str, Any]]:
 
 def _extract_ltm_cashflow_metrics(
     ticker_obj: yf.Ticker, info: dict[str, Any], fx_rate: float
-) -> dict[str, float | None]:
+) -> dict[str, Any]:
     """
     Calcula OCF LTM, CapEx LTM y FCF LTM (OCF - |CapEx|) sumando los últimos 4 trimestres
     de `quarterly_cashflow` (o el último año de `cashflow` anual).
-    Si no hay tabla de flujo de efectivo disponible, hace fallback a `info`.
+    Incluye detección de escala cambiaria para ADRs (ej. BRL/ARS vs USD) para evitar doble
+    conversión cuando `quarterly_cashflow` ya viene expresado en USD.
     """
     ocf_raw: float | None = None
     capex_raw: float | None = None
@@ -201,16 +204,27 @@ def _extract_ltm_cashflow_metrics(
         except Exception:
             pass
 
-    ocf_mm = _to_mm(ocf_raw, fx_rate) if ocf_raw is not None else _to_mm(info.get("operatingCashflow"), fx_rate)
-    capex_mm = round(abs(_to_mm(capex_raw, fx_rate) or 0.0), 2) if capex_raw is not None else None
+    info_ocf_mm = _to_mm(info.get("operatingCashflow"), fx_rate)
+    info_fcf_mm = _to_mm(info.get("freeCashflow"), fx_rate)
+
+    effective_cf_fx = fx_rate
+    if ocf_raw is not None and info_ocf_mm is not None and fx_rate != 1.0 and abs(info_ocf_mm) > 0:
+        ocf_unconverted_mm = abs(ocf_raw) / 1_000_000.0
+        ocf_converted_mm = ocf_unconverted_mm * fx_rate
+        if abs(ocf_unconverted_mm - abs(info_ocf_mm)) < abs(ocf_converted_mm - abs(info_ocf_mm)):
+            effective_cf_fx = 1.0
+
+    ocf_mm = _to_mm(ocf_raw, effective_cf_fx) if ocf_raw is not None else info_ocf_mm
+    capex_mm = round(abs(_to_mm(capex_raw, effective_cf_fx) or 0.0), 2) if capex_raw is not None else None
 
     fcf_mm: float | None = None
     if ocf_mm is not None and capex_mm is not None:
         fcf_mm = round(ocf_mm - capex_mm, 2)
     else:
-        fcf_mm = _to_mm(info.get("freeCashflow"), fx_rate)
+        fcf_mm = info_fcf_mm
 
     return {
+        "schema_version": CF_LTM_SCHEMA_VERSION,
         "ocf_ltm_mm": ocf_mm,
         "capex_ltm_mm": capex_mm,
         "fcf_ltm_mm": fcf_mm,
@@ -235,7 +249,9 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         updated_at: Any = cached_row.last_updated
         cached_payload: Any = cached_row.market_data
         if isinstance(updated_at, datetime) and isinstance(cached_payload, dict):
-            if (now - updated_at) < MARKET_CACHE_TTL and "fx_rate" in cached_payload and "cf_ltm" in cached_payload:
+            cf_block = cached_payload.get("cf_ltm")
+            has_valid_cf = isinstance(cf_block, dict) and cf_block.get("schema_version") == CF_LTM_SCHEMA_VERSION
+            if (now - updated_at) < MARKET_CACHE_TTL and "fx_rate" in cached_payload and has_valid_cf:
                 return cached_payload
 
     ticker = yf.Ticker(ticker_upper)
