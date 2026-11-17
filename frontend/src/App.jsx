@@ -32,6 +32,7 @@ import CapitalStructurePanel from "./components/CapitalStructurePanel";
 import ValuationTab from "./components/ValuationTab";
 import ComparatorTab from "./components/ComparatorTab";
 import ScreenerTab from "./components/ScreenerTab";
+import FinancialHealthPanel from "./components/FinancialHealthPanel";
 import MetricInfoDrawer from "./components/MetricInfoDrawer";
 import { getGlossaryEntry } from "./data/metricsGlossary";
 
@@ -949,6 +950,12 @@ function App() {
                     </button>
                   ))}
                 </div>
+                {activeContentTab === "Ratios" && period === "annual" && (
+                  <FinancialHealthPanel
+                    ticker={currentTicker}
+                    onOpenInfo={openGlossary}
+                  />
+                )}
 
                 <div className="bg-white rounded-lg border border-gray-200 shadow-sm min-h-100 flex flex-col overflow-hidden">
                   <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 bg-gray-50">
@@ -1141,10 +1148,7 @@ function App() {
 
             {/* PESTAÑA: VALORACIÓN */}
             {activeSidebarTab === "Valoracion" && (
-              <ValuationTab
-                ticker={currentTicker}
-                onOpenInfo={openGlossary}
-              />
+              <ValuationTab ticker={currentTicker} onOpenInfo={openGlossary} />
             )}
 
             {/* PESTAÑA: COMPARADOR MANUAL (HASTA 5 EMPRESAS) */}
@@ -1190,7 +1194,10 @@ function App() {
                 </button>
               </div>
 
-              <form onSubmit={handleConfirmAddToBoard} className="p-5 space-y-4">
+              <form
+                onSubmit={handleConfirmAddToBoard}
+                className="p-5 space-y-4"
+              >
                 <div>
                   <label className="block font-semibold text-gray-700 mb-1">
                     Watchlist destino ({watchlistData?.count || 1}/

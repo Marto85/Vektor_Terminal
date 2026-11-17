@@ -165,6 +165,115 @@ export const METRICS_GLOSSARY = {
       'NOPAT de US$ 250 MM sobre un capital invertido de US$ 1.000 MM → ROIC de 25,0%.',
   },
 
+  // --- SALUD FINANCIERA, DUPONT Y CICLO DE CONVERSIÓN DE EFECTIVO (ETAPA 5) ---
+  'Piotroski F-Score': {
+    title: 'Piotroski F-Score (Calidad Fundamental 0–9)',
+    formula: 'Suma de 9 pruebas binarias interanuales (Rentabilidad [4] + Liquidez/Deuda [3] + Eficiencia [2])',
+    explanation:
+      'Creado por el profesor Joseph Piotroski (2000) para evaluar si la situación financiera de una empresa mejora o se deteriora interanualmente.',
+    evaluates:
+      'APLICABILIDAD SECTORIAL: Diseñado para empresas NO FINANCIERAS (especialmente útil para filtrar acciones value baratas y evitar trampas de valor). En bancos y aseguradoras los criterios de liquidez corriente y rotación de activos no aplican contablemente.',
+    benchmarks: [
+      '7 a 9 puntos: Fortaleza financiera y mejora operativa sólida.',
+      '4 a 6 puntos: Salud financiera neutra o en transición.',
+      '0 a 3 puntos: Deterioro fundamental o riesgo de trampa de valor.',
+    ],
+    example:
+      'Una empresa con ROA positivo, CFO > Beneficio Neto, menor deuda/activos y margen bruto creciente suma puntos hacia el rango 7–9.',
+  },
+  'Altman Z-Score': {
+    title: 'Altman Z-Score y Z\'\'-Score (Estrés Financiero)',
+    formula: 'Z = 1,2·X1 + 1,4·X2 + 3,3·X3 + 0,6·X4 + 1,0·X5  |  Z\'\' = 6,56·X1 + 3,26·X2 + 6,72·X3 + 1,05·X4',
+    explanation:
+      'Modelo discriminante desarrollado por Edward Altman (1968) para estimar la probabilidad de estrés financiero o insolvencia en un horizonte de 2 años.',
+    evaluates:
+      'APLICABILIDAD SECTORIAL: El Z-Score original es válido para empresas MANUFACTURERAS e INDUSTRIALES cotizantes. Para servicios, retail y tecnología asset-light se usa el Z\'\'-Score (sin rotación de activos X5). NO ES VÁLIDO para bancos, aseguradoras ni REITs.',
+    benchmarks: [
+      'Z Original (Manufactura): > 2,99 Zona Segura | 1,81–2,99 Zona Gris | < 1,81 Estrés.',
+      'Z\'\'-Score (Servicios/Tech): > 2,60 Zona Segura | 1,10–2,60 Zona Gris | < 1,10 Estrés.',
+    ],
+    example:
+      'Una compañía tecnológica con alta caja neta y sin deuda suele presentar un Z\'\'-Score superior a 6,0 (Zona Segura).',
+  },
+  'Descomposición DuPont': {
+    title: 'Análisis DuPont del ROE (3 y 5 Factores)',
+    formula: 'ROE = Margen Neto × Rotación de Activos × Apalancamiento Financiero (Activos / Patrimonio)',
+    explanation:
+      'Descompone el retorno sobre el patrimonio (ROE) en sus motores operativos y financieros para revelar cómo se genera la rentabilidad.',
+    evaluates:
+      'Si un ROE alto proviene de márgenes y eficiencia comercial genuina (alta calidad) o de un endeudamiento agresivo / baja tasa impositiva puntual.',
+    benchmarks: [
+      'Calidad superior: ROE impulsado por margen operativo y rotación con apalancamiento moderado (< 2,5x).',
+      'Alerta: ROE elevado únicamente porque el multiplicador de patrimonio supera 5x–6x en empresas no financieras.',
+    ],
+    example:
+      'Margen Neto 20% × Rotación 0,80x × Apalancamiento 1,50x = ROE del 24,0%.',
+  },
+  'Apalancamiento financiero (Activos / Patrimonio) (x)': {
+    title: 'Multiplicador de Patrimonio (Apalancamiento DuPont)',
+    formula: 'Total Activo ÷ Patrimonio Neto',
+    explanation:
+      'Mide cuántos dólares de activos controla la empresa por cada dólar de capital propio de los accionistas.',
+    evaluates:
+      'El tercer factor de la identidad DuPont. Cuanto más alto es, mayor es el uso de pasivos para financiar activos.',
+    benchmarks: [
+      '1,3x – 2,2x: estructura patrimonial conservadora en empresas no financieras.',
+      '8x – 12x: normal únicamente en bancos comerciales regulados.',
+    ],
+    example: 'Activos totales de US$ 300 MM y Patrimonio Neto de US$ 150 MM → 2,00x.',
+  },
+  'Días de cobro (DSO)': {
+    title: 'Días de Cobro a Clientes (DSO - Days Sales Outstanding)',
+    formula: '(Cuentas por Cobrar Promedio ÷ Ingresos Totales) × 365',
+    explanation:
+      'Cantidad promedio de días que tarda la empresa en cobrar en efectivo una venta realizada a crédito.',
+    evaluates:
+      'La eficiencia de cobranza y el poder de negociación frente a clientes. Un aumento brusco puede indicar relajación comercial para sostener ventas.',
+    benchmarks: [
+      '< 30 – 45 días: cobranza ágil.',
+      '> 75 – 90 días: ciclo largo de cobro (revisar calidad de cartera).',
+    ],
+    example: 'Cuentas por cobrar promedio de US$ 100 MM y ventas de US$ 730 MM → DSO de 50 días.',
+  },
+  'Días de inventario (DIO)': {
+    title: 'Días de Inventario (DIO - Days Inventory Outstanding)',
+    formula: '(Inventario Promedio ÷ Coste de los Bienes Vendidos) × 365',
+    explanation:
+      'Cantidad promedio de días que la mercadería permanece almacenada antes de venderse.',
+    evaluates:
+      'APLICABILIDAD: Relevante en retail, manufactura y hardware. En empresas de software puro o servicios sin stock físico vale 0 días.',
+    benchmarks: [
+      'Menor DIO indica mayor rotación de stock y menor riesgo de obsolescencia.',
+    ],
+    example: 'Inventario promedio de US$ 80 MM y costo de ventas de US$ 584 MM → DIO de 50 días.',
+  },
+  'Días de pago (DPO)': {
+    title: 'Días de Pago a Proveedores (DPO - Days Payable Outstanding)',
+    formula: '(Cuentas por Pagar Promedio ÷ Coste de los Bienes Vendidos) × 365',
+    explanation:
+      'Cantidad promedio de días que tarda la empresa en pagar sus facturas a proveedores.',
+    evaluates:
+      'El poder de negociación con la cadena de suministro: pagar más tarde financia el capital de trabajo sin costo financiero explícito.',
+    benchmarks: [
+      '45 – 90 días: habitual en cadenas comerciales e industriales con escala.',
+    ],
+    example: 'Cuentas por pagar promedio de US$ 96 MM y costo de ventas de US$ 584 MM → DPO de 60 días.',
+  },
+  'Ciclo de conversión de efectivo (CCC) días': {
+    title: 'Ciclo de Conversión de Efectivo (CCC)',
+    formula: 'DSO (Días de cobro) + DIO (Días de inventario) − DPO (Días de pago)',
+    explanation:
+      'Mide cuántos días transcurren desde que la empresa paga a sus proveedores hasta que cobra la venta final de sus clientes.',
+    evaluates:
+      'La eficiencia del capital de trabajo. Si es negativo (ej. -15 días), la empresa cobra antes de pagar a proveedores y se financia con su propio giro comercial.',
+    benchmarks: [
+      '< 0 días (negativo): ventaja competitiva de caja (típico en retail líder o suscripciones prepagas).',
+      '15 – 60 días: ciclo operativo estándar.',
+      '> 90 días: exige inmovilizar mucho capital de trabajo para crecer.',
+    ],
+    example: 'DSO 30 días + DIO 25 días − DPO 65 días = CCC de -10 días.',
+  },
+
   // --- MÚLTIPLOS DE VALORACIÓN ---
   'EV / Ventas (LTM)': {
     title: 'EV / Ventas (EV / Sales)',

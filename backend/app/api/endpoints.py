@@ -11,7 +11,7 @@ from app.models.database import SessionLocal
 from app.core.yf_client import get_company_profile
 from app.services.company_service import get_raw_financials
 from app.services.financial_parser import extract_annual_metrics, extract_quarterly_metrics
-from app.services.ratios_calculator import calculate_ratios
+from app.services.ratios_calculator import calculate_ratios, build_financial_health_report
 from app.services.valuation_service import build_valuation_report
 from app.services.peers_service import build_peers_comparison, build_manual_comparison
 from app.services.screener_service import get_screener_universe, sync_screener_batch
@@ -185,6 +185,18 @@ def get_annual_financials(ticker: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/company/{ticker}/health")
+def get_company_health(ticker: str, db: Session = Depends(get_db)):
+    try:
+        raw_data = get_raw_financials(ticker, db)
+        financial_data = extract_annual_metrics(raw_data)
+        return build_financial_health_report(ticker, financial_data, db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error evaluando salud financiera: {str(e)}")
 
 
 @router.get("/company/{ticker}/financials/quarterly")
