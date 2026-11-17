@@ -609,6 +609,36 @@ export const METRICS_GLOSSARY = {
     ],
     example: 'EBIT de US$ 500 MM e intereses anuales de US$ 50 MM → cobertura de 10,00x.',
   },
+
+  // MODELOS DE VALUACION
+  'Perpetuidad de Gordon (Valor Terminal)': {
+    title: 'Valor Terminal por Perpetuidad de Gordon (g)',
+    formula: 'Valor Terminal = FCF Estacionario Año 6 ÷ (WACC − g)',
+    explanation:
+      'Calcula cuánto vale la empresa desde el año 6 en adelante asumiendo que la conservás para siempre y su flujo de caja libre crece a una tasa perpetua moderada (g, típicamente 2,5% a 3,5%, alineada con el crecimiento nominal de la economía).',
+    evaluates:
+      'El valor intrínseco puro sin depender de qué múltiplos pague el mercado en el futuro. Es el método preferido por inversores de largo plazo (buy & hold).',
+    benchmarks: [
+      'Cuándo priorizarlo: en empresas maduras, estables o cuando querés un margen de seguridad conservador frente a una posible contracción de múltiplos bursátiles.',
+      'Precaución: en empresas tecnológicas o de alto crecimiento que seguirán creciendo por encima del PIB después del año 5, suele arrojar un valor conservador.',
+    ],
+    example:
+      'Si el FCF estacionario es US$ 10.000 MM, WACC = 9% y g = 3%, el Valor Terminal al año 5 es 10.000 ÷ (0,09 − 0,03) = US$ 166.667 MM.',
+  },
+  'Múltiplo de Salida (Valor Terminal)': {
+    title: 'Valor Terminal por Múltiplo de Salida (Exit Multiple)',
+    formula: 'Valor Terminal = FCF Normalizado Año 5 × Múltiplo EV/FCF de Salida',
+    explanation:
+      'Estima el valor de la empresa al final del año 5 suponiendo que se vende a un múltiplo de mercado razonable basado en su historial o en sus comparables sectoriales.',
+    evaluates:
+      'Combina los flujos proyectados de los primeros 5 años con la valoración relativa que el mercado suele asignar a negocios de esa calidad.',
+    benchmarks: [
+      'Cuándo priorizarlo: en compañías líderes con fuertes ventajas competitivas (moat) o alto crecimiento donde asumir g = 3% al año 6 subestima su capacidad de reinversión.',
+      'Precaución: si usás un múltiplo de salida demasiado alto (ej. de burbuja), el resultado deja de ser intrínseco y refleja euforia de mercado.',
+    ],
+    example:
+      'Con un FCF normalizado en el año 5 de US$ 10.000 MM y un múltiplo de salida de 20x, el Valor Terminal al año 5 es US$ 200.000 MM.',
+  },
 };
 
 export function getGlossaryEntry(metricName) {
