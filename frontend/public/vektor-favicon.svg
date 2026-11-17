@@ -1,0 +1,20 @@
+<svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="vektorBgGrad" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#18181b" />
+      <stop offset="100%" stop-color="#27272a" />
+    </linearGradient>
+    <linearGradient id="vektorStrokeGrad" x1="7" y1="10" x2="29" y2="10" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fb923c" />
+      <stop offset="100%" stop-color="#f97316" />
+    </linearGradient>
+  </defs>
+
+  <rect x="1" y="1" width="34" height="34" rx="8" fill="url(#vektorBgGrad)" stroke="#3f3f46" stroke-width="1" />
+
+  <path d="M8.5 11.5L17.2 25.5L27.5 10" stroke="url(#vektorStrokeGrad)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" />
+
+  <path d="M23.2 9.8H27.8V14.4" stroke="#fb923c" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" />
+
+  <circle cx="17.2" cy="25.5" r="2.1" fill="#ffffff" />
+</svg>
