@@ -1,4 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
+from pydantic import BaseModel
+from typing import Any
 from datetime import datetime
 import pandas as pd
 import yfinance as yf
@@ -14,8 +16,35 @@ from app.services.valuation_service import build_valuation_report
 from app.services.peers_service import build_peers_comparison, build_manual_comparison
 from app.services.screener_service import get_screener_universe, sync_screener_batch
 from app.services.market_overview_service import build_market_overview
+from app.services.watchlist_service import (
+    get_all_watchlists_payload,
+    create_watchlist,
+    rename_watchlist,
+    delete_watchlist,
+    reorder_watchlist_items,
+    upsert_watchlist_item,
+    remove_watchlist_item,
+    mark_notifications_read,
+    clear_all_notifications,
+)
 
 router = APIRouter()
+
+
+class WatchlistNamePayload(BaseModel):
+    name: str
+
+
+class WatchlistReorderPayload(BaseModel):
+    tickers: list[str]
+
+
+class WatchlistItemPayload(BaseModel):
+    ticker: str
+    buy_target_price: float | None = None
+    sell_target_price: float | None = None
+    thesis_note: str | None = ""
+    alerts: list[dict[str, Any]] = []
 
 
 def get_db():
@@ -32,6 +61,104 @@ def get_market_overview(db: Session = Depends(get_db)):
         return build_market_overview(db)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cargando panorama de mercado: {str(e)}")
+
+
+@router.get("/watchlists")
+def list_watchlists(db: Session = Depends(get_db)):
+    try:
+        return get_all_watchlists_payload(db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cargando watchlists: {str(e)}")
+
+
+@router.post("/watchlists")
+def post_watchlist(body: WatchlistNamePayload, db: Session = Depends(get_db)):
+    try:
+        return create_watchlist(db, body.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creando watchlist: {str(e)}")
+
+
+@router.put("/watchlists/{watchlist_id}")
+def put_watchlist(watchlist_id: int, body: WatchlistNamePayload, db: Session = Depends(get_db)):
+    try:
+        return rename_watchlist(db, watchlist_id, body.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error renombrando watchlist: {str(e)}")
+
+
+@router.delete("/watchlists/{watchlist_id}")
+def remove_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
+    try:
+        return delete_watchlist(db, watchlist_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error eliminando watchlist: {str(e)}")
+
+
+@router.put("/watchlists/{watchlist_id}/reorder")
+def put_watchlist_reorder(watchlist_id: int, body: WatchlistReorderPayload, db: Session = Depends(get_db)):
+    try:
+        return reorder_watchlist_items(db, watchlist_id, body.tickers)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reordenando watchlist: {str(e)}")
+
+
+@router.post("/watchlists/{watchlist_id}/items")
+def post_watchlist_item(watchlist_id: int, body: WatchlistItemPayload, db: Session = Depends(get_db)):
+    try:
+        return upsert_watchlist_item(
+            db=db,
+            watchlist_id=watchlist_id,
+            ticker=body.ticker,
+            buy_target_price=body.buy_target_price,
+            sell_target_price=body.sell_target_price,
+            thesis_note=body.thesis_note,
+            alerts=body.alerts,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error guardando empresa en watchlist: {str(e)}")
+
+
+@router.delete("/watchlists/{watchlist_id}/items/{ticker}")
+def delete_watchlist_item(watchlist_id: int, ticker: str, db: Session = Depends(get_db)):
+    try:
+        return remove_watchlist_item(db, watchlist_id, ticker)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error quitando empresa de watchlist: {str(e)}")
+
+
+@router.post("/notifications/read-all")
+def post_notifications_read_all(db: Session = Depends(get_db)):
+    try:
+        return mark_notifications_read(db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error marcando notificaciones como leídas: {str(e)}")
+
+
+@router.post("/notifications/{notification_id}/read")
+def post_notification_read(notification_id: int, db: Session = Depends(get_db)):
+    try:
+        return mark_notifications_read(db, notification_id=notification_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error marcando notificación como leída: {str(e)}")
+
+
+@router.delete("/notifications")
+def delete_all_notifications(db: Session = Depends(get_db)):
+    try:
+        return clear_all_notifications(db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error limpiando historial de notificaciones: {str(e)}")
 
 
 @router.get("/company/{ticker}/profile")

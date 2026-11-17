@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import {
   Home,
+  Bookmark,
   FileText,
   BarChart3,
   PieChart,
@@ -18,9 +19,14 @@ import {
   ChevronUp,
   ChevronDown,
   Info,
+  X,
+  Check,
+  CheckCheck,
 } from "lucide-react";
 import BrandLogo from "./components/BrandLogo";
 import HomeOverview from "./components/HomeOverview";
+import WatchlistTab from "./components/WatchlistTab";
+import { ALERTABLE_METRICS } from "./data/watchlistConstants";
 import StockChart from "./components/StockChart";
 import CapitalStructurePanel from "./components/CapitalStructurePanel";
 import ValuationTab from "./components/ValuationTab";
@@ -43,6 +49,7 @@ function loadRecentTickers() {
 
 function App() {
   const [activeSidebarTab, setActiveSidebarTab] = useState("Inicio");
+  const [tableroInitialSubView, setTableroInitialSubView] = useState("lists");
   const [activeContentTab, setActiveContentTab] = useState(
     "Cuenta de Resultados",
   );
@@ -64,6 +71,42 @@ function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
 
+  // Estado Multi-Watchlist y Notificaciones (Etapa 4)
+  const [watchlistData, setWatchlistData] = useState(null);
+  const [showAlertsPopover, setShowAlertsPopover] = useState(false);
+  const alertsPopoverRef = useRef(null);
+
+  // Modal rápido "Agregar al tablero" desde la cabecera de empresa
+  const [showAddToBoardModal, setShowAddToBoardModal] = useState(false);
+  const [modalTargetWlId, setModalTargetWlId] = useState("");
+  const [modalBuyTarget, setModalBuyTarget] = useState("");
+  const [modalSellTarget, setModalSellTarget] = useState("");
+  const [modalThesis, setModalThesis] = useState("");
+  const [modalAlerts, setModalAlerts] = useState([]);
+  const [savingToBoard, setSavingToBoard] = useState(false);
+
+  useEffect(() => {
+    axios
+      .get("http://127.0.0.1:8000/api/v1/watchlists")
+      .then((res) => setWatchlistData(res.data))
+      .catch((err) => console.error("Error cargando watchlists:", err));
+  }, []);
+
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (
+        alertsPopoverRef.current &&
+        !alertsPopoverRef.current.contains(e.target)
+      ) {
+        setShowAlertsPopover(false);
+      }
+    };
+    if (showAlertsPopover) {
+      document.addEventListener("mousedown", handleOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [showAlertsPopover]);
+
   const openGlossary = (metricKey, formattedVal = null) => {
     const entry = getGlossaryEntry(metricKey);
     if (entry) {
@@ -73,6 +116,7 @@ function App() {
 
   const globalNavItems = [
     { id: "Inicio", name: "Inicio y Mercado", icon: Home },
+    { id: "Tablero", name: "Mi Tablero", icon: Bookmark },
     { id: "Screener", name: "Screener", icon: Filter },
     { id: "Comparador", name: "Comparador", icon: Scale },
   ];
@@ -173,6 +217,33 @@ function App() {
     setActiveSidebarTab("Screener");
   };
 
+  const handleOpenTablero = (sub = "lists") => {
+    setTableroInitialSubView(sub);
+    setActiveSidebarTab("Tablero");
+  };
+
+  const handleMarkNotifRead = async (notifId) => {
+    try {
+      const res = await axios.post(
+        `http://127.0.0.1:8000/api/v1/notifications/${notifId}/read`,
+      );
+      setWatchlistData(res.data);
+    } catch (err) {
+      console.error("Error marcando notificación como leída:", err);
+    }
+  };
+
+  const handleMarkAllNotifsRead = async () => {
+    try {
+      const res = await axios.post(
+        "http://127.0.0.1:8000/api/v1/notifications/read-all",
+      );
+      setWatchlistData(res.data);
+    } catch (err) {
+      console.error("Error marcando todas como leídas:", err);
+    }
+  };
+
   const handlePeriodChange = (newPeriod) => {
     if (newPeriod === period) return;
     setPeriod(newPeriod);
@@ -205,6 +276,7 @@ function App() {
     setSearchResults([]);
     const shouldSwitch =
       activeSidebarTab === "Inicio" ||
+      activeSidebarTab === "Tablero" ||
       activeSidebarTab === "Screener" ||
       activeSidebarTab === "Comparador";
     executeSearch(selectedTicker, period, shouldSwitch);
@@ -215,9 +287,96 @@ function App() {
       setShowDropdown(false);
       const shouldSwitch =
         activeSidebarTab === "Inicio" ||
+        activeSidebarTab === "Tablero" ||
         activeSidebarTab === "Screener" ||
         activeSidebarTab === "Comparador";
       executeSearch(tickerInput.trim(), period, shouldSwitch);
+    }
+  };
+
+  const openAddToBoardModal = () => {
+    const wls = watchlistData?.watchlists || [];
+    const defaultWl = wls[0];
+    const targetId = defaultWl ? String(defaultWl.id) : "";
+    setModalTargetWlId(targetId);
+
+    const existingItem = defaultWl?.items?.find(
+      (it) => it.ticker === currentTicker,
+    );
+    setModalBuyTarget(
+      existingItem?.buy_target_price
+        ? String(existingItem.buy_target_price)
+        : "",
+    );
+    setModalSellTarget(
+      existingItem?.sell_target_price
+        ? String(existingItem.sell_target_price)
+        : "",
+    );
+    setModalThesis(existingItem?.thesis_note || "");
+    setModalAlerts(
+      Array.isArray(existingItem?.alerts)
+        ? existingItem.alerts.map((a) => ({ ...a }))
+        : [],
+    );
+    setShowAddToBoardModal(true);
+  };
+
+  const handleModalWatchlistSelect = (newId) => {
+    setModalTargetWlId(newId);
+    const wl = (watchlistData?.watchlists || []).find(
+      (w) => String(w.id) === String(newId),
+    );
+    const existingItem = wl?.items?.find((it) => it.ticker === currentTicker);
+    setModalBuyTarget(
+      existingItem?.buy_target_price
+        ? String(existingItem.buy_target_price)
+        : "",
+    );
+    setModalSellTarget(
+      existingItem?.sell_target_price
+        ? String(existingItem.sell_target_price)
+        : "",
+    );
+    setModalThesis(existingItem?.thesis_note || "");
+    setModalAlerts(
+      Array.isArray(existingItem?.alerts)
+        ? existingItem.alerts.map((a) => ({ ...a }))
+        : [],
+    );
+  };
+
+  const handleConfirmAddToBoard = async (e) => {
+    e.preventDefault();
+    if (!modalTargetWlId) return;
+    setSavingToBoard(true);
+    const parsedAlerts = modalAlerts
+      .filter((r) => r.value !== "" && !Number.isNaN(Number(r.value)))
+      .map((r) => ({
+        metric: r.metric,
+        op: r.op,
+        value: Number(r.value),
+      }));
+
+    try {
+      const res = await axios.post(
+        `http://127.0.0.1:8000/api/v1/watchlists/${modalTargetWlId}/items`,
+        {
+          ticker: currentTicker,
+          buy_target_price:
+            modalBuyTarget !== "" ? Number(modalBuyTarget) : null,
+          sell_target_price:
+            modalSellTarget !== "" ? Number(modalSellTarget) : null,
+          thesis_note: modalThesis,
+          alerts: parsedAlerts,
+        },
+      );
+      setWatchlistData(res.data);
+      setShowAddToBoardModal(false);
+    } catch (err) {
+      console.error("Error guardando en tablero:", err);
+    } finally {
+      setSavingToBoard(false);
     }
   };
 
@@ -278,6 +437,13 @@ function App() {
     activeSidebarTab === "Finanzas" ||
     activeSidebarTab === "Valoracion";
 
+  const notificationsList = watchlistData?.notifications || [];
+  const unreadNotifications = notificationsList.filter((n) => !n.is_read);
+  const unreadNotifCount = unreadNotifications.length;
+  const isCurrentTickerInAnyWatchlist = (watchlistData?.watchlists || []).some(
+    (wl) => (wl.items || []).some((it) => it.ticker === currentTicker),
+  );
+
   return (
     <div className="flex h-screen bg-[#1e1e1e] font-sans text-gray-200 overflow-hidden">
       {/* SIDEBAR */}
@@ -310,18 +476,27 @@ function App() {
                     onClick={() => {
                       if (item.id === "Screener") {
                         handleOpenScreenerWithPreset("all");
+                      } else if (item.id === "Tablero") {
+                        handleOpenTablero("lists");
                       } else {
                         setActiveSidebarTab(item.id);
                       }
                     }}
-                    className={`w-full flex items-center px-3 py-1.5 text-xs rounded transition-colors ${
+                    className={`w-full flex items-center justify-between px-3 py-1.5 text-xs rounded transition-colors ${
                       isActive
                         ? "bg-orange-500/10 text-orange-500 font-medium cursor-default"
                         : "text-gray-400 hover:bg-gray-800 hover:text-gray-200 cursor-pointer"
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5 mr-2" />
-                    {item.name}
+                    <span className="flex items-center">
+                      <Icon className="w-3.5 h-3.5 mr-2" />
+                      {item.name}
+                    </span>
+                    {item.id === "Tablero" && unreadNotifCount > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full bg-orange-500 text-white text-[10px] font-bold">
+                        {unreadNotifCount}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -362,7 +537,7 @@ function App() {
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#f9fafb]">
-        {/* HEADER CON AUTOCOMPLETADO */}
+        {/* HEADER CON AUTOCOMPLETADO Y CAMPANA DE NOTIFICACIONES */}
         <header className="h-12 bg-[#252526] border-b border-gray-700 flex items-center justify-between px-4 shrink-0 z-50">
           <div className="flex items-center flex-1 max-w-xl">
             <div className="relative w-full">
@@ -409,9 +584,106 @@ function App() {
               )}
             </div>
           </div>
+
           <div className="flex items-center space-x-4 text-gray-400">
-            <Search className="w-4 h-4 hover:text-white cursor-pointer" />
-            <Bell className="w-4 h-4 hover:text-white cursor-pointer" />
+            {/* Campana de notificaciones persistentes */}
+            <div className="relative" ref={alertsPopoverRef}>
+              <button
+                type="button"
+                onClick={() => setShowAlertsPopover((prev) => !prev)}
+                title="Notificaciones y Alertas"
+                className="relative p-1 hover:text-white cursor-pointer"
+              >
+                <Bell className="w-4 h-4" />
+                {unreadNotifCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {unreadNotifCount}
+                  </span>
+                )}
+              </button>
+
+              {showAlertsPopover && (
+                <div className="absolute right-0 mt-2 w-96 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden text-xs">
+                  <div className="px-4 py-2.5 bg-gray-900 text-white flex items-center justify-between gap-2">
+                    <span className="font-bold">
+                      Notificaciones ({unreadNotifCount} nuevas)
+                    </span>
+                    <div className="flex items-center gap-3">
+                      {unreadNotifCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleMarkAllNotifsRead}
+                          title="Marcar todas como leídas"
+                          className="inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:underline cursor-pointer"
+                        >
+                          <CheckCheck className="w-3.5 h-3.5" />
+                          Marcar todas
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAlertsPopover(false);
+                          handleOpenTablero("notifications");
+                        }}
+                        className="text-[11px] text-orange-400 hover:underline cursor-pointer"
+                      >
+                        Historial
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto divide-y divide-gray-100">
+                    {unreadNotifications.length === 0 ? (
+                      <div className="p-5 text-center text-gray-500">
+                        No tenés notificaciones pendientes de lectura.
+                      </div>
+                    ) : (
+                      unreadNotifications.map((n) => (
+                        <div
+                          key={n.id}
+                          className="p-3 bg-orange-50/60 hover:bg-orange-100/60 transition-colors flex items-start justify-between gap-2"
+                        >
+                          <div
+                            onClick={async () => {
+                              setShowAlertsPopover(false);
+                              await handleMarkNotifRead(n.id);
+                              executeSearch(n.ticker, period, true);
+                            }}
+                            className="flex-1 min-w-0 cursor-pointer"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-orange-600 truncate">
+                                {n.ticker} · {n.title}
+                              </span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 text-gray-600 font-medium shrink-0">
+                                {n.watchlist_name}
+                              </span>
+                            </div>
+                            <p className="text-gray-700 mt-0.5">{n.detail}</p>
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              {n.triggered_at}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleMarkNotifRead(n.id);
+                            }}
+                            title="Marcar como leída"
+                            className="p-1.5 rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-emerald-600 hover:border-emerald-300 transition-colors cursor-pointer shrink-0"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <Settings className="w-4 h-4 hover:text-white cursor-pointer" />
             <div className="w-6 h-6 rounded-full bg-orange-600 flex items-center justify-center text-white text-xs font-bold">
               M
@@ -438,9 +710,25 @@ function App() {
                     </p>
 
                     <div className="flex items-center space-x-2 mt-3">
-                      <button className="flex items-center px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm">
-                        <Heart className="w-3.5 h-3.5 mr-1.5 text-orange-500" />
-                        Agregar al tablero
+                      <button
+                        type="button"
+                        onClick={openAddToBoardModal}
+                        className={`flex items-center px-3 py-1.5 border rounded text-xs font-medium transition-colors cursor-pointer shadow-sm ${
+                          isCurrentTickerInAnyWatchlist
+                            ? "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                            : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        <Heart
+                          className={`w-3.5 h-3.5 mr-1.5 text-orange-500 ${
+                            isCurrentTickerInAnyWatchlist
+                              ? "fill-orange-500"
+                              : ""
+                          }`}
+                        />
+                        {isCurrentTickerInAnyWatchlist
+                          ? "En tu tablero"
+                          : "Agregar al tablero"}
                       </button>
                       <button className="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm">
                         USD
@@ -488,7 +776,7 @@ function App() {
         {/* ÁREA DE CONTENIDO CONDICIONAL */}
         <div className="flex-1 overflow-auto">
           <div className="max-w-7xl mx-auto px-6 py-6">
-            {/* VISTA PORTAL INICIAL (ETAPA 3) */}
+            {/* VISTA PORTAL INICIAL */}
             {activeSidebarTab === "Inicio" && (
               <HomeOverview
                 onSelectTicker={(sym) => executeSearch(sym, period, true)}
@@ -497,6 +785,17 @@ function App() {
                   handleOpenScreenerWithPreset(presetId)
                 }
                 recentTickers={recentTickers}
+              />
+            )}
+
+            {/* VISTA MI TABLERO / WATCHLISTS Y CENTRO DE NOTIFICACIONES */}
+            {activeSidebarTab === "Tablero" && (
+              <WatchlistTab
+                key={tableroInitialSubView}
+                initialSubView={tableroInitialSubView}
+                watchlistData={watchlistData}
+                onWatchlistUpdated={(updated) => setWatchlistData(updated)}
+                onSelectCompany={(sym) => executeSearch(sym, period, true)}
               />
             )}
 
@@ -700,7 +999,7 @@ function App() {
                           <thead>
                             <tr className="bg-[#333333] text-white">
                               <th className="py-2.5 px-4 font-bold sticky left-0 bg-[#333333] z-10 w-72">
-                                {activeContentTab} | MiTerminal
+                                {activeContentTab} | Vektor
                               </th>
                               {availableYears.map((year) => (
                                 <th
@@ -866,6 +1165,181 @@ function App() {
             )}
           </div>
         </div>
+
+        {/* MODAL AGREGAR AL TABLERO DESDE CABECERA DE EMPRESA */}
+        {showAddToBoardModal && (
+          <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-2xl w-full max-w-lg overflow-hidden text-xs">
+              <div className="px-5 py-3.5 bg-[#252526] text-white flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold">
+                    Agregar{" "}
+                    <span className="text-orange-400">{currentTicker}</span> a
+                    Watchlist
+                  </h4>
+                  <p className="text-[11px] text-gray-400">
+                    Elegí la watchlist y definí objetivos o alertas opcionales
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddToBoardModal(false)}
+                  className="text-gray-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmAddToBoard} className="p-5 space-y-4">
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Watchlist destino ({watchlistData?.count || 1}/
+                    {watchlistData?.max_watchlists || 10} listas creadas)
+                  </label>
+                  <select
+                    value={modalTargetWlId}
+                    onChange={(e) => handleModalWatchlistSelect(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded bg-gray-50 text-gray-900 font-medium focus:outline-none focus:border-orange-500"
+                  >
+                    {(watchlistData?.watchlists || []).map((wl) => (
+                      <option key={wl.id} value={wl.id}>
+                        {wl.name} ({wl.item_count} empresas)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-gray-700 mb-1">
+                      Obj. Compra (≤ US$)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={modalBuyTarget}
+                      onChange={(e) => setModalBuyTarget(e.target.value)}
+                      placeholder="Opcional"
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded bg-gray-50 text-gray-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-gray-700 mb-1">
+                      Obj. Venta (≥ US$)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={modalSellTarget}
+                      onChange={(e) => setModalSellTarget(e.target.value)}
+                      placeholder="Opcional"
+                      className="w-full px-3 py-1.5 border border-gray-300 rounded bg-gray-50 text-gray-900"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Nota de tesis
+                  </label>
+                  <input
+                    type="text"
+                    value={modalThesis}
+                    onChange={(e) => setModalThesis(e.target.value)}
+                    placeholder="Catalizadores, múltiplos objetivo..."
+                    className="w-full px-3 py-1.5 border border-gray-300 rounded bg-gray-50 text-gray-900"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-semibold text-gray-700">
+                      Alertas por indicador ({modalAlerts.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setModalAlerts((prev) => [
+                          ...prev,
+                          { metric: "pe_ltm", op: "<=", value: "" },
+                        ])
+                      }
+                      className="text-[11px] text-orange-600 font-semibold hover:underline cursor-pointer"
+                    >
+                      + Agregar regla
+                    </button>
+                  </div>
+                  {modalAlerts.map((rule, idx) => (
+                    <div key={idx} className="flex items-center gap-2 mb-1.5">
+                      <select
+                        value={rule.metric}
+                        onChange={(e) =>
+                          setModalAlerts((prev) =>
+                            prev.map((r, i) =>
+                              i === idx ? { ...r, metric: e.target.value } : r,
+                            ),
+                          )
+                        }
+                        className="flex-1 px-2 py-1 border border-gray-300 rounded bg-gray-50 text-gray-800"
+                      >
+                        {ALERTABLE_METRICS.map((m) => (
+                          <option key={m.key} value={m.key}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={rule.op}
+                        onChange={(e) =>
+                          setModalAlerts((prev) =>
+                            prev.map((r, i) =>
+                              i === idx ? { ...r, op: e.target.value } : r,
+                            ),
+                          )
+                        }
+                        className="w-16 px-1.5 py-1 border border-gray-300 rounded bg-gray-50 text-gray-800 font-bold"
+                      >
+                        <option value="<=">≤</option>
+                        <option value=">=">≥</option>
+                      </select>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={rule.value}
+                        onChange={(e) =>
+                          setModalAlerts((prev) =>
+                            prev.map((r, i) =>
+                              i === idx ? { ...r, value: e.target.value } : r,
+                            ),
+                          )
+                        }
+                        placeholder="Valor"
+                        className="w-24 px-2 py-1 border border-gray-300 rounded bg-gray-50 text-gray-900"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-3 border-t border-gray-200 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddToBoardModal(false)}
+                    className="px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingToBoard}
+                    className="px-4 py-1.5 rounded bg-orange-500 text-white font-semibold hover:bg-orange-600 cursor-pointer disabled:opacity-50"
+                  >
+                    {savingToBoard ? "Guardando..." : "Guardar en Watchlist"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         <MetricInfoDrawer
           entry={activeGlossaryInfo?.entry}
