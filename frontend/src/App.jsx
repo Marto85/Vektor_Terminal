@@ -12,6 +12,7 @@ import {
   Bell,
   Settings,
   Download,
+  Calculator,
   Maximize2,
   Loader2,
   ExternalLink,
@@ -32,6 +33,7 @@ import CapitalStructurePanel from "./components/CapitalStructurePanel";
 import ValuationTab from "./components/ValuationTab";
 import ComparatorTab from "./components/ComparatorTab";
 import ScreenerTab from "./components/ScreenerTab";
+import ValuationModelsTab from "./components/ValuationModelsTab";
 import FinancialHealthPanel from "./components/FinancialHealthPanel";
 import MetricInfoDrawer from "./components/MetricInfoDrawer";
 import { getGlossaryEntry } from "./data/metricsGlossary";
@@ -120,6 +122,7 @@ function App() {
     { id: "Tablero", name: "Mi Tablero", icon: Bookmark },
     { id: "Screener", name: "Screener", icon: Filter },
     { id: "Comparador", name: "Comparador", icon: Scale },
+    { id: "Modelos", name: "Modelos de Valuación", icon: Calculator },
   ];
 
   const companyNavItems = [
@@ -279,6 +282,7 @@ function App() {
       activeSidebarTab === "Inicio" ||
       activeSidebarTab === "Tablero" ||
       activeSidebarTab === "Screener" ||
+      activeSidebarTab === "Modelos" ||
       activeSidebarTab === "Comparador";
     executeSearch(selectedTicker, period, shouldSwitch);
   };
@@ -290,6 +294,7 @@ function App() {
         activeSidebarTab === "Inicio" ||
         activeSidebarTab === "Tablero" ||
         activeSidebarTab === "Screener" ||
+        activeSidebarTab === "Modelos" ||
         activeSidebarTab === "Comparador";
       executeSearch(tickerInput.trim(), period, shouldSwitch);
     }
@@ -1148,7 +1153,28 @@ function App() {
 
             {/* PESTAÑA: VALORACIÓN */}
             {activeSidebarTab === "Valoracion" && (
-              <ValuationTab ticker={currentTicker} onOpenInfo={openGlossary} />
+              <ValuationTab
+                ticker={currentTicker}
+                onOpenInfo={openGlossary}
+                onOpenValuationModels={(sym) => {
+                  setCurrentTicker(sym);
+                  setHasLoadedCompany(true);
+                  setActiveSidebarTab("Modelos");
+                }}
+              />
+            )}
+
+            {/* PESTAÑA: MODELOS DE VALUACIÓN (AUTOMÁTICO Y MANUAL) */}
+            {activeSidebarTab === "Modelos" && (
+              <ValuationModelsTab
+                initialTicker={hasLoadedCompany ? currentTicker : ""}
+                recentTickers={recentTickers}
+                onOpenInfo={openGlossary}
+                onSelectGlobalTicker={(sym) => {
+                  setCurrentTicker(sym);
+                  setHasLoadedCompany(true);
+                }}
+              />
             )}
 
             {/* PESTAÑA: COMPARADOR MANUAL (HASTA 5 EMPRESAS) */}

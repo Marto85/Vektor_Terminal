@@ -1,9 +1,8 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import axios from 'axios';
 import {
   Loader2,
   Calculator,
-  RotateCcw,
   AlertTriangle,
   Info,
   TrendingUp,
@@ -13,6 +12,7 @@ import {
   ExternalLink,
   Landmark,
   Users,
+  ArrowRight,
 } from 'lucide-react';
 import { getGlossaryEntry } from '../data/metricsGlossary';
 
@@ -38,7 +38,7 @@ function formatMoney(val) {
   return isNeg ? `(US$ ${formatted})` : `US$ ${formatted}`;
 }
 
-export default function ValuationTab({ ticker, onOpenInfo }) {
+export default function ValuationTab({ ticker, onOpenInfo, onOpenValuationModels }) {
   const [valData, setValData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -47,21 +47,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
   const [peersData, setPeersData] = useState(null);
   const [peersLoading, setPeersLoading] = useState(false);
   const [peersError, setPeersError] = useState(null);
-
-  // Supuestos editables del DCF en 2 etapas (Empresas Estándar)
-  const [revGrowth, setRevGrowth] = useState(11.0);
-  const [wacc, setWacc] = useState(9.0);
-  const [terminalGrowth, setTerminalGrowth] = useState(3.0);
-  const [capexStage1Pct, setCapexStage1Pct] = useState(15.0);
-  const [capexTerminalPct, setCapexTerminalPct] = useState(10.0);
-  const [exitMultiple, setExitMultiple] = useState(25.0);
-  const [extraAdjustmentMm, setExtraAdjustmentMm] = useState(0);
-
-  // Supuestos editables del Modelo Excess Return (Bancos y Financieras)
-  const [bankRoe, setBankRoe] = useState(15.0);
-  const [bankKe, setBankKe] = useState(9.5);
-  const [bankPayout, setBankPayout] = useState(35.0);
-  const [bankExitPtbv, setBankExitPtbv] = useState(1.8);
 
   useEffect(() => {
     if (!ticker) return;
@@ -76,22 +61,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
         );
         if (!cancelled) {
           setValData(res.data);
-          const inp = res.data?.dcf_inputs;
-          if (inp) {
-            setRevGrowth(Number(inp.recommended_rev_growth_pct ?? 11.0));
-            setWacc(Number(inp.suggested_wacc_pct ?? 9.0));
-            setCapexStage1Pct(Number(inp.capex_expansion_pct || 12.0));
-            setCapexTerminalPct(Number(inp.capex_maintenance_pct || 8.0));
-            setExitMultiple(Number(inp.exit_multiple_default || 22.0));
-            setExtraAdjustmentMm(0);
-          }
-          const finInp = res.data?.financial_sector_inputs;
-          if (finInp) {
-            setBankRoe(Number(finInp.roe_pct ?? 15.0));
-            setBankKe(Number(finInp.cost_of_equity_pct ?? 9.5));
-            setBankPayout(Number(finInp.payout_ratio_pct ?? 35.0));
-            setBankExitPtbv(Number(finInp.exit_ptbv_default ?? 1.8));
-          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -144,179 +113,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
     };
   }, [ticker, subTab, peersData]);
 
-  // Cálculo DCF 2 Etapas + Curva dinámica de márgenes + Doble Valor Terminal
-  const dcfResult = useMemo(() => {
-    const inp = valData?.dcf_inputs;
-    if (!inp || !inp.shares_mm || inp.shares_mm <= 0) return null;
-
-    const rev0 = Number(inp.revenue_base_mm || 0);
-    const baseEbitMargin = Number(inp.ebit_margin_pct || 15.0) / 100;
-    const marginStep = Number(inp.margin_step_pct_yr || 0) / 100;
-    const taxRate = Number(inp.tax_rate_pct || 21.0) / 100;
-    const daPct = Number(inp.da_sales_pct || 8.0) / 100;
-
-    const g = revGrowth / 100;
-    const r = wacc / 100;
-    const gTerm = terminalGrowth / 100;
-    const capex1 = capexStage1Pct / 100;
-    const capexTerm = capexTerminalPct / 100;
-
-    if (r <= gTerm || rev0 <= 0) {
-      return { invalidSpread: true };
-    }
-
-    const projections = [];
-    let pvStage1 = 0;
-    let revCurr = rev0;
-    let marginCurr = baseEbitMargin;
-
-    for (let yr = 1; yr <= 5; yr += 1) {
-      revCurr = revCurr * (1 + g);
-      // Evolución gradual del margen operativo según señal de apalancamiento del consenso
-      marginCurr = Math.min(Math.max(marginCurr + marginStep, 0.02), 0.65);
-
-      const nopat = revCurr * marginCurr * (1 - taxRate);
-      const da = revCurr * daPct;
-      const capex = revCurr * capex1;
-      const fcf = nopat + da - capex + Number(extraAdjustmentMm || 0);
-      const pv = fcf / (1 + r) ** yr;
-      pvStage1 += pv;
-
-      projections.push({
-        year: `Año +${yr}`,
-        rev: revCurr,
-        ebitMarginPct: marginCurr * 100,
-        fcf,
-        pv,
-      });
-    }
-
-    // Año 6 (Estado Estacionario): el CapEx converge a mantenimiento
-    const revYear6 = revCurr * (1 + gTerm);
-    const nopat6 = revYear6 * marginCurr * (1 - taxRate);
-    const da6 = revYear6 * daPct;
-    const capex6 = revYear6 * capexTerm;
-    const steadyStateFcf6 = nopat6 + da6 - capex6 + Number(extraAdjustmentMm || 0);
-
-    // Método A: Perpetuidad de Gordon Growth
-    const tvGordon = steadyStateFcf6 / (r - gTerm);
-    const pvTvGordon = tvGordon / (1 + r) ** 5;
-    const evGordon = pvStage1 + pvTvGordon;
-    const eqGordon = evGordon - Number(inp.net_debt_mm || 0);
-    const priceGordon = eqGordon / inp.shares_mm;
-    const impliedExitMult = steadyStateFcf6 > 0 ? tvGordon / steadyStateFcf6 : 0;
-    const upsideGordon =
-      inp.current_price > 0 ? ((priceGordon - inp.current_price) / inp.current_price) * 100 : 0;
-
-    // Método B: Múltiplo de Salida (Exit Multiple sobre FCF normalizado Año 5)
-    const normalizedFcf5 =
-      revCurr * (marginCurr * (1 - taxRate) + daPct - capexTerm) + Number(extraAdjustmentMm || 0);
-    const tvMultiple = normalizedFcf5 * exitMultiple;
-    const pvTvMultiple = tvMultiple / (1 + r) ** 5;
-    const evMultiple = pvStage1 + pvTvMultiple;
-    const eqMultiple = evMultiple - Number(inp.net_debt_mm || 0);
-    const priceMultiple = eqMultiple / inp.shares_mm;
-    const upsideMultiple =
-      inp.current_price > 0 ? ((priceMultiple - inp.current_price) / inp.current_price) * 100 : 0;
-
-    // Comparación Reportado sin normalizar CapEx (para mostrar impacto)
-    const fcf5Unadjusted = projections[4]?.fcf || 0;
-    const tvUnadj = (fcf5Unadjusted * (1 + gTerm)) / (r - gTerm);
-    const priceUnadjusted =
-      (pvStage1 + tvUnadj / (1 + r) ** 5 - Number(inp.net_debt_mm || 0)) / inp.shares_mm;
-
-    return {
-      invalidSpread: false,
-      projections,
-      pvStage1,
-      steadyStateFcf6,
-      finalMarginPct: marginCurr * 100,
-      priceGordon,
-      upsideGordon,
-      impliedExitMult,
-      evGordon,
-      priceMultiple,
-      upsideMultiple,
-      evMultiple,
-      priceUnadjusted,
-    };
-  }, [valData, revGrowth, wacc, terminalGrowth, capexStage1Pct, capexTerminalPct, exitMultiple, extraAdjustmentMm]);
-
-  // Cálculo Modelo Excess Return (Bancos y Entidades Financieras)
-  const bankResult = useMemo(() => {
-    const fInp = valData?.financial_sector_inputs;
-    if (!fInp || !fInp.bvps || fInp.bvps <= 0) return null;
-
-    const roe = bankRoe / 100;
-    const ke = bankKe / 100;
-    const payout = bankPayout / 100;
-    const retention = 1 - payout;
-
-    // Crecimiento sostenible interno: g = ROE * tasa de retención (topeado al 8% en terminal)
-    const gStage1 = Math.min(Math.max(roe * retention, 0.01), 0.14);
-    const gTerminal = Math.min(gStage1, 0.045);
-
-    if (ke <= gTerminal) {
-      return { invalidSpread: true };
-    }
-
-    let bvCurr = Number(fInp.bvps);
-    let pvExcessSum = 0;
-    let pvDividendsSum = 0;
-    const rows = [];
-
-    for (let yr = 1; yr <= 5; yr += 1) {
-      const eps = bvCurr * roe;
-      const dividend = eps * payout;
-      const equityCharge = bvCurr * ke;
-      const excessReturn = eps - equityCharge;
-      const pvExcess = excessReturn / (1 + ke) ** yr;
-      pvExcessSum += pvExcess;
-      pvDividendsSum += dividend / (1 + ke) ** yr;
-
-      rows.push({
-        year: `Año +${yr}`,
-        bvps: bvCurr,
-        eps,
-        excessReturn,
-        pvExcess,
-      });
-
-      bvCurr = bvCurr * (1 + gStage1);
-    }
-
-    // Valor Terminal de Retorno Excedente (convergencia gradual de ROE hacia Ke + spread moderado)
-    const terminalRoe = ke + (roe - ke) * 0.5;
-    const terminalExcess = bvCurr * (terminalRoe - ke);
-    const tvExcess = terminalExcess / (ke - gTerminal);
-    const pvTvExcess = tvExcess / (1 + ke) ** 5;
-
-    // Método 1: Excess Return Intrínseco (BVPS inicial + VP Retornos Excedentes)
-    const priceExcessReturn = Number(fInp.bvps) + pvExcessSum + pvTvExcess;
-    const upsideExcess =
-      fInp.current_price > 0 ? ((priceExcessReturn - fInp.current_price) / fInp.current_price) * 100 : 0;
-
-    // Método 2: Múltiplo P/TBV proyectado al Año 5 + Dividendos acumulados descontados
-    const tbvRatio = fInp.bvps > 0 ? Number(fInp.tbvps || fInp.bvps) / Number(fInp.bvps) : 1;
-    const tbvpsYr5 = bvCurr * tbvRatio;
-    const pricePtbvExit = pvDividendsSum + (tbvpsYr5 * bankExitPtbv) / (1 + ke) ** 5;
-    const upsidePtbv =
-      fInp.current_price > 0 ? ((pricePtbvExit - fInp.current_price) / fInp.current_price) * 100 : 0;
-
-    return {
-      invalidSpread: false,
-      rows,
-      gStage1Pct: gStage1 * 100,
-      pvExcessSum,
-      pvTvExcess,
-      priceExcessReturn,
-      upsideExcess,
-      impliedPb: fInp.bvps > 0 ? priceExcessReturn / fInp.bvps : 0,
-      pricePtbvExit,
-      upsidePtbv,
-    };
-  }, [valData, bankRoe, bankKe, bankPayout, bankExitPtbv]);
-
   if (loading) {
     return (
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm py-20 flex flex-col items-center justify-center text-orange-500">
@@ -338,30 +134,11 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
 
   const years = valData.years || [];
   const rows = valData.rows || [];
-  const inp = valData.dcf_inputs || {};
-  const finInp = valData.financial_sector_inputs || {};
   const audit = valData.audit || { has_anomalies: false, flags: [], comparisons: [] };
   const trajectory = valData.trajectory || {};
   const routing = valData.sector_routing || { profile: 'standard', label: 'Corporativo Estándar' };
   const classification = valData.classification || {};
   const isFinancial = routing.profile === 'financial';
-
-  const handleResetStandard = () => {
-    setRevGrowth(Number(inp.recommended_rev_growth_pct ?? 11.0));
-    setWacc(Number(inp.suggested_wacc_pct ?? 9.0));
-    setTerminalGrowth(3.0);
-    setCapexStage1Pct(Number(inp.capex_expansion_pct || 12.0));
-    setCapexTerminalPct(Number(inp.capex_maintenance_pct || 8.0));
-    setExitMultiple(Number(inp.exit_multiple_default || 22.0));
-    setExtraAdjustmentMm(0);
-  };
-
-  const handleResetBank = () => {
-    setBankRoe(Number(finInp.roe_pct ?? 15.0));
-    setBankKe(Number(finInp.cost_of_equity_pct ?? 9.5));
-    setBankPayout(Number(finInp.payout_ratio_pct ?? 35.0));
-    setBankExitPtbv(Number(finInp.exit_ptbv_default ?? 1.8));
-  };
 
   const marginDeltas = trajectory.margin_deltas || {};
   const consensusRows = trajectory.consensus_rows || [];
@@ -411,39 +188,52 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
 
   return (
     <div className="space-y-6">
-      {/* SUB-NAVEGACIÓN DE VALORACIÓN (Estilo TIKR: Múltiplos vs. Competidores) */}
-      <div className="flex border-b border-gray-200 space-x-6 px-2">
-        <button
-          type="button"
-          onClick={() => setSubTab('multiplos')}
-          className={`pb-2.5 text-sm transition-colors relative flex items-center gap-1.5 ${
-            subTab === 'multiplos'
-              ? 'text-orange-500 font-semibold cursor-default'
-              : 'text-gray-500 hover:text-gray-800 font-medium cursor-pointer'
-          }`}
-        >
-          <Calculator className="w-3.5 h-3.5" />
-          Múltiplos y Modelo
-          {subTab === 'multiplos' && (
-            <span className="absolute -bottom-px left-0 w-full h-0.5 bg-orange-500"></span>
-          )}
-        </button>
+      {/* SUB-NAVEGACIÓN DE VALORACIÓN */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-2">
+        <div className="flex space-x-6">
+          <button
+            type="button"
+            onClick={() => setSubTab('multiplos')}
+            className={`pb-2.5 text-sm transition-colors relative flex items-center gap-1.5 ${
+              subTab === 'multiplos'
+                ? 'text-orange-500 font-semibold cursor-default'
+                : 'text-gray-500 hover:text-gray-800 font-medium cursor-pointer'
+            }`}
+          >
+            <Calculator className="w-3.5 h-3.5" />
+            Múltiplos Históricos y Consenso
+            {subTab === 'multiplos' && (
+              <span className="absolute -bottom-px left-0 w-full h-0.5 bg-orange-500"></span>
+            )}
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setSubTab('competidores')}
-          className={`pb-2.5 text-sm transition-colors relative flex items-center gap-1.5 ${
-            subTab === 'competidores'
-              ? 'text-orange-500 font-semibold cursor-default'
-              : 'text-gray-500 hover:text-gray-800 font-medium cursor-pointer'
-          }`}
-        >
-          <Users className="w-3.5 h-3.5" />
-          Competidores
-          {subTab === 'competidores' && (
-            <span className="absolute -bottom-px left-0 w-full h-0.5 bg-orange-500"></span>
-          )}
-        </button>
+          <button
+            type="button"
+            onClick={() => setSubTab('competidores')}
+            className={`pb-2.5 text-sm transition-colors relative flex items-center gap-1.5 ${
+              subTab === 'competidores'
+                ? 'text-orange-500 font-semibold cursor-default'
+                : 'text-gray-500 hover:text-gray-800 font-medium cursor-pointer'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            Competidores
+            {subTab === 'competidores' && (
+              <span className="absolute -bottom-px left-0 w-full h-0.5 bg-orange-500"></span>
+            )}
+          </button>
+        </div>
+
+        {onOpenValuationModels && (
+          <button
+            type="button"
+            onClick={() => onOpenValuationModels(valData.ticker)}
+            className="mb-1.5 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold cursor-pointer shadow-2xs"
+          >
+            <span>Modelar Valor Intrínseco (DCF / Manual)</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {subTab === 'competidores' ? (
@@ -492,7 +282,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Fila destacada del ticker analizado */}
                   {activePeersData.base && (
                     <tr className="border-b-2 border-orange-200 bg-orange-50/50 font-semibold">
                       <td className="py-2.5 px-3.5 sticky left-0 bg-orange-50 z-10 text-gray-900 shadow-[1px_0_0_0_#fed7aa]">
@@ -520,7 +309,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
                     </tr>
                   )}
 
-                  {/* Filas de competidores */}
                   {(activePeersData.peers || []).map((peer) => (
                     <tr key={peer.ticker} className="border-b border-gray-100 hover:bg-gray-50 group">
                       <td className="py-2 px-3.5 sticky left-0 bg-white group-hover:bg-gray-50 z-10 shadow-[1px_0_0_0_#f3f4f6]">
@@ -548,7 +336,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
                     </tr>
                   ))}
 
-                  {/* Promedio Pares */}
                   <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold text-gray-800">
                     <td className="py-2 px-3.5 sticky left-0 bg-gray-50 z-10 shadow-[1px_0_0_0_#e5e7eb]">
                       Promedio Competidores
@@ -561,7 +348,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
                     ))}
                   </tr>
 
-                  {/* Mediana Pares */}
                   <tr className="border-b border-gray-200 bg-gray-100/80 font-bold text-gray-900">
                     <td className="py-2 px-3.5 sticky left-0 bg-gray-100 z-10 shadow-[1px_0_0_0_#e5e7eb]">
                       Mediana Competidores
@@ -574,7 +360,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
                     ))}
                   </tr>
 
-                  {/* Prima / Descuento relativo de la empresa vs Mediana Pares */}
                   <tr className="bg-white font-bold">
                     <td className="py-2.5 px-3.5 sticky left-0 bg-white z-10 text-gray-700 shadow-[1px_0_0_0_#f3f4f6]">
                       Prima / (Descuento) {activePeersData.ticker} vs. Mediana
@@ -612,7 +397,7 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
         ) : null
       ) : (
         <>
-          {/* BANNER DE PERFIL SECTORIAL Y METODOLOGÍA ACTIVA */}
+          {/* BANNER DE PERFIL SECTORIAL */}
           <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-start space-x-3">
               <div className="p-2 rounded bg-orange-50 text-orange-600 shrink-0 mt-0.5">
@@ -633,7 +418,7 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
               </div>
             </div>
             <div className="text-right shrink-0">
-              <span className="text-[11px] text-gray-400 block">Motor de valoración activo</span>
+              <span className="text-[11px] text-gray-400 block">Modelo recomendado</span>
               <span className="text-xs font-bold text-gray-900">{routing.primary_model}</span>
             </div>
           </div>
@@ -703,7 +488,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
           {/* BLOQUE 1: CONSENSO DE ANALISTAS, TRAYECTORIA DE MÁRGENES Y GUIDANCE SEC 8-K */}
           {(consensusRows.length > 0 || (trajectory.margin_history || []).length > 0) && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Tabla de Consenso Futuro (2/3 ancho) */}
               <div className="lg:col-span-2 bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden flex flex-col justify-between">
                 <div>
                   <div className="px-4 py-3 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
@@ -767,7 +551,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
                   )}
                 </div>
 
-                {/* Enlaces a SEC 8-K Item 2.02 (Guidance y resultados trimestrales) */}
                 {sec8kFilings.length > 0 && (
                   <div className="px-4 py-2.5 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-2 text-xs">
                     <span className="font-semibold text-gray-700">
@@ -790,7 +573,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
                 )}
               </div>
 
-              {/* Tarjeta de Evolución de Márgenes y Apalancamiento Operativo (1/3 ancho) */}
               <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex flex-col justify-between">
                 <div>
                   <h4 className="text-sm font-bold text-gray-800 pb-2 border-b border-gray-200">
@@ -875,7 +657,7 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
                 <thead>
                   <tr className="bg-[#333333] text-white">
                     <th className="py-2.5 px-3.5 font-bold sticky left-0 bg-[#333333] z-10 min-w-60">
-                      Múltiplo | MiTerminal
+                      Múltiplo | Vektor
                     </th>
                     {years.map((y) => (
                       <th key={y} className="py-2.5 px-3 font-bold text-right">
@@ -972,514 +754,6 @@ export default function ValuationTab({ ticker, onOpenInfo }) {
               </table>
             </div>
           </div>
-
-          {/* BLOQUE 3: MODELO DE VALORACIÓN INTRÍNSECA ENRUTADO POR SECTOR */}
-          {isFinancial ? (
-            /* MODELO EXCESS RETURN PARA BANCOS Y FINANCIERAS */
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
-              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-4 border-b border-gray-200">
-                <div className="flex items-center space-x-2">
-                  <Landmark className="w-4 h-4 text-orange-500" />
-                  <h3 className="text-sm font-bold text-gray-900">
-                    Modelo Excess Return (Retorno Excedente sobre ROE y Valor Libros)
-                  </h3>
-                  {onOpenInfo && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenInfo('Excess Return Model (Bancos)', `${finInp.roe_pct}% ROE`)}
-                      title="Explicación del modelo bancario Excess Return"
-                      className="text-gray-400 hover:text-orange-500 transition-colors cursor-pointer"
-                    >
-                      <Info className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-                <button
-                  onClick={handleResetBank}
-                  className="flex items-center text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded px-2.5 py-1 cursor-pointer"
-                >
-                  <RotateCcw className="w-3 h-3 mr-1" /> Restablecer parámetros bancarios
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Columna 1: Supuestos bancarios */}
-                <div className="space-y-4 bg-gray-50 p-4 rounded border border-gray-200/80">
-                  <p className="text-xs font-bold uppercase tracking-wider text-gray-600">
-                    Parámetros de rentabilidad patrimonial
-                  </p>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-gray-600">ROE Esperado (Años 1-5)</span>
-                      <span className="font-bold text-gray-900">{bankRoe.toFixed(1)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="4"
-                      max="30"
-                      step="0.5"
-                      value={bankRoe}
-                      onChange={(e) => setBankRoe(parseFloat(e.target.value))}
-                      className="w-full accent-orange-500 cursor-pointer"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-gray-600">Costo del Capital Accionario (Ke)</span>
-                      <span className="font-bold text-gray-900">{bankKe.toFixed(1)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="6"
-                      max="16"
-                      step="0.5"
-                      value={bankKe}
-                      onChange={(e) => setBankKe(parseFloat(e.target.value))}
-                      className="w-full accent-orange-500 cursor-pointer"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-gray-600">Tasa de Distribución (Payout Ratio)</span>
-                      <span className="font-bold text-gray-900">{bankPayout.toFixed(1)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="10"
-                      max="80"
-                      step="2.5"
-                      value={bankPayout}
-                      onChange={(e) => setBankPayout(parseFloat(e.target.value))}
-                      className="w-full accent-orange-500 cursor-pointer"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-gray-600">Múltiplo P/TBV de Salida (Año 5)</span>
-                      <span className="font-bold text-gray-900">{bankExitPtbv.toFixed(2)}x</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.8"
-                      max="3.5"
-                      step="0.1"
-                      value={bankExitPtbv}
-                      onChange={(e) => setBankExitPtbv(parseFloat(e.target.value))}
-                      className="w-full accent-orange-500 cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="pt-2 border-t border-gray-200 space-y-1 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Valor Libros / Acción (BVPS):</span>
-                      <span className="font-semibold text-gray-800">{formatMoney(finInp.bvps)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Valor Tangible / Acción (TBVPS):</span>
-                      <span className="font-semibold text-gray-800">{formatMoney(finInp.tbvps)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Mediana ROE 5Y / ROA:</span>
-                      <span className="font-semibold text-gray-800">
-                        {finInp.roe_hist_med_pct}% / {finInp.roa_pct ?? '-'}%
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Columna 2: Proyección de Retorno Excedente por acción */}
-                <div className="border border-gray-200 rounded p-4 flex flex-col justify-between">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
-                      Proyección Excess Return / Acción
-                    </p>
-                    {bankResult && !bankResult.invalidSpread ? (
-                      <div className="space-y-2 text-xs">
-                        {bankResult.rows.map((r) => (
-                          <div
-                            key={r.year}
-                            className="flex justify-between py-1 border-b border-gray-100 last:border-0"
-                          >
-                            <span className="text-gray-600 font-medium">{r.year}</span>
-                            <span className="text-gray-500">BVPS: {formatMoney(r.bvps)}</span>
-                            <span
-                              className={`font-semibold ${
-                                r.pvExcess >= 0 ? 'text-emerald-700' : 'text-[#d93025]'
-                              }`}
-                            >
-                              VP Exc: {formatMoney(r.pvExcess)}
-                            </span>
-                          </div>
-                        ))}
-                        <div className="pt-2 border-t border-gray-200 flex justify-between font-semibold text-gray-800">
-                          <span>VP Retorno Excedente Terminal:</span>
-                          <span>{formatMoney(bankResult.pvTvExcess)}</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-red-500">
-                        El Costo de Equity (Ke) debe superar el crecimiento terminal.
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="pt-3 border-t border-gray-200 text-[11px] text-gray-500">
-                    Spread ROE − Ke actual:{' '}
-                    <strong className={bankRoe >= bankKe ? 'text-emerald-700' : 'text-[#d93025]'}>
-                      {(bankRoe - bankKe >= 0 ? '+' : '') + (bankRoe - bankKe).toFixed(1)}%
-                    </strong>{' '}
-                    (Crecimiento patrimonial implícito: {bankResult?.gStage1Pct?.toFixed(1) ?? '-'}%)
-                  </div>
-                </div>
-
-                {/* Columna 3: Triangulación Bancaria */}
-                <div className="bg-[#fafafa] border border-gray-200 rounded p-4 flex flex-col justify-between space-y-3">
-                  <p className="text-xs font-bold uppercase tracking-wider text-gray-600">
-                    Triangulación de Valor Intrínseco
-                  </p>
-
-                  {bankResult && !bankResult.invalidSpread ? (
-                    <>
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <div className="flex justify-between items-center text-[11px] text-gray-500">
-                          <span className="font-semibold text-gray-700">1. Modelo Excess Return</span>
-                          <span>P/BV implícito: {bankResult.impliedPb.toFixed(2)}x</span>
-                        </div>
-                        <div className="flex items-baseline justify-between mt-1">
-                          <span className="text-xl font-bold text-gray-900">
-                            {formatMoney(bankResult.priceExcessReturn)}
-                          </span>
-                          <span
-                            className={`text-xs font-bold px-2 py-0.5 rounded ${
-                              bankResult.upsideExcess >= 0
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-red-100 text-[#d93025]'
-                            }`}
-                          >
-                            {bankResult.upsideExcess >= 0 ? '+' : ''}
-                            {bankResult.upsideExcess.toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <div className="flex justify-between items-center text-[11px] text-gray-500">
-                          <span className="font-semibold text-gray-700">
-                            2. Salida P/TBV ({bankExitPtbv.toFixed(2)}x)
-                          </span>
-                          <span>Descontado a Ke</span>
-                        </div>
-                        <div className="flex items-baseline justify-between mt-1">
-                          <span className="text-xl font-bold text-gray-900">
-                            {formatMoney(bankResult.pricePtbvExit)}
-                          </span>
-                          <span
-                            className={`text-xs font-bold px-2 py-0.5 rounded ${
-                              bankResult.upsidePtbv >= 0
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-red-100 text-[#d93025]'
-                            }`}
-                          >
-                            {bankResult.upsidePtbv >= 0 ? '+' : ''}
-                            {bankResult.upsidePtbv.toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="text-[11px] text-gray-500 border-t border-gray-200 pt-2 flex justify-between">
-                        <span>Precio actual / Consenso WS:</span>
-                        <span className="font-semibold text-gray-800">
-                          {formatMoney(finInp.current_price)} /{' '}
-                          {finInp.target_price ? formatMoney(finInp.target_price) : '-'}
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-xs text-gray-500">Ajustá Ke y ROE para calcular.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            /* DCF EN 2 ETAPAS PARA EMPRESAS ESTÁNDAR Y CRECIMIENTO */
-            <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
-              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-4 border-b border-gray-200">
-                <div className="flex items-center space-x-2">
-                  <Calculator className="w-4 h-4 text-orange-500" />
-                  <h3 className="text-sm font-bold text-gray-900">
-                    Modelo DCF en 2 Etapas (Expansión vs. Estado Estacionario)
-                  </h3>
-                </div>
-                <button
-                  onClick={handleResetStandard}
-                  className="flex items-center text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded px-2.5 py-1 cursor-pointer"
-                >
-                  <RotateCcw className="w-3 h-3 mr-1" /> Restablecer supuestos SEC + Consenso
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Columna 1: Supuestos operativos y de CapEx por etapa */}
-                <div className="space-y-3.5 bg-gray-50 p-4 rounded border border-gray-200/80">
-                  <p className="text-xs font-bold uppercase tracking-wider text-gray-600">
-                    Parámetros de proyección
-                  </p>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-gray-600">Crecimiento Ingresos (Años 1-5)</span>
-                      <span className="font-bold text-gray-900">{revGrowth.toFixed(1)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="-5"
-                      max="35"
-                      step="0.5"
-                      value={revGrowth}
-                      onChange={(e) => setRevGrowth(parseFloat(e.target.value))}
-                      className="w-full accent-orange-500 cursor-pointer"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-gray-600">CapEx Etapa 1 Expansión (% Ventas)</span>
-                      <span className="font-bold text-gray-900">{capexStage1Pct.toFixed(1)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="45"
-                      step="0.5"
-                      value={capexStage1Pct}
-                      onChange={(e) => setCapexStage1Pct(parseFloat(e.target.value))}
-                      className="w-full accent-orange-500 cursor-pointer"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-gray-600">CapEx Terminal Mantenimiento (% Ventas)</span>
-                      <span className="font-bold text-emerald-700">{capexTerminalPct.toFixed(1)}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="30"
-                      step="0.5"
-                      value={capexTerminalPct}
-                      onChange={(e) => setCapexTerminalPct(parseFloat(e.target.value))}
-                      className="w-full accent-emerald-600 cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-gray-600">WACC</span>
-                        <span className="font-bold text-gray-900">{wacc.toFixed(1)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="5"
-                        max="18"
-                        step="0.5"
-                        value={wacc}
-                        onChange={(e) => setWacc(parseFloat(e.target.value))}
-                        className="w-full accent-orange-500 cursor-pointer"
-                      />
-                    </div>
-
-                    <div>
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-gray-600">Perpetuidad (g)</span>
-                        <span className="font-bold text-gray-900">{terminalGrowth.toFixed(1)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="5.5"
-                        step="0.25"
-                        value={terminalGrowth}
-                        onChange={(e) => setTerminalGrowth(parseFloat(e.target.value))}
-                        className="w-full accent-orange-500 cursor-pointer"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="text-gray-600">Múltiplo de Salida (EV/FCF Año 5)</span>
-                      <span className="font-bold text-gray-900">{exitMultiple.toFixed(1)}x</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="8"
-                      max="45"
-                      step="0.5"
-                      value={exitMultiple}
-                      onChange={(e) => setExitMultiple(parseFloat(e.target.value))}
-                      className="w-full accent-orange-500 cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="pt-2 border-t border-gray-200 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-gray-600">Ajuste puntual FCF (+/- MM):</span>
-                      {onOpenInfo && (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onOpenInfo('Ajuste puntual FCF (+/- MM)', `${extraAdjustmentMm} MM`)
-                          }
-                          title="Ver ejemplos típicos de cuándo y cómo ingresar un ajuste"
-                          className="text-gray-400 hover:text-orange-500 transition-colors cursor-pointer"
-                        >
-                          <Info className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      type="number"
-                      value={extraAdjustmentMm}
-                      onChange={(e) => setExtraAdjustmentMm(Number(e.target.value) || 0)}
-                      className="w-24 px-2 py-1 border border-gray-300 rounded text-right bg-white font-semibold text-gray-900"
-                    />
-                  </div>
-                </div>
-
-                {/* Columna 2: Flujos proyectados Etapa 1 + Transición Terminal */}
-                <div className="border border-gray-200 rounded p-4 flex flex-col justify-between">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-gray-600 mb-2">
-                      Proyección de Flujos (MM)
-                    </p>
-                    {dcfResult && !dcfResult.invalidSpread ? (
-                      <div className="space-y-2 text-xs">
-                        {dcfResult.projections.map((p) => (
-                          <div
-                            key={p.year}
-                            className="flex justify-between py-1 border-b border-gray-100 last:border-0"
-                          >
-                            <span className="text-gray-600 font-medium">{p.year}</span>
-                            <span className="text-gray-500">FCF: {formatMoney(p.fcf)}</span>
-                            <span className="font-semibold text-gray-900">VP: {formatMoney(p.pv)}</span>
-                          </div>
-                        ))}
-                        <div className="pt-2 border-t border-gray-200 flex justify-between text-emerald-700 font-semibold">
-                          <span>FCF Estacionario (Año +6):</span>
-                          <span>{formatMoney(dcfResult.steadyStateFcf6)} MM</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-red-500">
-                        El WACC debe superar el crecimiento perpetuo (g).
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="pt-3 border-t border-gray-200 space-y-1 text-[11px] text-gray-500">
-                    <div className="flex justify-between">
-                      <span>Margen EBIT base → Año 5:</span>
-                      <span className="font-semibold text-gray-700">
-                        {inp.ebit_margin_pct}% → {dcfResult?.finalMarginPct?.toFixed(1) ?? inp.ebit_margin_pct}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>D&A / Ventas (SEC):</span>
-                      <span className="font-semibold text-gray-700">{inp.da_sales_pct}%</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Deuda neta LTM:</span>
-                      <span className="font-semibold text-gray-700">{formatMoney(inp.net_debt_mm)} MM</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Columna 3: Doble Valor Terminal simultáneo */}
-                <div className="bg-[#fafafa] border border-gray-200 rounded p-4 flex flex-col justify-between space-y-3">
-                  <p className="text-xs font-bold uppercase tracking-wider text-gray-600">
-                    Triangulación de Valor Intrínseco
-                  </p>
-
-                  {dcfResult && !dcfResult.invalidSpread ? (
-                    <>
-                      {/* Método 1: Perpetuidad de Gordon */}
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <div className="flex justify-between items-center text-[11px] text-gray-500">
-                          <span className="font-semibold text-gray-700">
-                            1. Perpetuidad (g = {terminalGrowth.toFixed(1)}%)
-                          </span>
-                          <span>Múltiplo implícito: {dcfResult.impliedExitMult.toFixed(1)}x</span>
-                        </div>
-                        <div className="flex items-baseline justify-between mt-1">
-                          <span className="text-xl font-bold text-gray-900">
-                            {formatMoney(dcfResult.priceGordon)}
-                          </span>
-                          <span
-                            className={`text-xs font-bold px-2 py-0.5 rounded ${
-                              dcfResult.upsideGordon >= 0
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-red-100 text-[#d93025]'
-                            }`}
-                          >
-                            {dcfResult.upsideGordon >= 0 ? '+' : ''}
-                            {dcfResult.upsideGordon.toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Método 2: Múltiplo de Salida */}
-                      <div className="bg-white border border-gray-200 rounded p-3">
-                        <div className="flex justify-between items-center text-[11px] text-gray-500">
-                          <span className="font-semibold text-gray-700">
-                            2. Múltiplo de Salida ({exitMultiple.toFixed(1)}x)
-                          </span>
-                          <span>Ref. histórica</span>
-                        </div>
-                        <div className="flex items-baseline justify-between mt-1">
-                          <span className="text-xl font-bold text-gray-900">
-                            {formatMoney(dcfResult.priceMultiple)}
-                          </span>
-                          <span
-                            className={`text-xs font-bold px-2 py-0.5 rounded ${
-                              dcfResult.upsideMultiple >= 0
-                                ? 'bg-green-100 text-green-700'
-                                : 'bg-red-100 text-[#d93025]'
-                            }`}
-                          >
-                            {dcfResult.upsideMultiple >= 0 ? '+' : ''}
-                            {dcfResult.upsideMultiple.toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="text-[11px] text-gray-500 border-t border-gray-200 pt-2 space-y-1">
-                        <div className="flex justify-between">
-                          <span>Precio actual / Consenso WS:</span>
-                          <span className="font-semibold text-gray-800">
-                            {formatMoney(inp.current_price)} / {inp.target_price ? formatMoney(inp.target_price) : '-'}
-                          </span>
-                        </div>
-                        {Math.abs(capexStage1Pct - capexTerminalPct) >= 3 && (
-                          <div className="flex justify-between text-amber-700">
-                            <span>Sin normalizar CapEx terminal:</span>
-                            <span className="font-semibold">{formatMoney(dcfResult.priceUnadjusted)}</span>
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-xs text-gray-500">Ajustá WACC y crecimiento perpetuo para calcular.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
         </>
       )}
     </div>
