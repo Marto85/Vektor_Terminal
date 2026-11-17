@@ -163,16 +163,18 @@ function formatCell(val, type) {
   return isNeg ? `(${f}${suffix})` : `${f}${suffix}`;
 }
 
-export default function ScreenerTab({ onSelectCompany }) {
+export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }) {
+  const startingPreset = PRESETS.find((p) => p.id === initialPresetId) || PRESETS[0];
+
   const [universeData, setUniverseData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState(null);
 
-  const [basePresetId, setBasePresetId] = useState('all');
+  const [basePresetId, setBasePresetId] = useState(startingPreset.id);
   const [isRefined, setIsRefined] = useState(false);
   const [groupByIndustry, setGroupByIndustry] = useState(false);
-  const [filters, setFilters] = useState(INITIAL_FILTERS);
+  const [filters, setFilters] = useState(() => ({ ...INITIAL_FILTERS, ...startingPreset.filters }));
   const [sortConfig, setSortConfig] = useState({ key: 'market_cap_mm', direction: 'desc' });
 
   const [visibleColumns, setVisibleColumns] = useState(() => new Set(ALL_COLUMN_KEYS));
@@ -268,7 +270,7 @@ export default function ScreenerTab({ onSelectCompany }) {
     setVisibleColumns((prev) => {
       const next = new Set(prev);
       if (next.has(key)) {
-        if (next.size <= 1) return prev; // Siempre dejar al menos 1 columna visible
+        if (next.size <= 1) return prev;
         next.delete(key);
       } else {
         next.add(key);

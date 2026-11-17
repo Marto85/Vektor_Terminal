@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import axios from "axios";
 import {
+  Home,
   FileText,
   BarChart3,
   PieChart,
@@ -18,6 +19,8 @@ import {
   ChevronDown,
   Info,
 } from "lucide-react";
+import BrandLogo from "./components/BrandLogo";
+import HomeOverview from "./components/HomeOverview";
 import StockChart from "./components/StockChart";
 import CapitalStructurePanel from "./components/CapitalStructurePanel";
 import ValuationTab from "./components/ValuationTab";
@@ -26,22 +29,37 @@ import ScreenerTab from "./components/ScreenerTab";
 import MetricInfoDrawer from "./components/MetricInfoDrawer";
 import { getGlossaryEntry } from "./data/metricsGlossary";
 
+const RECENT_STORAGE_KEY = "tf_recent_tickers_v1";
+
+function loadRecentTickers() {
+  try {
+    const raw = localStorage.getItem(RECENT_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function App() {
-  const [activeSidebarTab, setActiveSidebarTab] = useState("Resumen");
+  const [activeSidebarTab, setActiveSidebarTab] = useState("Inicio");
   const [activeContentTab, setActiveContentTab] = useState(
     "Cuenta de Resultados",
   );
   const [period, setPeriod] = useState("annual");
   const [showChart, setShowChart] = useState(true);
   const [activeGlossaryInfo, setActiveGlossaryInfo] = useState(null);
+  const [screenerPresetId, setScreenerPresetId] = useState("all");
 
   const [tickerInput, setTickerInput] = useState("");
   const [currentTicker, setCurrentTicker] = useState("MSFT");
+  const [hasLoadedCompany, setHasLoadedCompany] = useState(false);
   const [financialData, setFinancialData] = useState([]);
 
   const [profileData, setProfileData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [recentTickers, setRecentTickers] = useState(loadRecentTickers);
 
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
@@ -53,12 +71,16 @@ function App() {
     }
   };
 
-  const sidebarItems = [
+  const globalNavItems = [
+    { id: "Inicio", name: "Inicio y Mercado", icon: Home },
+    { id: "Screener", name: "Screener", icon: Filter },
+    { id: "Comparador", name: "Comparador", icon: Scale },
+  ];
+
+  const companyNavItems = [
     { id: "Resumen", name: "Resumen y noticias", icon: FileText },
     { id: "Finanzas", name: "Finanzas", icon: BarChart3 },
     { id: "Valoracion", name: "Valoración", icon: PieChart },
-    { id: "Comparador", name: "Comparador", icon: Scale },
-    { id: "Screener", name: "Screener", icon: Filter },
   ];
 
   const contentTabs = [
@@ -69,11 +91,50 @@ function App() {
     "Segmentos",
   ];
 
-  const executeSearch = async (tickerToSearch, selectedPeriod = period) => {
+  const saveToRecent = (sym, prof) => {
+    const entry = {
+      ticker: sym,
+      name: prof?.name || sym,
+      sector: "",
+      price: prof?.price || null,
+      pe_ltm: prof?.summary_metrics?.valuation?.pe_ltm || null,
+      fcf_yield_pct: null,
+      upside_ws_pct:
+        prof?.summary_metrics?.valuation?.target_price && prof?.price
+          ? Number(
+              (
+                ((prof.summary_metrics.valuation.target_price - prof.price) /
+                  prof.price) *
+                100
+              ).toFixed(1),
+            )
+          : null,
+    };
+
+    setRecentTickers((prev) => {
+      const next = [entry, ...prev.filter((p) => p.ticker !== sym)].slice(0, 6);
+      try {
+        localStorage.setItem(RECENT_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Ignorar si localStorage no está disponible
+      }
+      return next;
+    });
+  };
+
+  const executeSearch = async (
+    tickerToSearch,
+    selectedPeriod = period,
+    switchToSummary = false,
+  ) => {
     if (!tickerToSearch) return;
     const upperTicker = tickerToSearch.toUpperCase();
     setIsLoading(true);
     setError(null);
+
+    if (switchToSummary) {
+      setActiveSidebarTab("Resumen");
+    }
 
     try {
       const [finResponse, profResponse] = await Promise.all([
@@ -88,6 +149,8 @@ function App() {
       setFinancialData(finResponse.data);
       setProfileData(profResponse.data);
       setCurrentTicker(upperTicker);
+      setHasLoadedCompany(true);
+      saveToRecent(upperTicker, profResponse.data);
     } catch (err) {
       console.error("Error al buscar datos:", err);
       setError(
@@ -98,40 +161,22 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    let cancelled = false;
-    const initDefaultCompany = async () => {
-      try {
-        const [finResponse, profResponse] = await Promise.all([
-          axios.get("http://127.0.0.1:8000/api/v1/company/MSFT/financials/annual"),
-          axios.get("http://127.0.0.1:8000/api/v1/company/MSFT/profile"),
-        ]);
-        if (!cancelled) {
-          setFinancialData(finResponse.data);
-          setProfileData(profResponse.data);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          console.error("Error cargando empresa inicial:", err);
-        }
-      }
-    };
+  const handleOpenCompanyTab = (tabId) => {
+    setActiveSidebarTab(tabId);
+    if (!hasLoadedCompany) {
+      executeSearch(currentTicker, period, false);
+    }
+  };
 
-    initDefaultCompany();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleOpenFromScreener = (selectedSym) => {
-    setActiveSidebarTab("Resumen");
-    executeSearch(selectedSym, period);
+  const handleOpenScreenerWithPreset = (presetId = "all") => {
+    setScreenerPresetId(presetId);
+    setActiveSidebarTab("Screener");
   };
 
   const handlePeriodChange = (newPeriod) => {
     if (newPeriod === period) return;
     setPeriod(newPeriod);
-    executeSearch(currentTicker, newPeriod);
+    executeSearch(currentTicker, newPeriod, false);
   };
 
   const handleSearchChange = async (e) => {
@@ -158,13 +203,21 @@ function App() {
     setTickerInput(selectedTicker);
     setShowDropdown(false);
     setSearchResults([]);
-    executeSearch(selectedTicker, period);
+    const shouldSwitch =
+      activeSidebarTab === "Inicio" ||
+      activeSidebarTab === "Screener" ||
+      activeSidebarTab === "Comparador";
+    executeSearch(selectedTicker, period, shouldSwitch);
   };
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
       setShowDropdown(false);
-      executeSearch(tickerInput.trim(), period);
+      const shouldSwitch =
+        activeSidebarTab === "Inicio" ||
+        activeSidebarTab === "Screener" ||
+        activeSidebarTab === "Comparador";
+      executeSearch(tickerInput.trim(), period, shouldSwitch);
     }
   };
 
@@ -220,45 +273,90 @@ function App() {
   };
 
   const domain = getDomain(profileData?.website);
+  const isCompanyContextTab =
+    activeSidebarTab === "Resumen" ||
+    activeSidebarTab === "Finanzas" ||
+    activeSidebarTab === "Valoracion";
 
   return (
     <div className="flex h-screen bg-[#1e1e1e] font-sans text-gray-200 overflow-hidden">
       {/* SIDEBAR */}
       <aside className="w-56 bg-[#252526] border-r border-gray-700 flex flex-col shrink-0">
-        <div className="h-12 flex items-center px-4 border-b border-gray-700 bg-[#1e1e1e]">
-          <div className="w-4 h-4 bg-orange-500 rounded-sm mr-2"></div>
-          <span className="text-white text-sm font-semibold tracking-wide">
-            Terminal Financiera
-          </span>
-        </div>
+        <button
+          type="button"
+          onClick={() => setActiveSidebarTab("Inicio")}
+          title="Volver a Inicio y Mercado"
+          className="h-12 flex items-center px-4 border-b border-gray-700 bg-[#1e1e1e] hover:bg-[#232325] transition-colors cursor-pointer text-left"
+        >
+          <BrandLogo size="md" />
+        </button>
 
-        <div className="flex-1 overflow-y-auto py-4">
-          <div className="px-3 mb-2">
-            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-              {currentTicker} Fundamental Analysis
-            </p>
+        <div className="flex-1 overflow-y-auto py-4 space-y-5">
+          {/* Sección Global */}
+          <div>
+            <div className="px-3 mb-2">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                Mercado y Descubrimiento
+              </p>
+            </div>
+            <nav className="space-y-0.5 px-2">
+              {globalNavItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeSidebarTab === item.id;
+
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      if (item.id === "Screener") {
+                        handleOpenScreenerWithPreset("all");
+                      } else {
+                        setActiveSidebarTab(item.id);
+                      }
+                    }}
+                    className={`w-full flex items-center px-3 py-1.5 text-xs rounded transition-colors ${
+                      isActive
+                        ? "bg-orange-500/10 text-orange-500 font-medium cursor-default"
+                        : "text-gray-400 hover:bg-gray-800 hover:text-gray-200 cursor-pointer"
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5 mr-2" />
+                    {item.name}
+                  </button>
+                );
+              })}
+            </nav>
           </div>
-          <nav className="space-y-0.5 px-2">
-            {sidebarItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeSidebarTab === item.id;
 
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveSidebarTab(item.id)}
-                  className={`w-full flex items-center px-3 py-1.5 text-xs rounded transition-colors ${
-                    isActive
-                      ? "bg-orange-500/10 text-orange-500 font-medium cursor-default"
-                      : "text-gray-400 hover:bg-gray-800 hover:text-gray-200 cursor-pointer"
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5 mr-2" />
-                  {item.name}
-                </button>
-              );
-            })}
-          </nav>
+          {/* Sección Empresa Activa */}
+          <div>
+            <div className="px-3 mb-2">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                {currentTicker} Fundamental Analysis
+              </p>
+            </div>
+            <nav className="space-y-0.5 px-2">
+              {companyNavItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeSidebarTab === item.id;
+
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleOpenCompanyTab(item.id)}
+                    className={`w-full flex items-center px-3 py-1.5 text-xs rounded transition-colors ${
+                      isActive
+                        ? "bg-orange-500/10 text-orange-500 font-medium cursor-default"
+                        : "text-gray-400 hover:bg-gray-800 hover:text-gray-200 cursor-pointer"
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5 mr-2" />
+                    {item.name}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
         </div>
       </aside>
 
@@ -321,75 +419,89 @@ function App() {
           </div>
         </header>
 
-        {/* CABECERA EMPRESA GLOBAL (Estilo TIKR) */}
-        <div className="bg-white border-b border-gray-200 shrink-0">
-          <div className="max-w-7xl mx-auto px-6 py-4">
-            <div className="flex justify-between items-start">
-              <div className="flex items-start space-x-4">
-                <div className="w-12 h-12 bg-[#dc2626] rounded flex items-center justify-center text-white text-3xl font-bold shrink-0 shadow-sm">
-                  {currentTicker.charAt(0)}
-                </div>
+        {/* CABECERA EMPRESA GLOBAL (Visible solo en contexto de empresa individual) */}
+        {isCompanyContextTab && (
+          <div className="bg-white border-b border-gray-200 shrink-0">
+            <div className="max-w-7xl mx-auto px-6 py-4">
+              <div className="flex justify-between items-start">
+                <div className="flex items-start space-x-4">
+                  <div className="w-12 h-12 bg-[#dc2626] rounded flex items-center justify-center text-white text-3xl font-bold shrink-0 shadow-sm">
+                    {currentTicker.charAt(0)}
+                  </div>
 
-                <div className="flex flex-col">
-                  <h1 className="text-[32px] font-bold text-gray-900 leading-none tracking-tight">
-                    {currentTicker}
-                  </h1>
-                  <p className="text-[15px] text-gray-500 mt-1">
-                    {profileData ? profileData.name : "Cargando..."}
-                  </p>
+                  <div className="flex flex-col">
+                    <h1 className="text-[32px] font-bold text-gray-900 leading-none tracking-tight">
+                      {currentTicker}
+                    </h1>
+                    <p className="text-[15px] text-gray-500 mt-1">
+                      {profileData ? profileData.name : "Cargando..."}
+                    </p>
 
-                  <div className="flex items-center space-x-2 mt-3">
-                    <button className="flex items-center px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm">
-                      <Heart className="w-3.5 h-3.5 mr-1.5 text-orange-500" />
-                      Agregar al tablero
-                    </button>
-                    <button className="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm">
-                      USD
-                    </button>
-                    <button
-                      onClick={() => setShowChart((prev) => !prev)}
-                      className="flex items-center px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm"
-                    >
-                      {showChart ? (
-                        <>
-                          Ocultar gráfico{" "}
-                          <ChevronUp className="w-3.5 h-3.5 ml-1.5" />
-                        </>
-                      ) : (
-                        <>
-                          Mostrar gráfico{" "}
-                          <ChevronDown className="w-3.5 h-3.5 ml-1.5" />
-                        </>
-                      )}
-                    </button>
+                    <div className="flex items-center space-x-2 mt-3">
+                      <button className="flex items-center px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm">
+                        <Heart className="w-3.5 h-3.5 mr-1.5 text-orange-500" />
+                        Agregar al tablero
+                      </button>
+                      <button className="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm">
+                        USD
+                      </button>
+                      <button
+                        onClick={() => setShowChart((prev) => !prev)}
+                        className="flex items-center px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm"
+                      >
+                        {showChart ? (
+                          <>
+                            Ocultar gráfico{" "}
+                            <ChevronUp className="w-3.5 h-3.5 ml-1.5" />
+                          </>
+                        ) : (
+                          <>
+                            Mostrar gráfico{" "}
+                            <ChevronDown className="w-3.5 h-3.5 ml-1.5" />
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="text-right flex flex-col items-end">
-                <h2 className="text-[36px] font-bold text-gray-900 leading-none tracking-tight">
-                  US$ {profileData ? formatNumber(profileData.price) : "0.00"}
-                </h2>
-                <p
-                  className={`text-[15px] font-bold mt-1 ${profileData?.change < 0 ? "text-[#d93025]" : "text-green-600"}`}
-                >
-                  {profileData
-                    ? `${profileData.change < 0 ? "-US$ " : profileData.change > 0 ? "+US$ " : "US$ "}${formatNumber(Math.abs(profileData.change))} (${profileData.change > 0 ? "+" : profileData.change < 0 ? "-" : ""}${formatNumber(Math.abs(profileData.change_pct), true)})`
-                    : "US$ 0,00 (0,00%)"}
-                </p>
-                <p className="text-[11px] text-gray-400 mt-1">
-                  12 de noviembre de 2026 a las 4:00 p. m. GMT-3
-                </p>
+                <div className="text-right flex flex-col items-end">
+                  <h2 className="text-[36px] font-bold text-gray-900 leading-none tracking-tight">
+                    US$ {profileData ? formatNumber(profileData.price) : "0.00"}
+                  </h2>
+                  <p
+                    className={`text-[15px] font-bold mt-1 ${profileData?.change < 0 ? "text-[#d93025]" : "text-green-600"}`}
+                  >
+                    {profileData
+                      ? `${profileData.change < 0 ? "-US$ " : profileData.change > 0 ? "+US$ " : "US$ "}${formatNumber(Math.abs(profileData.change))} (${profileData.change > 0 ? "+" : profileData.change < 0 ? "-" : ""}${formatNumber(Math.abs(profileData.change_pct), true)})`
+                      : "US$ 0,00 (0,00%)"}
+                  </p>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Datos de mercado actualizados · GMT-3
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* ÁREA DE CONTENIDO CONDICIONAL */}
         <div className="flex-1 overflow-auto">
           <div className="max-w-7xl mx-auto px-6 py-6">
-            {/* BLOQUE GLOBAL: Tarjeta Unificada Gráfico (Izq) y Panel de Datos 2 Columnas (Der) */}
-            {showChart && activeSidebarTab !== "Screener" && (
+            {/* VISTA PORTAL INICIAL (ETAPA 3) */}
+            {activeSidebarTab === "Inicio" && (
+              <HomeOverview
+                onSelectTicker={(sym) => executeSearch(sym, period, true)}
+                onNavigateTab={(tabId) => setActiveSidebarTab(tabId)}
+                onOpenScreenerPreset={(presetId) =>
+                  handleOpenScreenerWithPreset(presetId)
+                }
+                recentTickers={recentTickers}
+              />
+            )}
+
+            {/* BLOQUE GLOBAL EMPRESA: Gráfico (Izq) y Panel de Datos 2 Columnas (Der) */}
+            {showChart && isCompanyContextTab && (
               <div className="bg-white border border-gray-200 rounded-lg shadow-sm flex flex-col lg:flex-row mb-6 overflow-hidden">
                 <StockChart
                   ticker={currentTicker}
@@ -403,25 +515,27 @@ function App() {
               </div>
             )}
 
-            {/* Sub-Nav de la Vista Principal (ESTILO TIKR) */}
-            <div className="flex border-b border-gray-200 mb-6 space-x-8 px-2">
-              {sidebarItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveSidebarTab(item.id)}
-                  className={`pb-3 text-[15px] transition-colors relative ${
-                    activeSidebarTab === item.id
-                      ? "text-orange-500 font-semibold cursor-default"
-                      : "text-gray-500 hover:text-gray-800 font-medium cursor-pointer"
-                  }`}
-                >
-                  {item.name}
-                  {activeSidebarTab === item.id && (
-                    <span className="absolute -bottom-px left-0 w-full h-0.5 bg-orange-500"></span>
-                  )}
-                </button>
-              ))}
-            </div>
+            {/* Sub-Nav de Empresa Individual */}
+            {isCompanyContextTab && (
+              <div className="flex border-b border-gray-200 mb-6 space-x-8 px-2">
+                {companyNavItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => handleOpenCompanyTab(item.id)}
+                    className={`pb-3 text-[15px] transition-colors relative ${
+                      activeSidebarTab === item.id
+                        ? "text-orange-500 font-semibold cursor-default"
+                        : "text-gray-500 hover:text-gray-800 font-medium cursor-pointer"
+                    }`}
+                  >
+                    {item.name}
+                    {activeSidebarTab === item.id && (
+                      <span className="absolute -bottom-px left-0 w-full h-0.5 bg-orange-500"></span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* PESTAÑA: RESUMEN Y NOTICIAS */}
             {activeSidebarTab === "Resumen" && (
@@ -515,7 +629,7 @@ function App() {
               </div>
             )}
 
-            {/* PESTAÑA: FINANZAS (CON ESTILO TIKR) */}
+            {/* PESTAÑA: FINANZAS */}
             {activeSidebarTab === "Finanzas" && (
               <div>
                 <div className="flex border-b border-gray-200 mb-5 space-x-6 px-2">
@@ -744,7 +858,11 @@ function App() {
 
             {/* PESTAÑA: SCREENER FUNDAMENTAL */}
             {activeSidebarTab === "Screener" && (
-              <ScreenerTab onSelectCompany={handleOpenFromScreener} />
+              <ScreenerTab
+                key={screenerPresetId}
+                initialPresetId={screenerPresetId}
+                onSelectCompany={(sym) => executeSearch(sym, period, true)}
+              />
             )}
           </div>
         </div>

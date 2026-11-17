@@ -13,6 +13,7 @@ from app.services.ratios_calculator import calculate_ratios
 from app.services.valuation_service import build_valuation_report
 from app.services.peers_service import build_peers_comparison, build_manual_comparison
 from app.services.screener_service import get_screener_universe, sync_screener_batch
+from app.services.market_overview_service import build_market_overview
 
 router = APIRouter()
 
@@ -23,6 +24,14 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+@router.get("/market-overview")
+def get_market_overview(db: Session = Depends(get_db)):
+    try:
+        return build_market_overview(db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cargando panorama de mercado: {str(e)}")
 
 
 @router.get("/company/{ticker}/profile")
