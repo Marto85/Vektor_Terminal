@@ -61,6 +61,31 @@ class PriceHistoryCache(Base):
     last_updated = Column(DateTime, default=datetime.utcnow)
 
 
+class MacroSeriesCache(Base):
+    __tablename__ = "macro_series_cache"
+    cache_key = Column(String, primary_key=True, index=True)
+    payload = Column(JSON)
+    last_updated = Column(DateTime, default=datetime.utcnow)
+
+
+class IndexValuationSnapshot(Base):
+    __tablename__ = "index_valuation_snapshots"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    snapshot_date = Column(String(10), nullable=False, index=True)  # YYYY-MM-DD
+    index_code = Column(String(20), nullable=False, index=True)    # SP500, NDX, DJI, RUT, EWZ, EEM
+    proxy_ticker = Column(String(15), nullable=False)
+    price = Column(Float, nullable=True)
+    pe_trailing = Column(Float, nullable=True)
+    pe_forward = Column(Float, nullable=True)
+    earnings_yield_pct = Column(Float, nullable=True)
+    dividend_yield_pct = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("snapshot_date", "index_code", name="uq_index_daily_snapshot"),
+    )
+
+
 class Watchlist(Base):
     __tablename__ = "watchlists"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)

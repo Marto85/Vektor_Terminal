@@ -16,6 +16,7 @@ from app.services.valuation_service import build_valuation_report
 from app.services.peers_service import build_peers_comparison, build_manual_comparison
 from app.services.screener_service import get_screener_universe, sync_screener_batch
 from app.services.market_overview_service import build_market_overview
+from app.services.macro_lab_service import build_macro_lab_payload
 from app.services.watchlist_service import (
     get_all_watchlists_payload,
     create_watchlist,
@@ -62,6 +63,12 @@ def get_market_overview(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cargando panorama de mercado: {str(e)}")
 
+@router.get("/macro-lab")
+def get_macro_lab(db: Session = Depends(get_db)):
+    try:
+        return build_macro_lab_payload(db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cargando Macro Lab: {str(e)}")
 
 @router.get("/watchlists")
 def list_watchlists(db: Session = Depends(get_db)):

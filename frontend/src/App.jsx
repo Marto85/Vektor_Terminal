@@ -13,6 +13,7 @@ import {
   Settings,
   Download,
   Calculator,
+  Globe,
   Maximize2,
   Loader2,
   ExternalLink,
@@ -34,6 +35,7 @@ import ValuationTab from "./components/ValuationTab";
 import ComparatorTab from "./components/ComparatorTab";
 import ScreenerTab from "./components/ScreenerTab";
 import ValuationModelsTab from "./components/ValuationModelsTab";
+import MacroLabTab from "./components/MacroLabTab";
 import FinancialHealthPanel from "./components/FinancialHealthPanel";
 import MetricInfoDrawer from "./components/MetricInfoDrawer";
 import { getGlossaryEntry } from "./data/metricsGlossary";
@@ -123,6 +125,7 @@ function App() {
     { id: "Screener", name: "Screener", icon: Filter },
     { id: "Comparador", name: "Comparador", icon: Scale },
     { id: "Modelos", name: "Modelos de Valuación", icon: Calculator },
+    { id: "MacroLab", name: "Macro Lab", icon: Globe },
   ];
 
   const companyNavItems = [
@@ -283,6 +286,7 @@ function App() {
       activeSidebarTab === "Tablero" ||
       activeSidebarTab === "Screener" ||
       activeSidebarTab === "Modelos" ||
+      activeSidebarTab === "MacroLab" ||
       activeSidebarTab === "Comparador";
     executeSearch(selectedTicker, period, shouldSwitch);
   };
@@ -295,6 +299,7 @@ function App() {
         activeSidebarTab === "Tablero" ||
         activeSidebarTab === "Screener" ||
         activeSidebarTab === "Modelos" ||
+        activeSidebarTab === "MacroLab" ||
         activeSidebarTab === "Comparador";
       executeSearch(tickerInput.trim(), period, shouldSwitch);
     }
@@ -1176,6 +1181,9 @@ function App() {
                 }}
               />
             )}
+
+            {/* PESTAÑA: MACRO LAB & PERSPECTIVA HISTÓRICA GLOBAL */}
+            {activeSidebarTab === "MacroLab" && <MacroLabTab />}
 
             {/* PESTAÑA: COMPARADOR MANUAL (HASTA 5 EMPRESAS) */}
             {activeSidebarTab === "Comparador" && (
