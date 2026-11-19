@@ -49,18 +49,23 @@ Se divide en dos subsecciones:
 2. **Competidores:**
   - Compara automáticamente la empresa activa contra sus pares directos del sector, mostrando **Promedio**, **Mediana** y la **Prima / (Descuento)** porcentual de la empresa analizada frente a la mediana del grupo.
 
-### F. Tesis de Inversión (One-Pager Ejecutivo)
+### F. Propiedad e Insiders (SEC 13F y Form 4)
+- **Estructura de Capital:** muestra el porcentaje accionario en manos de inversores institucionales, *insiders* (directivos, ejecutivos y accionistas >10%) y capital flotante/retail.
+- **Top Inversores Institucionales (`13F`):** lista las principales gestoras reportantes con fecha de presentación `13F`, cantidad de acciones, porcentaje sobre el capital total, valuación de la posición (US$ MM) y variación trimestral.
+- **Operaciones de Directivos y Ejecutivos (`Form 4`):** registra compras, ventas en mercado abierto y adjudicaciones reportadas ante la SEC, con resumen de flujo neto y filtros rápidos (*Todas*, *Compras* y *Ventas*).
+
+### G. Tesis de Inversión (One-Pager Ejecutivo)
 - Genera una ficha ejecutiva lista para presentar o exportar a PDF (**Exportar PDF / Presentar**):
   - **Cabecera y KPIs:** cotización actual, valor intrínseco estimado, potencial, pulso interanual del último trimestre (`YoY`), CAGR de ventas 5Y, márgenes, ROIC/ROE, Piotroski F-Score y capitalización bursátil.
   - **Pilares de Tesis y Riesgos:** síntesis estructurada en 3 pilares y alertas de auditoría contable.
   - **Desglose por Unidades de Negocio y Regiones:** extrae los cortes dimensionales XBRL desde SEC EDGAR y permite editarlos o cargarlos manualmente mediante **Personalizar Tesis y Segmentos** (con persistencia en la base local y botón **Restaurar SEC**). En emisores sin desglose XBRL, adapta la vista mostrando tabla de múltiplos LTM vs. Mediana 5Y y métricas de solidez.
   - **Trayectoria 5Y y Puente de Valuación:** gráfico combinado de ingresos, FCF y margen operativo junto con banda de valuación intrínseca vs. cotización actual y consenso Wall Street.
 
-### G. Comparador
+### H. Comparador
 - Matriz manual para contrastar **hasta 5 empresas de cualquier sector** lado a lado.
 - Permite agregar o quitar tickers desde su buscador independiente, calcular automáticamente **Promedio** y **Mediana** del grupo (excluyendo valores `N/M` y outliers extremos mayores a `250x`) y detectar de un vistazo el mejor múltiplo o margen de cada fila resaltado en verde.
 
-### H. Screener
+### I. Screener
 Buscador cuantitativo sobre un universo curado de emisores globales y ADRs:
 1. **Sincronización por lotes:** el botón **Sincronizar +15 emisores** incorpora progresivamente nuevas empresas a la base local SQLite.
 2. **Estrategias Predefinidas:** aplica con un clic filtros institucionales (*Universo Completo*, *Value Contrarian*, *Quality Compounders*, *Alto FCF Yield* y *GARP*) acompañados de una ficha explicativa sincronizada con su tesis y criterios.

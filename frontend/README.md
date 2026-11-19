@@ -12,6 +12,12 @@ cd frontend && npm run dev
 
 *(Requiere que el backend FastAPI esté corriendo en `http://127.0.0.1:8000`).*
 
+## Pruebas Automatizadas (Vitest)
+
+```bash
+cd frontend && npm test
+```
+
 ## Compilación para Producción
 
 ```bash

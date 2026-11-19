@@ -26,7 +26,8 @@ La aplicación queda disponible en `http://localhost:5173`.
   - **Motores de Valoración y Comparables:** DCF en 2 etapas (expansión vs. mantenimiento) con doble valor terminal, modelo bancario *Excess Return*, comparables sectoriales automáticos, comparador manual multi-empresa y Screener Fundamental sobre universo curado.
   - **Panorama de Mercado y Macro Lab:** Seguimiento de índices globales, múltiplos históricos de índices (`IndexValuationSnapshot`), curva de rendimientos del Tesoro, tasas reales, inflación y diferenciales de crédito (`MacroSeriesCache`).
   - **Watchlists, Alertas y Tesis de Inversión:** Listas de seguimiento con objetivos de precio y alertas de métricas, más generación de One-Pager Ejecutivo con extracción dimensional XBRL por *streaming* (`StatementBusinessSegmentsAxis`, `ProductOrServiceAxis`, `StatementGeographicalAxis`) y edición persistente en SQLite (`CompanySegmentsCache`).
-  - **Caché Local:** SQLite vía SQLAlchemy (`CompanyData`, `CompanyProfile`, `CompanyMarketCache`, `CompanyEstimatesCache`, `CompanySegmentsCache`, `PriceHistoryCache`, `MacroSeriesCache`, `IndexValuationSnapshot`, `Watchlist`, `WatchlistItem`, `AlertNotification`).
+  - **Propiedad Institucional e Insiders (`13F` / `Form 4`):** Extracción, normalización y caché (TTL 12h) de tenedores institucionales (`13F`), fondos mutuos y transacciones de directivos/ejecutivos (`Form 4`).
+  - **Caché Local:** SQLite vía SQLAlchemy (`CompanyData`, `CompanyProfile`, `CompanyMarketCache`, `CompanyEstimatesCache`, `CompanySegmentsCache`, `CompanyOwnershipCache`, `PriceHistoryCache`, `MacroSeriesCache`, `IndexValuationSnapshot`, `Watchlist`, `WatchlistItem`, `AlertNotification`).
 - **Frontend:** React + Vite + Tailwind CSS (`frontend/src`)
   - Gráficos interactivos OHLCV (`TradingView Lightweight Charts`), gráficos analíticos (`Recharts`), tablas financieras con encabezados fijos, glosario lateral interactivo, exportación a CSV y vista optimizada para impresión/PDF (`print:`).
 
@@ -45,6 +46,7 @@ Terminal Financiera/
 │   │       ├── ratios_calculator.py       # Cálculo de ratios históricos, Piotroski F-Score y Altman Z-Score
 │   │       ├── valuation_service.py       # Auditoría contable, consenso WS, DCF 2 etapas y Excess Return
 │   │       ├── thesis_service.py          # One-Pager ejecutivo y extracción dimensional XBRL de segmentos/regiones
+│   │       ├── ownership_service.py       # Propiedad institucional (13F), fondos mutuos y operaciones de insiders (Form 4)
 │   │       ├── peers_service.py           # Comparables sectoriales y matriz manual (hasta 5 tickers)
 │   │       ├── screener_service.py        # Universo curado y sincronización por lotes
 │   │       ├── market_overview_service.py # Panorama de mercado e historial de valuación de índices
@@ -61,6 +63,7 @@ Terminal Financiera/
         │   ├── StockChart.jsx              # Gráfico histórico multi-métrica
         │   ├── CapitalStructurePanel.jsx   # Panel de escala, eficiencia, caja y múltiplos
         │   ├── ValuationTab.jsx            # Múltiplos históricos, modelos DCF/Excess Return y Competidores
+        │   ├── OwnershipInsidersTab.jsx    # Tenedores institucionales (13F) y operaciones de insiders (Form 4)
         │   ├── InvestmentThesisTab.jsx     # One-Pager ejecutivo de tesis de inversión y segmentos editables
         │   ├── ComparatorTab.jsx           # Comparador manual lado a lado (hasta 5 empresas)
         │   ├── ScreenerTab.jsx             # Buscador fundamental con presets, agrupación y CSV
