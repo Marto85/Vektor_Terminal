@@ -535,6 +535,268 @@ def _audit_anomalies_and_adjustments(
     }
 
 
+def _compute_reverse_dcf(
+    is_financial: bool,
+    dcf_inputs: dict[str, Any],
+    financial_inputs: dict[str, Any],
+    hist_avg_growth_pct: float,
+    recommended_growth_pct: float,
+) -> dict[str, Any]:
+    """
+    Etapa 9 — DCF Inverso (Expectations Investing):
+    Resuelve por bisección numérica la tasa de crecimiento anual implícita en la
+    cotización actual del mercado (a 5 y 10 años), contrastándola con la trayectoria
+    histórica y la proyección base para detectar brechas de expectativas.
+    """
+    if is_financial:
+        cur_price = float(financial_inputs.get("current_price") or 0.0)
+        bvps = float(financial_inputs.get("bvps") or 0.0)
+        base_roe_pct = float(financial_inputs.get("roe_pct") or 12.0)
+        ke = float(financial_inputs.get("cost_of_equity_pct") or 9.5) / 100.0
+        payout = float(financial_inputs.get("payout_ratio_pct") or 35.0) / 100.0
+        retention = max(1.0 - payout, 0.10)
+
+        def eval_bank_price(roe_decimal: float, horizon_yrs: int) -> float:
+            if bvps <= 0:
+                return 0.0
+            g1 = min(max(roe_decimal * retention, -0.05), 0.25)
+            g_term = min(max(g1, 0.01), 0.045)
+            if ke <= g_term:
+                return 0.0
+            bv = bvps
+            pv_exc = 0.0
+            for yr in range(1, horizon_yrs + 1):
+                pv_exc += (bv * (roe_decimal - ke)) / ((1.0 + ke) ** yr)
+                bv *= 1.0 + g1
+            term_roe = ke + (roe_decimal - ke) * 0.5
+            tv = (bv * (term_roe - ke)) / (ke - g_term)
+            return bvps + pv_exc + tv / ((1.0 + ke) ** horizon_yrs)
+
+        def solve_bank_implied(horizon_yrs: int) -> dict[str, Any]:
+            if cur_price <= 0 or bvps <= 0:
+                return {
+                    "solvable": False,
+                    "implied_growth_pct": None,
+                    "implied_roe_pct": None,
+                    "note": "Datos patrimoniales insuficientes para resolver el modelo inverso.",
+                }
+            lo, hi = -0.05, 0.60
+            p_lo = eval_bank_price(lo, horizon_yrs)
+            p_hi = eval_bank_price(hi, horizon_yrs)
+            if cur_price <= p_lo:
+                roe_sol = lo
+            elif cur_price >= p_hi:
+                roe_sol = hi
+            else:
+                for _ in range(60):
+                    mid = (lo + hi) / 2.0
+                    if eval_bank_price(mid, horizon_yrs) < cur_price:
+                        lo = mid
+                    else:
+                        hi = mid
+                roe_sol = (lo + hi) / 2.0
+
+            implied_bv_growth = round(roe_sol * retention * 100.0, 1)
+            return {
+                "solvable": True,
+                "implied_growth_pct": implied_bv_growth,
+                "implied_roe_pct": round(roe_sol * 100.0, 1),
+                "note": f"Exige un ROE sostenible de {roe_sol * 100.0:.1f}% (crecimiento patrimonial de {implied_bv_growth:.1f}% anual).",
+            }
+
+        res_5y = solve_bank_implied(5)
+        res_10y = solve_bank_implied(10)
+        imp_5y = res_5y.get("implied_growth_pct")
+        expected_bank_g = round(base_roe_pct * retention, 1)
+        gap_vs_expected = round(imp_5y - expected_bank_g, 1) if imp_5y is not None else None
+
+        if gap_vs_expected is None:
+            regime = "indeterminate"
+            verdict = "No se pudo determinar la expectativa implícita para esta entidad."
+        elif gap_vs_expected >= 3.0:
+            regime = "demanding"
+            verdict = (
+                f"Expectativas exigentes: el precio actual descuenta un crecimiento patrimonial de "
+                f"{imp_5y:.1f}% anual (+{gap_vs_expected:.1f} pp por encima de su generación orgánica actual de {expected_bank_g:.1f}%)."
+            )
+        elif gap_vs_expected <= -2.5:
+            regime = "conservative"
+            verdict = (
+                f"Expectativas conservadoras (margen de seguridad): el mercado solo exige {imp_5y:.1f}% anual "
+                f"({gap_vs_expected:.1f} pp debajo de su capacidad orgánica de {expected_bank_g:.1f}%)."
+            )
+        else:
+            regime = "aligned"
+            verdict = (
+                f"Expectativas alineadas: la cotización descuenta {imp_5y:.1f}% de expansión patrimonial anual, "
+                f"en línea con su rentabilidad operativa actual ({expected_bank_g:.1f}%)."
+            )
+
+        return {
+            "mode": "financial",
+            "model_label": "Excess Return Inverso (ROE y Crecimiento Patrimonial Implícito)",
+            "current_price": round(cur_price, 2),
+            "horizon_5y": res_5y,
+            "horizon_10y": res_10y,
+            "benchmarks": {
+                "hist_growth_pct": round(hist_avg_growth_pct, 1),
+                "expected_growth_pct": expected_bank_g,
+                "base_roe_pct": round(base_roe_pct, 1),
+                "cost_of_equity_pct": round(ke * 100.0, 1),
+                "payout_ratio_pct": round(payout * 100.0, 1),
+            },
+            "gap_vs_expected_pp": gap_vs_expected,
+            "regime": regime,
+            "verdict": verdict,
+        }
+
+    # Perfil Corporativo Estándar / REIT
+    cur_price = float(dcf_inputs.get("current_price") or 0.0)
+    rev0 = float(dcf_inputs.get("revenue_base_mm") or 0.0)
+    shares = float(dcf_inputs.get("shares_mm") or 0.0)
+    net_debt = float(dcf_inputs.get("net_debt_mm") or 0.0)
+    ebit_m = float(dcf_inputs.get("ebit_margin_pct") or 15.0) / 100.0
+    tax_r = float(dcf_inputs.get("tax_rate_pct") or 21.0) / 100.0
+    da_p = float(dcf_inputs.get("da_sales_pct") or 8.0) / 100.0
+    capex1 = float(dcf_inputs.get("capex_expansion_pct") or 12.0) / 100.0
+    capex_t = float(dcf_inputs.get("capex_maintenance_pct") or 8.0) / 100.0
+    wacc = float(dcf_inputs.get("suggested_wacc_pct") or 9.0) / 100.0
+    exit_m = float(dcf_inputs.get("exit_multiple_default") or 18.0)
+    margin_step = float(dcf_inputs.get("margin_step_pct_yr") or 0.0) / 100.0
+    g_term = 0.03
+
+    def eval_corp_price(g_decimal: float, horizon_yrs: int, tv_mode: str = "blend") -> float:
+        if rev0 <= 0 or shares <= 0 or wacc <= g_term:
+            return 0.0
+        rv = rev0
+        pv1 = 0.0
+        last_margin = ebit_m
+        for yr in range(1, horizon_yrs + 1):
+            rv *= 1.0 + g_decimal
+            step_yr = min(yr, 5)
+            m_yr = min(max(ebit_m + margin_step * step_yr, 0.01), 0.65)
+            last_margin = m_yr
+            fcf_y = rv * (m_yr * (1.0 - tax_r) + da_p - capex1)
+            pv1 += fcf_y / ((1.0 + wacc) ** yr)
+
+        fcf_next = rv * (1.0 + g_term) * (last_margin * (1.0 - tax_r) + da_p - capex_t)
+        tv_gordon = fcf_next / (wacc - g_term)
+        fcf_last_norm = rv * (last_margin * (1.0 - tax_r) + da_p - capex_t)
+        tv_mult = fcf_last_norm * exit_m
+
+        if tv_mode == "gordon":
+            tv = tv_gordon
+        elif tv_mode == "multiple":
+            tv = tv_mult
+        else:
+            tv = 0.5 * (tv_gordon + tv_mult)
+
+        return (pv1 + tv / ((1.0 + wacc) ** horizon_yrs) - net_debt) / shares
+
+    def solve_corp_implied(horizon_yrs: int) -> dict[str, Any]:
+        if cur_price <= 0 or rev0 <= 0 or shares <= 0:
+            return {
+                "solvable": False,
+                "implied_growth_pct": None,
+                "implied_growth_gordon_pct": None,
+                "implied_growth_mult_pct": None,
+                "note": "Faltan datos operativos o de capitalización para resolver el crecimiento implícito.",
+            }
+
+        def bisect(mode: str) -> tuple[float, bool]:
+            lo, hi = -0.25, 0.85
+            p_lo = eval_corp_price(lo, horizon_yrs, mode)
+            p_hi = eval_corp_price(hi, horizon_yrs, mode)
+            if p_hi <= 0:
+                return 0.0, False
+            if cur_price <= p_lo:
+                return lo, True
+            if cur_price >= p_hi:
+                return hi, False
+            for _ in range(60):
+                mid = (lo + hi) / 2.0
+                if eval_corp_price(mid, horizon_yrs, mode) < cur_price:
+                    lo = mid
+                else:
+                    hi = mid
+            return (lo + hi) / 2.0, True
+
+        g_blend, ok_b = bisect("blend")
+        g_gord, _ = bisect("gordon")
+        g_mult, _ = bisect("multiple")
+
+        if not ok_b and eval_corp_price(0.85, horizon_yrs, "blend") <= 0:
+            return {
+                "solvable": False,
+                "implied_growth_pct": None,
+                "implied_growth_gordon_pct": None,
+                "implied_growth_mult_pct": None,
+                "note": "Con el margen operativo y CapEx actual el FCF proyectado es negativo; requiere expansión de márgenes.",
+            }
+
+        g_b_pct = round(g_blend * 100.0, 1)
+        g_g_pct = round(g_gord * 100.0, 1)
+        g_m_pct = round(g_mult * 100.0, 1)
+
+        return {
+            "solvable": True,
+            "implied_growth_pct": g_b_pct,
+            "implied_growth_gordon_pct": g_g_pct,
+            "implied_growth_mult_pct": g_m_pct,
+            "note": (
+                f"El precio actual descuenta un crecimiento anual de ventas de {g_b_pct:.1f}% "
+                f"(rango {min(g_g_pct, g_m_pct):.1f}% – {max(g_g_pct, g_m_pct):.1f}% según método terminal)."
+            ),
+        }
+
+    res_5y = solve_corp_implied(5)
+    res_10y = solve_corp_implied(10)
+    imp_5y = res_5y.get("implied_growth_pct")
+    gap_vs_expected = round(imp_5y - recommended_growth_pct, 1) if imp_5y is not None else None
+    gap_vs_hist = round(imp_5y - hist_avg_growth_pct, 1) if imp_5y is not None else None
+
+    if imp_5y is None:
+        regime = "indeterminate"
+        verdict = "Con los márgenes actuales la empresa no cubre la valuación solo con crecimiento de ventas; el mercado descuenta mejora estructural de márgenes."
+    elif gap_vs_expected is not None and gap_vs_expected >= 3.5:
+        regime = "demanding"
+        verdict = (
+            f"Expectativas exigentes: el mercado descuenta {imp_5y:.1f}% de crecimiento anual a 5 años "
+            f"(+{gap_vs_expected:.1f} pp por encima de la proyección base de {recommended_growth_pct:.1f}%)."
+        )
+    elif gap_vs_expected is not None and gap_vs_expected <= -2.5:
+        regime = "conservative"
+        verdict = (
+            f"Expectativas conservadoras (margen de seguridad): la cotización solo exige {imp_5y:.1f}% anual "
+            f"({gap_vs_expected:.1f} pp por debajo de la proyección base de {recommended_growth_pct:.1f}%)."
+        )
+    else:
+        regime = "aligned"
+        verdict = (
+            f"Expectativas razonables: el precio descuenta {imp_5y:.1f}% de crecimiento anual, "
+            f"alineado con la proyección ponderada ({recommended_growth_pct:.1f}%) y su historia ({hist_avg_growth_pct:.1f}%)."
+        )
+
+    return {
+        "mode": "standard",
+        "model_label": "DCF Inverso 2 Etapas (Crecimiento Anual Implícito en Precio)",
+        "current_price": round(cur_price, 2),
+        "horizon_5y": res_5y,
+        "horizon_10y": res_10y,
+        "benchmarks": {
+            "hist_growth_pct": round(hist_avg_growth_pct, 1),
+            "expected_growth_pct": round(recommended_growth_pct, 1),
+            "ebit_margin_pct": round(ebit_m * 100.0, 1),
+            "wacc_pct": round(wacc * 100.0, 1),
+            "exit_multiple": round(exit_m, 1),
+        },
+        "gap_vs_expected_pp": gap_vs_expected,
+        "gap_vs_hist_pp": gap_vs_hist,
+        "regime": regime,
+        "verdict": verdict,
+    }
+
+
 def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
     ticker_upper = ticker_symbol.upper()
 
@@ -814,6 +1076,49 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
     med_ptbv = med_by_key.get("ptbv") or ltm_multiples.get("ptbv") or 1.8
     exit_ptbv_default = round(min(max(float(med_ptbv), 1.0), 2.8), 2)
 
+    dcf_inputs_payload = {
+        "current_price": round(current_price, 2),
+        "shares_mm": round(current_shares_mm, 2),
+        "net_debt_mm": round(current_net_debt_mm, 2),
+        "revenue_base_mm": round(rev_base, 2),
+        "recommended_rev_growth_pct": trajectory["recommended_rev_growth_pct"],
+        "suggested_wacc_pct": suggested_wacc_pct,
+        "margin_step_pct_yr": trajectory["margin_step_pct_yr"],
+        "fcf_reported_mm": round(fcf_ltm, 2),
+        "fcf_adjusted_mm": audit["adjusted_fcf_mm"],
+        "ebit_margin_pct": audit["ebit_margin_pct"],
+        "tax_rate_pct": audit["tax_rate_pct"],
+        "da_sales_pct": da_sales_pct,
+        "capex_expansion_pct": audit["capex_current_pct"],
+        "capex_maintenance_pct": audit["capex_maint_pct"],
+        "exit_multiple_default": round(exit_ev_fcf_default, 1),
+        "target_price": info.get("targetMeanPrice"),
+    }
+
+    financial_inputs_payload = {
+        "current_price": round(current_price, 2),
+        "shares_mm": round(current_shares_mm, 2),
+        "book_value_mm": round(latest_equity_mm, 2),
+        "tangible_book_value_mm": round(tangible_equity_mm, 2),
+        "bvps": bvps,
+        "tbvps": tbvps,
+        "roe_pct": round(base_roe_pct, 1),
+        "roe_hist_med_pct": hist_roe_med,
+        "roa_pct": round(float(info["returnOnAssets"]) * 100.0, 2) if info.get("returnOnAssets") is not None else None,
+        "cost_of_equity_pct": cost_of_equity_pct,
+        "payout_ratio_pct": payout_pct,
+        "exit_ptbv_default": exit_ptbv_default,
+        "target_price": info.get("targetMeanPrice"),
+    }
+
+    reverse_dcf = _compute_reverse_dcf(
+        is_financial=is_financial,
+        dcf_inputs=dcf_inputs_payload,
+        financial_inputs=financial_inputs_payload,
+        hist_avg_growth_pct=trajectory["hist_avg_growth_pct"],
+        recommended_growth_pct=trajectory["recommended_rev_growth_pct"],
+    )
+
     return {
         "ticker": ticker_upper,
         "classification": classification,
@@ -822,37 +1127,7 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         "rows": table_rows,
         "audit": audit,
         "trajectory": trajectory,
-        "dcf_inputs": {
-            "current_price": round(current_price, 2),
-            "shares_mm": round(current_shares_mm, 2),
-            "net_debt_mm": round(current_net_debt_mm, 2),
-            "revenue_base_mm": round(rev_base, 2),
-            "recommended_rev_growth_pct": trajectory["recommended_rev_growth_pct"],
-            "suggested_wacc_pct": suggested_wacc_pct,
-            "margin_step_pct_yr": trajectory["margin_step_pct_yr"],
-            "fcf_reported_mm": round(fcf_ltm, 2),
-            "fcf_adjusted_mm": audit["adjusted_fcf_mm"],
-            "ebit_margin_pct": audit["ebit_margin_pct"],
-            "tax_rate_pct": audit["tax_rate_pct"],
-            "da_sales_pct": da_sales_pct,
-            "capex_expansion_pct": audit["capex_current_pct"],
-            "capex_maintenance_pct": audit["capex_maint_pct"],
-            "exit_multiple_default": round(exit_ev_fcf_default, 1),
-            "target_price": info.get("targetMeanPrice"),
-        },
-        "financial_sector_inputs": {
-            "current_price": round(current_price, 2),
-            "shares_mm": round(current_shares_mm, 2),
-            "book_value_mm": round(latest_equity_mm, 2),
-            "tangible_book_value_mm": round(tangible_equity_mm, 2),
-            "bvps": bvps,
-            "tbvps": tbvps,
-            "roe_pct": round(base_roe_pct, 1),
-            "roe_hist_med_pct": hist_roe_med,
-            "roa_pct": round(float(info["returnOnAssets"]) * 100.0, 2) if info.get("returnOnAssets") is not None else None,
-            "cost_of_equity_pct": cost_of_equity_pct,
-            "payout_ratio_pct": payout_pct,
-            "exit_ptbv_default": exit_ptbv_default,
-            "target_price": info.get("targetMeanPrice"),
-        },
+        "reverse_dcf": reverse_dcf,
+        "dcf_inputs": dcf_inputs_payload,
+        "financial_sector_inputs": financial_inputs_payload,
     }

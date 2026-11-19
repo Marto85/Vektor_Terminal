@@ -13,6 +13,7 @@ import {
   Coins,
   BarChart2,
   Info,
+  HelpCircle,
 } from "lucide-react";
 
 function formatMoney(val) {
@@ -41,6 +42,8 @@ const MODEL_CATALOG = [
     name: "DCF 2 Etapas (FCFF)",
     shortDesc: "Flujo de Caja Libre Descontado",
     icon: Calculator,
+    howItWorks:
+      "Calcula cuánto efectivo libre generará el negocio para todos sus proveedores de capital en los próximos 5 años más su valor a perpetuidad, descontado a valor presente según el riesgo (WACC) y restando la deuda neta.",
     bestFor: "Corporativos no financieros, industria, consumo y tecnología con flujo de caja positivo.",
     avoidIn: "Bancos, aseguradoras y financieras (la deuda es materia prima operativa y no existe FCF industrial).",
   },
@@ -49,6 +52,8 @@ const MODEL_CATALOG = [
     name: "Excess Return (ROE)",
     shortDesc: "Retorno Excedente sobre Patrimonio",
     icon: Landmark,
+    howItWorks:
+      "Parte del Patrimonio Neto actual por acción (Valor Libros) y le suma el valor presente de las ganancias que superan el retorno mínimo exigido por el accionista (ROE − Ke). Si un banco rinde más que su costo de capital, vale más que su valor libros.",
     bestFor: "Bancos comerciales, aseguradoras, financieras y entidades reguladas por capital.",
     avoidIn: "Empresas tecnológicas asset-light con alto intangibles/recompras donde el Valor Libros contable es bajo.",
   },
@@ -57,6 +62,8 @@ const MODEL_CATALOG = [
     name: "DDM (Dividendos)",
     shortDesc: "Descuento de Dividendos 2 Etapas",
     icon: Coins,
+    howItWorks:
+      "Valúa la acción exclusivamente por el flujo futuro de dividendos en efectivo que recibirá el accionista (etapa de crecimiento inicial de 5 años + crecimiento perpetuo estable), descontados al Costo de Equity (Ke).",
     bestFor: "Utilities, REITs, consumo maduro y empresas con política estable de dividendos crecientes.",
     avoidIn: "Empresas de alto crecimiento que reinvierten el 100% de sus utilidades o recompran acciones en lugar de pagar dividendos.",
   },
@@ -65,6 +72,8 @@ const MODEL_CATALOG = [
     name: "Múltiplos Normalizados",
     shortDesc: "Valuación Relativa Histórica (5Y)",
     icon: BarChart2,
+    howItWorks:
+      "Estima cuánto valdría hoy la acción si el mercado volviera a pagar exactamente la mediana histórica de sus propios múltiplos de los últimos 5 años (EV/EBITDA, P/E, P/FCF o P/BV) sobre sus resultados actuales.",
     bestFor: "Triangulación rápida contra la mediana histórica propia de 5 años (EV/EBITDA, P/E, P/FCF, P/BV).",
     avoidIn: "Empresas en reestructuración o con ganancias/EBITDA cíclicamente deprimidos o negativos.",
   },
@@ -595,7 +604,6 @@ export default function ValuationModelsTab({
           (DCF 2 Etapas, Excess Return, DDM y Múltiplos Normalizados).
         </p>
 
-        {/* Buscador centrado */}
         <div className="relative max-w-md mx-auto mt-6 text-left">
           <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
@@ -634,7 +642,6 @@ export default function ValuationModelsTab({
           )}
         </div>
 
-        {/* Accesos rápidos si hay tickers recientes */}
         {recentTickers.length > 0 && (
           <div className="mt-6 pt-5 border-t border-gray-100">
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2.5">
@@ -669,6 +676,9 @@ export default function ValuationModelsTab({
   const currentPrice = Number(inp.current_price || 0);
   const hasDividends =
     Number(profileData?.summary_metrics?.dividend?.dividend_rate || 0) > 0;
+
+  const activeCatalogItem =
+    MODEL_CATALOG.find((m) => m.id === selectedModel) || MODEL_CATALOG[0];
 
   const suitability = evaluateSuitability(
     selectedModel,
@@ -740,7 +750,6 @@ export default function ValuationModelsTab({
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {/* Buscador rápido para cambiar de empresa */}
             <div className="relative w-64">
               <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
@@ -777,7 +786,6 @@ export default function ValuationModelsTab({
               )}
             </div>
 
-            {/* Selector Automático vs Manual */}
             <div className="inline-flex rounded-lg border border-gray-300 bg-gray-100 p-0.5">
               <button
                 type="button"
@@ -841,6 +849,24 @@ export default function ValuationModelsTab({
             );
           })}
         </div>
+
+        {/* GUÍA DIDÁCTICA DEL MODELO SELECCIONADO */}
+        <div className="mt-3.5 p-3.5 rounded-lg bg-slate-50 border border-slate-200/90 flex items-start gap-2.5 text-[11.5px] text-slate-700 leading-relaxed">
+          <HelpCircle className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p>
+              <strong className="text-slate-900">
+                ¿Cómo calcula el valor este modelo ({activeCatalogItem.name})?
+              </strong>{" "}
+              {activeCatalogItem.howItWorks}
+            </p>
+            <p className="text-[11px] text-slate-600">
+              <strong className="text-emerald-800">Ideal para:</strong> {activeCatalogItem.bestFor}{" "}
+              <span className="mx-1.5 text-slate-300">|</span>
+              <strong className="text-amber-800">Evitar en:</strong> {activeCatalogItem.avoidIn}
+            </p>
+          </div>
+        </div>
       </div>
 
       {loading ? (
@@ -887,7 +913,7 @@ export default function ValuationModelsTab({
               </div>
             </div>
 
-            {/* ALERTAS DE ANOMALÍAS CONTABLES (EJ. CAPEX SURGE EN HYPERSCALERS / SBC) */}
+            {/* ALERTAS DE ANOMALÍAS CONTABLES */}
             {audit.has_anomalies && (
               <div className="bg-amber-50/80 border border-amber-300 rounded-xl p-4 space-y-2">
                 <div className="flex items-center gap-2 font-bold text-amber-950">
@@ -962,7 +988,6 @@ export default function ValuationModelsTab({
             {/* =============================================================== */}
             {selectedModel === "dcf" && dcfOutput && (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                {/* Panel izquierdo: Parámetros con explicación técnica */}
                 <div className="lg:col-span-5 bg-white border border-gray-200 rounded-xl shadow-sm p-5 space-y-4">
                   <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
                     <h3 className="text-sm font-bold text-gray-900">
@@ -975,7 +1000,6 @@ export default function ValuationModelsTab({
                     </span>
                   </div>
 
-                  {/* Input 1: Crecimiento de Ventas */}
                   <div className="p-3 rounded-lg bg-gray-50 border border-gray-200/80">
                     <div className="flex justify-between font-bold text-gray-800">
                       <span>Crecimiento Anual Ventas (Años 1–5)</span>
@@ -1000,7 +1024,6 @@ export default function ValuationModelsTab({
                     </p>
                   </div>
 
-                  {/* Input 2: Margen EBIT Objetivo */}
                   <div className="p-3 rounded-lg bg-gray-50 border border-gray-200/80">
                     <div className="flex justify-between font-bold text-gray-800">
                       <span>Margen Operativo (EBIT) Objetivo Año 5</span>
@@ -1027,7 +1050,6 @@ export default function ValuationModelsTab({
                     </p>
                   </div>
 
-                  {/* Input 3 y 4: CapEx Etapa 1 vs Terminal */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-3 rounded-lg bg-gray-50 border border-gray-200/80">
                       <div className="flex justify-between font-bold text-gray-800">
@@ -1076,7 +1098,6 @@ export default function ValuationModelsTab({
                     </div>
                   </div>
 
-                  {/* Input 5 y 6: WACC y Perpetuidad g */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-3 rounded-lg bg-gray-50 border border-gray-200/80">
                       <div className="flex justify-between font-bold text-gray-800">
@@ -1125,7 +1146,6 @@ export default function ValuationModelsTab({
                     </div>
                   </div>
 
-                  {/* Input 7: Múltiplo de Salida y Ajuste Puntual */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-3 rounded-lg bg-gray-50 border border-gray-200/80">
                       <div className="flex justify-between font-bold text-gray-800">
@@ -1176,7 +1196,6 @@ export default function ValuationModelsTab({
                   </div>
                 </div>
 
-                {/* Panel derecho: Flujos proyectados + Triangulación (con explicaciones Gordon vs Múltiplo) + Matriz Sensibilidad */}
                 <div className="lg:col-span-7 space-y-5">
                   {dcfOutput.invalid ? (
                     <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700 font-semibold">
@@ -1186,7 +1205,6 @@ export default function ValuationModelsTab({
                     </div>
                   ) : (
                     <>
-                      {/* Tabla de flujos proyectados */}
                       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
                         <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
                           <span className="font-bold text-gray-800">
@@ -1245,7 +1263,6 @@ export default function ValuationModelsTab({
                         </table>
                       </div>
 
-                      {/* Comparación Gordon vs Múltiplo de Salida (Con explicaciones y botón i) */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col justify-between">
                           <div>
@@ -1329,7 +1346,6 @@ export default function ValuationModelsTab({
                         Si buscás un <strong>criterio conservador de largo plazo</strong> (protegido ante caídas de múltiplos en bolsa), mirá <strong>Perpetuidad Gordon</strong>. En <strong>empresas líderes de crecimiento</strong> (donde asumir un 3% perpetuo al año 6 suele ser demasiado estricto), el <strong>Múltiplo de Salida</strong> y el <strong>promedio triangulado</strong> reflejan mejor su calidad competitiva.
                       </div>
 
-                      {/* Matriz de Sensibilidad WACC vs g */}
                       <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
                         <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 font-bold text-gray-800">
                           Matriz de Sensibilidad — Valor Intrínseco (US$ / acción): WACC vs. Crecimiento Perpetuo (g)
@@ -1550,8 +1566,8 @@ export default function ValuationModelsTab({
                           <p className="text-xl font-extrabold text-gray-900 mt-1">
                             {formatMoney(excessReturnOutput.priceExcess)}
                           </p>
-                          <p className="text-[11px] text-gray-500 mt-1">
-                            P/BV implícito:{" "}
+                          <p className="text-[11px] text-gray-600 mt-1 leading-relaxed">
+                            Valor libros actual + retorno excedente perpetuo. P/BV justificado:{" "}
                             <strong>
                               {excessReturnOutput.impliedPb.toFixed(2)}x
                             </strong>
@@ -1565,8 +1581,8 @@ export default function ValuationModelsTab({
                           <p className="text-xl font-extrabold text-gray-900 mt-1">
                             {formatMoney(excessReturnOutput.pricePtbv)}
                           </p>
-                          <p className="text-[11px] text-gray-500 mt-1">
-                            TBVPS base: {formatMoney(finInp.tbvps)}
+                          <p className="text-[11px] text-gray-600 mt-1 leading-relaxed">
+                            Dividendos cobrados en 5 años + venta a múltiplo sobre capital tangible ({formatMoney(finInp.tbvps)}).
                           </p>
                         </div>
                       </div>
@@ -1728,8 +1744,13 @@ export default function ValuationModelsTab({
             {/* =============================================================== */}
             {selectedModel === "multiples" && multiplesOutput && (
               <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 font-bold text-gray-800">
-                  Valuación Implícita por Reversión a la Mediana Histórica de 5 Años
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex flex-wrap justify-between items-center gap-2">
+                  <span className="font-bold text-gray-800">
+                    Valuación Implícita por Reversión a la Mediana Histórica de 5 Años
+                  </span>
+                  <span className="text-[11px] text-gray-500">
+                    Precio Implícito = Precio Actual × (Mediana 5Y / Múltiplo Actual)
+                  </span>
                 </div>
                 {multiplesOutput.empty ? (
                   <div className="p-6 text-gray-500">
