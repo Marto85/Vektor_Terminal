@@ -15,6 +15,7 @@ import {
   Calculator,
   Globe,
   Presentation,
+  Users,
   Maximize2,
   Loader2,
   ExternalLink,
@@ -39,6 +40,7 @@ import ValuationModelsTab from "./components/ValuationModelsTab";
 import MacroLabTab from "./components/MacroLabTab";
 import InvestmentThesisTab from "./components/InvestmentThesisTab";
 import FinancialHealthPanel from "./components/FinancialHealthPanel";
+import OwnershipInsidersTab from "./components/OwnershipInsidersTab";
 import MetricInfoDrawer from "./components/MetricInfoDrawer";
 import { getGlossaryEntry } from "./data/metricsGlossary";
 
@@ -135,6 +137,7 @@ function App() {
     { id: "Resumen", name: "Resumen y noticias", icon: FileText },
     { id: "Finanzas", name: "Finanzas", icon: BarChart3 },
     { id: "Valoracion", name: "Valoración", icon: PieChart },
+    { id: "Propiedad", name: "Propiedad e Insiders", icon: Users },
   ];
 
   const contentTabs = [
@@ -451,7 +454,8 @@ function App() {
   const isCompanyContextTab =
     activeSidebarTab === "Resumen" ||
     activeSidebarTab === "Finanzas" ||
-    activeSidebarTab === "Valoracion";
+    activeSidebarTab === "Valoracion" ||
+    activeSidebarTab === "Propiedad";
 
   const notificationsList = watchlistData?.notifications || [];
   const unreadNotifications = notificationsList.filter((n) => !n.is_read);
@@ -1172,6 +1176,11 @@ function App() {
                   setActiveSidebarTab("Modelos");
                 }}
               />
+            )}
+
+            {/* PESTAÑA: PROPIEDAD INSTITUCIONAL (13F) E INSIDERS (FORM 4) */}
+            {activeSidebarTab === "Propiedad" && (
+              <OwnershipInsidersTab ticker={currentTicker} />
             )}
 
             {/* PESTAÑA: MODELOS DE VALUACIÓN (AUTOMÁTICO Y MANUAL) */}

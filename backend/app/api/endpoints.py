@@ -33,6 +33,7 @@ from app.services.thesis_service import (
     save_custom_segments,
     reset_custom_segments,
 )
+from app.services.ownership_service import build_ownership_and_insiders_report
 
 router = APIRouter()
 
@@ -240,6 +241,16 @@ def get_company_valuation(ticker: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error calculando valoración: {str(e)}")
+
+
+@router.get("/company/{ticker}/ownership")
+def get_company_ownership(ticker: str, db: Session = Depends(get_db)):
+    try:
+        return build_ownership_and_insiders_report(ticker, db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error obteniendo propiedad institucional e insiders: {str(e)}")
 
 
 @router.get("/company/{ticker}/thesis-onepager")

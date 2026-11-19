@@ -51,6 +51,12 @@ class CompanyEstimatesCache(Base):
     estimates_data = Column(JSON)
     last_updated = Column(DateTime, default=datetime.utcnow)
 
+class CompanyOwnershipCache(Base):
+    __tablename__ = "company_ownership_cache"
+    ticker = Column(String, primary_key=True, index=True)
+    ownership_data = Column(JSON)
+    last_updated = Column(DateTime, default=datetime.utcnow)
+
 
 class CompanySegmentsCache(Base):
     __tablename__ = "company_segments_cache"
