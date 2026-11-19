@@ -1,16 +1,27 @@
-# React + Vite
+# Frontend — Terminal Financiera
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Interfaz web desarrollada en **React + Vite + Tailwind CSS** para análisis fundamental, valoración intrínseca, seguimiento macroeconómico y presentación de tesis de inversión.
 
-Currently, two official plugins are available:
+## Ejecución en Desarrollo (Git Bash)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Desde la raíz del proyecto:
 
-## React Compiler
+```bash
+cd frontend && npm run dev
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+*(Requiere que el backend FastAPI esté corriendo en `http://127.0.0.1:8000`).*
 
-## Expanding the ESLint configuration
+## Compilación para Producción
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+cd frontend && npm run build
+```
+
+## Librerías Principales
+
+- **React + Vite:** Estructura SPA modular por pestañas.
+- **Tailwind CSS:** Diseño responsivo con reglas `@media print` (`print:`) para exportación limpia a PDF en el módulo de Tesis de Inversión.
+- **Lightweight Charts (`lightweight-charts`):** Gráficos históricos OHLCV de precio, retorno total, *drawdowns*, *Market Cap* y *Enterprise Value*.
+- **Recharts:** Gráficos de torta por unidad de negocio/geografía y series combinadas de trayectoria financiera.
+- **Axios & Lucide React:** Comunicación con la API REST local e iconografía.

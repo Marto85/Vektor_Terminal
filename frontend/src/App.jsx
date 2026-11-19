@@ -14,6 +14,7 @@ import {
   Download,
   Calculator,
   Globe,
+  Presentation,
   Maximize2,
   Loader2,
   ExternalLink,
@@ -36,6 +37,7 @@ import ComparatorTab from "./components/ComparatorTab";
 import ScreenerTab from "./components/ScreenerTab";
 import ValuationModelsTab from "./components/ValuationModelsTab";
 import MacroLabTab from "./components/MacroLabTab";
+import InvestmentThesisTab from "./components/InvestmentThesisTab";
 import FinancialHealthPanel from "./components/FinancialHealthPanel";
 import MetricInfoDrawer from "./components/MetricInfoDrawer";
 import { getGlossaryEntry } from "./data/metricsGlossary";
@@ -126,6 +128,7 @@ function App() {
     { id: "Comparador", name: "Comparador", icon: Scale },
     { id: "Modelos", name: "Modelos de Valuación", icon: Calculator },
     { id: "MacroLab", name: "Macro Lab", icon: Globe },
+    { id: "Tesis", name: "Tesis de Inversión", icon: Presentation },
   ];
 
   const companyNavItems = [
@@ -287,6 +290,7 @@ function App() {
       activeSidebarTab === "Screener" ||
       activeSidebarTab === "Modelos" ||
       activeSidebarTab === "MacroLab" ||
+      activeSidebarTab === "Tesis" ||
       activeSidebarTab === "Comparador";
     executeSearch(selectedTicker, period, shouldSwitch);
   };
@@ -300,6 +304,7 @@ function App() {
         activeSidebarTab === "Screener" ||
         activeSidebarTab === "Modelos" ||
         activeSidebarTab === "MacroLab" ||
+        activeSidebarTab === "Tesis" ||
         activeSidebarTab === "Comparador";
       executeSearch(tickerInput.trim(), period, shouldSwitch);
     }
@@ -1184,6 +1189,18 @@ function App() {
 
             {/* PESTAÑA: MACRO LAB & PERSPECTIVA HISTÓRICA GLOBAL */}
             {activeSidebarTab === "MacroLab" && <MacroLabTab />}
+
+            {/* PESTAÑA: TESIS DE INVERSIÓN (ONE-PAGER EJECUTIVO PARA CLIENTES) */}
+            {activeSidebarTab === "Tesis" && (
+              <InvestmentThesisTab
+                initialTicker={hasLoadedCompany ? currentTicker : ""}
+                recentTickers={recentTickers}
+                onSelectGlobalTicker={(sym) => {
+                  setCurrentTicker(sym);
+                  setHasLoadedCompany(true);
+                }}
+              />
+            )}
 
             {/* PESTAÑA: COMPARADOR MANUAL (HASTA 5 EMPRESAS) */}
             {activeSidebarTab === "Comparador" && (

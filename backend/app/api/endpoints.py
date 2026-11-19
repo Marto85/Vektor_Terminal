@@ -28,6 +28,11 @@ from app.services.watchlist_service import (
     mark_notifications_read,
     clear_all_notifications,
 )
+from app.services.thesis_service import (
+    build_investment_thesis_onepager,
+    save_custom_segments,
+    reset_custom_segments,
+)
 
 router = APIRouter()
 
@@ -48,6 +53,12 @@ class WatchlistItemPayload(BaseModel):
     alerts: list[dict[str, Any]] = []
 
 
+class CustomSegmentsPayload(BaseModel):
+    business_segments: list[dict[str, Any]] = []
+    geo_segments: list[dict[str, Any]] = []
+    key_clients_notes: str = ""
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -63,12 +74,14 @@ def get_market_overview(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cargando panorama de mercado: {str(e)}")
 
+
 @router.get("/macro-lab")
 def get_macro_lab(db: Session = Depends(get_db)):
     try:
         return build_macro_lab_payload(db)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cargando Macro Lab: {str(e)}")
+
 
 @router.get("/watchlists")
 def list_watchlists(db: Session = Depends(get_db)):
@@ -227,6 +240,38 @@ def get_company_valuation(ticker: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error calculando valoración: {str(e)}")
+
+
+@router.get("/company/{ticker}/thesis-onepager")
+def get_company_thesis_onepager(ticker: str, db: Session = Depends(get_db)):
+    try:
+        return build_investment_thesis_onepager(ticker, db)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando ficha ejecutiva de tesis: {str(e)}")
+
+
+@router.put("/company/{ticker}/segments")
+def put_company_segments(ticker: str, body: CustomSegmentsPayload, db: Session = Depends(get_db)):
+    try:
+        return save_custom_segments(
+            db=db,
+            ticker_symbol=ticker,
+            business_segments=body.business_segments,
+            geo_segments=body.geo_segments,
+            key_clients_notes=body.key_clients_notes,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error guardando segmentos personalizados: {str(e)}")
+
+
+@router.delete("/company/{ticker}/segments")
+def delete_company_custom_segments(ticker: str, db: Session = Depends(get_db)):
+    try:
+        return reset_custom_segments(db, ticker)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error restaurando segmentos desde SEC: {str(e)}")
 
 
 @router.get("/company/{ticker}/peers")

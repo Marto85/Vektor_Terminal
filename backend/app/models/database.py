@@ -52,6 +52,16 @@ class CompanyEstimatesCache(Base):
     last_updated = Column(DateTime, default=datetime.utcnow)
 
 
+class CompanySegmentsCache(Base):
+    __tablename__ = "company_segments_cache"
+    ticker = Column(String, primary_key=True, index=True)
+    business_segments = Column(JSON, default=list)
+    geo_segments = Column(JSON, default=list)
+    key_clients_notes = Column(Text, nullable=True)
+    is_custom = Column(Boolean, default=False, nullable=False)
+    last_updated = Column(DateTime, default=datetime.utcnow)
+
+
 class PriceHistoryCache(Base):
     __tablename__ = "price_history_cache"
     cache_key = Column(String, primary_key=True, index=True)  # Ej: "MSFT:1y"
