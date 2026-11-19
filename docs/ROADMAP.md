@@ -14,7 +14,7 @@ Documento vivo de arquitectura y evolución funcional de **VektorTerminal**.
 
 ## Etapas Pendientes
 
-- [ ] **Etapa 9B (Transversal — Arquitectura QA):** Suite de pruebas automatizadas Backend + Frontend (`backend/tests/` con `pytest` y `frontend/src/__tests__/` con `Vitest`) cubriendo parsers contables, motores de valuación y endpoints críticos, dejándola como puerta de control obligatoria antes de cada `push` futuro.
+- [x] **Etapa 9B (Transversal — Arquitectura QA):** Suite de pruebas automatizadas Backend + Frontend (`backend/tests/` con `pytest` y `frontend/src/__tests__/` con `Vitest`) cubriendo parsers contables, motores de valuación y endpoints críticos, dejándola como puerta de control obligatoria antes de cada `push` futuro.
 - [ ] **Etapa 10 — Inteligencia Institucional y Exportación Masiva:** Propiedad Institucional (formularios SEC `13F`), Operaciones de *Insiders* (`Form 4`) y exportación masiva de reportes y estados financieros a `.xlsx` y `.pdf`.
 - [ ] **Etapa 11 — Arquitectura Multi-Usuario, Roles y Permisos:** Sistema de autenticación y control de acceso basado en roles (`superadmin`, `advisor`, `client`).
 - [ ] **Etapa 12 — Gestión de Clientes y Portafolios de Inversión:** Legajos de clientes, registro de operaciones con cálculo de Precio Promedio Ponderado (PPP), distribución por sector/moneda y medición de rendimiento frente a *benchmarks*.

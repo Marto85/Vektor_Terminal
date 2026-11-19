@@ -5,7 +5,7 @@ from typing import Any
 import urllib.request
 import pandas as pd
 import yfinance as yf
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 from sqlalchemy.orm import Session
 from app.models.database import (
     CompanyData,
@@ -609,9 +609,9 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
                 if len(raw_description) > 4900:
                     raw_description = raw_description[:4900] + "..."
 
-                translator = Translator()
-                translation = translator.translate(raw_description, src='en', dest='es')
-                translated_desc = translation.text
+                translated_desc = GoogleTranslator(source="en", target="es").translate(
+                    raw_description
+                )
             except Exception as e:
                 print(f"ERROR EN TRADUCCION para {ticker_upper}: {e}")
                 translated_desc = f"(Sin traducir) {raw_description}"
