@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import apiClient from "../api/client";
 import {
   Search,
   Filter,
@@ -88,7 +88,7 @@ export default function HomeOverview({
     const loadOverview = async () => {
       setLoading(true);
       try {
-        const res = await axios.get("http://127.0.0.1:8000/api/v1/market-overview");
+        const res = await apiClient.get("/market-overview");
         if (!cancelled) {
           setOverview(res.data);
         }
@@ -111,7 +111,7 @@ export default function HomeOverview({
     setHeroQuery(val);
     if (val.trim().length > 0) {
       try {
-        const res = await axios.get(`http://127.0.0.1:8000/api/v1/search?q=${val}`);
+        const res = await apiClient.get(`/search?q=${val}`);
         setHeroResults(res.data || []);
         setShowHeroDropdown(true);
       } catch {

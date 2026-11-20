@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import axios from 'axios';
+import apiClient from "../api/client";
 import {
   Search,
   Plus,
@@ -104,8 +104,8 @@ export default function ComparatorTab({ currentTicker, onOpenInfo }) {
       setLoading(true);
       setError(null);
       try {
-        const res = await axios.get(
-          `http://127.0.0.1:8000/api/v1/compare?tickers=${encodeURIComponent(tickersParam)}`
+        const res = await apiClient.get(
+          `/compare?tickers=${encodeURIComponent(tickersParam)}`
         );
         if (!cancelled) {
           setCompData(res.data);
@@ -132,8 +132,8 @@ export default function ComparatorTab({ currentTicker, onOpenInfo }) {
     setQuery(val);
     if (val.trim().length > 0) {
       try {
-        const res = await axios.get(
-          `http://127.0.0.1:8000/api/v1/search?q=${encodeURIComponent(val.trim())}`
+        const res = await apiClient.get(
+          `/search?q=${encodeURIComponent(val.trim())}`
         );
         setSuggestions(res.data || []);
         setShowDropdown(true);

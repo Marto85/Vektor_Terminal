@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import apiClient from "../api/client";
 import {
   Calculator,
   Search,
@@ -237,11 +237,11 @@ export default function ValuationModelsTab({
       setError(null);
       try {
         const [vRes, pRes] = await Promise.all([
-          axios.get(
-            `http://127.0.0.1:8000/api/v1/company/${selectedTicker}/valuation`
+          apiClient.get(
+            `/company/${selectedTicker}/valuation`
           ),
-          axios.get(
-            `http://127.0.0.1:8000/api/v1/company/${selectedTicker}/profile`
+          apiClient.get(
+            `/company/${selectedTicker}/profile`
           ),
         ]);
         if (!cancelled) {
@@ -272,8 +272,8 @@ export default function ValuationModelsTab({
     setSearchInput(val);
     if (val.trim().length > 0) {
       try {
-        const res = await axios.get(
-          `http://127.0.0.1:8000/api/v1/search?q=${val}`
+        const res = await apiClient.get(
+          `/search?q=${val}`
         );
         setSearchResults(res.data || []);
         setShowDropdown(true);

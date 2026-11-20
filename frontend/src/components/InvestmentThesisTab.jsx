@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
+import apiClient from "../api/client";
 import {
   ResponsiveContainer,
   PieChart,
@@ -88,7 +88,7 @@ export default function InvestmentThesisTab({
 
     axios
       .get(
-        `http://127.0.0.1:8000/api/v1/company/${selectedTicker}/thesis-onepager`
+        `/company/${selectedTicker}/thesis-onepager`
       )
       .then((res) => {
         if (!cancelled) {
@@ -125,8 +125,8 @@ export default function InvestmentThesisTab({
     setSearchInput(val);
     if (val.trim().length > 0) {
       try {
-        const res = await axios.get(
-          `http://127.0.0.1:8000/api/v1/search?q=${val}`
+        const res = await apiClient.get(
+          `/search?q=${val}`
         );
         setSearchResults(res.data || []);
         setShowDropdown(true);
@@ -168,8 +168,8 @@ export default function InvestmentThesisTab({
     }
     setSavingSegments(true);
     try {
-      const res = await axios.put(
-        `http://127.0.0.1:8000/api/v1/company/${selectedTicker}/segments`,
+      const res = await apiClient.put(
+        `/company/${selectedTicker}/segments`,
         {
           business_segments: bizSegments,
           geo_segments: geoSegments,
@@ -192,8 +192,8 @@ export default function InvestmentThesisTab({
   const handleResetSegmentsFromSec = async () => {
     setLoading(true);
     try {
-      const res = await axios.delete(
-        `http://127.0.0.1:8000/api/v1/company/${selectedTicker}/segments`
+      const res = await apiClient.delete(
+        `/company/${selectedTicker}/segments`
       );
       setData(res.data);
       setBizSegments(res.data.business_segments || []);

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import axios from "axios";
 import {
   Home,
   Bookmark,
@@ -11,7 +10,6 @@ import {
   Filter,
   Search,
   Bell,
-  Settings,
   Download,
   Calculator,
   Globe,
@@ -27,7 +25,15 @@ import {
   X,
   Check,
   CheckCheck,
+  KeyRound,
+  LogOut,
+  Shield,
 } from "lucide-react";
+import apiClient from "./api/client";
+import { useAuth } from "./context/authStore";
+import LoginScreen from "./components/auth/LoginScreen";
+import ChangePasswordModal from "./components/auth/ChangePasswordModal";
+import UserManagementModal from "./components/auth/UserManagementModal";
 import BrandLogo from "./components/BrandLogo";
 import HomeOverview from "./components/HomeOverview";
 import WatchlistTab from "./components/WatchlistTab";
@@ -48,6 +54,12 @@ import { getGlossaryEntry } from "./data/metricsGlossary";
 
 const RECENT_STORAGE_KEY = "tf_recent_tickers_v1";
 
+const ROLE_BADGE_MAP = {
+  superadmin: { label: "Superadmin", cls: "bg-purple-500/20 text-purple-300 border-purple-500/40" },
+  advisor: { label: "Asesor", cls: "bg-orange-500/20 text-orange-300 border-orange-500/40" },
+  client: { label: "Cliente", cls: "bg-blue-500/20 text-blue-300 border-blue-500/40" },
+};
+
 function loadRecentTickers() {
   try {
     const raw = localStorage.getItem(RECENT_STORAGE_KEY);
@@ -59,6 +71,15 @@ function loadRecentTickers() {
 }
 
 function App() {
+  const {
+    user,
+    loadingAuth,
+    isAuthenticated,
+    logout,
+    isAdvisorOrAdmin,
+    isClient,
+  } = useAuth();
+
   const [activeSidebarTab, setActiveSidebarTab] = useState("Inicio");
   const [tableroInitialSubView, setTableroInitialSubView] = useState("lists");
   const [activeContentTab, setActiveContentTab] = useState(
@@ -88,6 +109,12 @@ function App() {
   const [showAlertsPopover, setShowAlertsPopover] = useState(false);
   const alertsPopoverRef = useRef(null);
 
+  // Menú de usuario y modales de autenticación/administración (Etapa 11)
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showUserMgmtModal, setShowUserMgmtModal] = useState(false);
+  const [showChangePassModal, setShowChangePassModal] = useState(false);
+  const userMenuRef = useRef(null);
+
   // Modal rápido "Agregar al tablero" desde la cabecera de empresa
   const [showAddToBoardModal, setShowAddToBoardModal] = useState(false);
   const [modalTargetWlId, setModalTargetWlId] = useState("");
@@ -98,11 +125,18 @@ function App() {
   const [savingToBoard, setSavingToBoard] = useState(false);
 
   useEffect(() => {
-    axios
-      .get("http://127.0.0.1:8000/api/v1/watchlists")
-      .then((res) => setWatchlistData(res.data))
+    if (!isAuthenticated || !isAdvisorOrAdmin) return;
+    let cancelled = false;
+    apiClient
+      .get("/watchlists")
+      .then((res) => {
+        if (!cancelled) setWatchlistData(res.data);
+      })
       .catch((err) => console.error("Error cargando watchlists:", err));
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, isAdvisorOrAdmin]);
 
   useEffect(() => {
     const handleOutside = (e) => {
@@ -112,12 +146,30 @@ function App() {
       ) {
         setShowAlertsPopover(false);
       }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+        setShowUserMenu(false);
+      }
     };
-    if (showAlertsPopover) {
+    if (showAlertsPopover || showUserMenu) {
       document.addEventListener("mousedown", handleOutside);
     }
     return () => document.removeEventListener("mousedown", handleOutside);
-  }, [showAlertsPopover]);
+  }, [showAlertsPopover, showUserMenu]);
+
+  if (loadingAuth) {
+    return (
+      <div className="min-h-screen bg-[#1e1e1e] flex flex-col items-center justify-center text-gray-300">
+        <Loader2 className="w-8 h-8 text-orange-500 animate-spin mb-3" />
+        <p className="text-xs font-medium tracking-wide">
+          Verificando sesión en VektorTerminal...
+        </p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LoginScreen />;
+  }
 
   const openGlossary = (metricKey, formattedVal = null) => {
     const entry = getGlossaryEntry(metricKey);
@@ -126,15 +178,19 @@ function App() {
     }
   };
 
-  const globalNavItems = [
-    { id: "Inicio", name: "Inicio y Mercado", icon: Home },
-    { id: "Tablero", name: "Mi Tablero", icon: Bookmark },
-    { id: "Screener", name: "Screener", icon: Filter },
-    { id: "Comparador", name: "Comparador", icon: Scale },
-    { id: "Modelos", name: "Modelos de Valuación", icon: Calculator },
-    { id: "MacroLab", name: "Macro Lab", icon: Globe },
-    { id: "Tesis", name: "Tesis de Inversión", icon: Presentation },
+  const allGlobalNavItems = [
+    { id: "Inicio", name: "Inicio y Mercado", icon: Home, clientAllowed: true },
+    { id: "Tablero", name: "Mi Tablero", icon: Bookmark, clientAllowed: false },
+    { id: "Screener", name: "Screener", icon: Filter, clientAllowed: false },
+    { id: "Comparador", name: "Comparador", icon: Scale, clientAllowed: true },
+    { id: "Modelos", name: "Modelos de Valuación", icon: Calculator, clientAllowed: false },
+    { id: "MacroLab", name: "Macro Lab", icon: Globe, clientAllowed: true },
+    { id: "Tesis", name: "Tesis de Inversión", icon: Presentation, clientAllowed: true },
   ];
+
+  const globalNavItems = isClient
+    ? allGlobalNavItems.filter((item) => item.clientAllowed)
+    : allGlobalNavItems;
 
   const companyNavItems = [
     { id: "Resumen", name: "Resumen y noticias", icon: FileText },
@@ -197,12 +253,8 @@ function App() {
 
     try {
       const [finResponse, profResponse] = await Promise.all([
-        axios.get(
-          `http://127.0.0.1:8000/api/v1/company/${upperTicker}/financials/${selectedPeriod}`,
-        ),
-        axios.get(
-          `http://127.0.0.1:8000/api/v1/company/${upperTicker}/profile`,
-        ),
+        apiClient.get(`/company/${upperTicker}/financials/${selectedPeriod}`),
+        apiClient.get(`/company/${upperTicker}/profile`),
       ]);
 
       setFinancialData(finResponse.data);
@@ -226,10 +278,10 @@ function App() {
     try {
       const url =
         format === "xlsx"
-          ? `http://127.0.0.1:8000/api/v1/company/${currentTicker}/export/xlsx?period=${period}`
-          : `http://127.0.0.1:8000/api/v1/company/${currentTicker}/export/pdf`;
+          ? `/company/${currentTicker}/export/xlsx?period=${period}`
+          : `/company/${currentTicker}/export/pdf`;
 
-      const response = await axios.get(url, { responseType: "blob" });
+      const response = await apiClient.get(url, { responseType: "blob" });
       const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = blobUrl;
@@ -258,20 +310,20 @@ function App() {
   };
 
   const handleOpenScreenerWithPreset = (presetId = "all") => {
+    if (isClient) return;
     setScreenerPresetId(presetId);
     setActiveSidebarTab("Screener");
   };
 
   const handleOpenTablero = (sub = "lists") => {
+    if (isClient) return;
     setTableroInitialSubView(sub);
     setActiveSidebarTab("Tablero");
   };
 
   const handleMarkNotifRead = async (notifId) => {
     try {
-      const res = await axios.post(
-        `http://127.0.0.1:8000/api/v1/notifications/${notifId}/read`,
-      );
+      const res = await apiClient.post(`/notifications/${notifId}/read`);
       setWatchlistData(res.data);
     } catch (err) {
       console.error("Error marcando notificación como leída:", err);
@@ -280,9 +332,7 @@ function App() {
 
   const handleMarkAllNotifsRead = async () => {
     try {
-      const res = await axios.post(
-        "http://127.0.0.1:8000/api/v1/notifications/read-all",
-      );
+      const res = await apiClient.post("/notifications/read-all");
       setWatchlistData(res.data);
     } catch (err) {
       console.error("Error marcando todas como leídas:", err);
@@ -301,8 +351,8 @@ function App() {
 
     if (value.trim().length > 0) {
       try {
-        const response = await axios.get(
-          `http://127.0.0.1:8000/api/v1/search?q=${value}`,
+        const response = await apiClient.get(
+          `/search?q=${encodeURIComponent(value)}`,
         );
         setSearchResults(response.data);
         setShowDropdown(true);
@@ -410,18 +460,15 @@ function App() {
       }));
 
     try {
-      const res = await axios.post(
-        `http://127.0.0.1:8000/api/v1/watchlists/${modalTargetWlId}/items`,
-        {
-          ticker: currentTicker,
-          buy_target_price:
-            modalBuyTarget !== "" ? Number(modalBuyTarget) : null,
-          sell_target_price:
-            modalSellTarget !== "" ? Number(modalSellTarget) : null,
-          thesis_note: modalThesis,
-          alerts: parsedAlerts,
-        },
-      );
+      const res = await apiClient.post(`/watchlists/${modalTargetWlId}/items`, {
+        ticker: currentTicker,
+        buy_target_price:
+          modalBuyTarget !== "" ? Number(modalBuyTarget) : null,
+        sell_target_price:
+          modalSellTarget !== "" ? Number(modalSellTarget) : null,
+        thesis_note: modalThesis,
+        alerts: parsedAlerts,
+      });
       setWatchlistData(res.data);
       setShowAddToBoardModal(false);
     } catch (err) {
@@ -495,6 +542,11 @@ function App() {
   const isCurrentTickerInAnyWatchlist = (watchlistData?.watchlists || []).some(
     (wl) => (wl.items || []).some((it) => it.ticker === currentTicker),
   );
+
+  const roleBadge = ROLE_BADGE_MAP[user?.role] || ROLE_BADGE_MAP.client;
+  const userInitial = (user?.full_name || user?.email || "U")
+    .charAt(0)
+    .toUpperCase();
 
   return (
     <div className="flex h-screen bg-[#1e1e1e] font-sans text-gray-200 overflow-hidden">
@@ -584,12 +636,35 @@ function App() {
               })}
             </nav>
           </div>
+
+          {/* Administración / Cartera (según rol) */}
+          {isAdvisorOrAdmin && (
+            <div>
+              <div className="px-3 mb-2">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                  Gestión & Accesos
+                </p>
+              </div>
+              <nav className="space-y-0.5 px-2">
+                <button
+                  type="button"
+                  onClick={() => setShowUserMgmtModal(true)}
+                  className="w-full flex items-center px-3 py-1.5 text-xs rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors cursor-pointer"
+                >
+                  <Users className="w-3.5 h-3.5 mr-2" />
+                  {user?.role === "superadmin"
+                    ? "Usuarios y Roles"
+                    : "Mis Clientes"}
+                </button>
+              </nav>
+            </div>
+          )}
         </div>
       </aside>
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#f9fafb]">
-        {/* HEADER CON AUTOCOMPLETADO Y CAMPANA DE NOTIFICACIONES */}
+        {/* HEADER CON AUTOCOMPLETADO, NOTIFICACIONES Y USUARIO */}
         <header className="h-12 bg-[#252526] border-b border-gray-700 flex items-center justify-between px-4 shrink-0 z-50">
           <div className="flex items-center flex-1 max-w-xl">
             <div className="relative w-full">
@@ -637,108 +712,184 @@ function App() {
             </div>
           </div>
 
-          <div className="flex items-center space-x-4 text-gray-400">
-            {/* Campana de notificaciones persistentes */}
-            <div className="relative" ref={alertsPopoverRef}>
-              <button
-                type="button"
-                onClick={() => setShowAlertsPopover((prev) => !prev)}
-                title="Notificaciones y Alertas"
-                className="relative p-1 hover:text-white cursor-pointer"
-              >
-                <Bell className="w-4 h-4" />
-                {unreadNotifCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">
-                    {unreadNotifCount}
-                  </span>
-                )}
-              </button>
-
-              {showAlertsPopover && (
-                <div className="absolute right-0 mt-2 w-96 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden text-xs">
-                  <div className="px-4 py-2.5 bg-gray-900 text-white flex items-center justify-between gap-2">
-                    <span className="font-bold">
-                      Notificaciones ({unreadNotifCount} nuevas)
+          <div className="flex items-center space-x-3 text-gray-400">
+            {/* Campana de notificaciones persistentes (solo Asesor/Admin) */}
+            {isAdvisorOrAdmin && (
+              <div className="relative" ref={alertsPopoverRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowAlertsPopover((prev) => !prev)}
+                  title="Notificaciones y Alertas"
+                  className="relative p-1 hover:text-white cursor-pointer"
+                >
+                  <Bell className="w-4 h-4" />
+                  {unreadNotifCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">
+                      {unreadNotifCount}
                     </span>
-                    <div className="flex items-center gap-3">
-                      {unreadNotifCount > 0 && (
+                  )}
+                </button>
+
+                {showAlertsPopover && (
+                  <div className="absolute right-0 mt-2 w-96 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden text-xs">
+                    <div className="px-4 py-2.5 bg-gray-900 text-white flex items-center justify-between gap-2">
+                      <span className="font-bold">
+                        Notificaciones ({unreadNotifCount} nuevas)
+                      </span>
+                      <div className="flex items-center gap-3">
+                        {unreadNotifCount > 0 && (
+                          <button
+                            type="button"
+                            onClick={handleMarkAllNotifsRead}
+                            title="Marcar todas como leídas"
+                            className="inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:underline cursor-pointer"
+                          >
+                            <CheckCheck className="w-3.5 h-3.5" />
+                            Marcar todas
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={handleMarkAllNotifsRead}
-                          title="Marcar todas como leídas"
-                          className="inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:underline cursor-pointer"
+                          onClick={() => {
+                            setShowAlertsPopover(false);
+                            handleOpenTablero("notifications");
+                          }}
+                          className="text-[11px] text-orange-400 hover:underline cursor-pointer"
                         >
-                          <CheckCheck className="w-3.5 h-3.5" />
-                          Marcar todas
+                          Historial
                         </button>
+                      </div>
+                    </div>
+                    <div className="max-h-72 overflow-y-auto divide-y divide-gray-100">
+                      {unreadNotifications.length === 0 ? (
+                        <div className="p-5 text-center text-gray-500">
+                          No tenés notificaciones pendientes de lectura.
+                        </div>
+                      ) : (
+                        unreadNotifications.map((n) => (
+                          <div
+                            key={n.id}
+                            className="p-3 bg-orange-50/60 hover:bg-orange-100/60 transition-colors flex items-start justify-between gap-2"
+                          >
+                            <div
+                              onClick={async () => {
+                                setShowAlertsPopover(false);
+                                await handleMarkNotifRead(n.id);
+                                executeSearch(n.ticker, period, true);
+                              }}
+                              className="flex-1 min-w-0 cursor-pointer"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-orange-600 truncate">
+                                  {n.ticker} · {n.title}
+                                </span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 text-gray-600 font-medium shrink-0">
+                                  {n.watchlist_name}
+                                </span>
+                              </div>
+                              <p className="text-gray-700 mt-0.5">{n.detail}</p>
+                              <p className="text-[10px] text-gray-400 mt-0.5">
+                                {n.triggered_at}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleMarkNotifRead(n.id);
+                              }}
+                              title="Marcar como leída"
+                              className="p-1.5 rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-emerald-600 hover:border-emerald-300 transition-colors cursor-pointer shrink-0"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))
                       )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Badge de Rol + Menú de Cuenta */}
+            <div className="relative" ref={userMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShowUserMenu((prev) => !prev)}
+                className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-lg hover:bg-[#333333] transition-colors cursor-pointer"
+              >
+                <span
+                  className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${roleBadge.cls}`}
+                >
+                  <Shield className="w-2.5 h-2.5" />
+                  {roleBadge.label}
+                </span>
+                <div className="w-6 h-6 rounded-full bg-orange-600 flex items-center justify-center text-white text-xs font-bold">
+                  {userInitial}
+                </div>
+              </button>
+
+              {showUserMenu && (
+                <div className="absolute right-0 mt-2 w-60 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden text-xs text-gray-800">
+                  <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+                    <p className="font-bold text-gray-900 truncate">
+                      {user?.full_name}
+                    </p>
+                    <p className="text-[11px] text-gray-500 truncate">
+                      {user?.email}
+                    </p>
+                    <span className="inline-block mt-1 px-2 py-0.5 rounded bg-gray-200 text-gray-700 text-[10px] font-semibold uppercase">
+                      {roleBadge.label}
+                    </span>
+                  </div>
+
+                  <div className="py-1">
+                    {isAdvisorOrAdmin && (
                       <button
                         type="button"
                         onClick={() => {
-                          setShowAlertsPopover(false);
-                          handleOpenTablero("notifications");
+                          setShowUserMenu(false);
+                          setShowUserMgmtModal(true);
                         }}
-                        className="text-[11px] text-orange-400 hover:underline cursor-pointer"
+                        className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center gap-2 text-gray-700 cursor-pointer"
                       >
-                        Historial
+                        <Users className="w-3.5 h-3.5 text-orange-500" />
+                        {user?.role === "superadmin"
+                          ? "Administrar usuarios y roles"
+                          : "Ver mis clientes"}
                       </button>
-                    </div>
-                  </div>
-                  <div className="max-h-72 overflow-y-auto divide-y divide-gray-100">
-                    {unreadNotifications.length === 0 ? (
-                      <div className="p-5 text-center text-gray-500">
-                        No tenés notificaciones pendientes de lectura.
-                      </div>
-                    ) : (
-                      unreadNotifications.map((n) => (
-                        <div
-                          key={n.id}
-                          className="p-3 bg-orange-50/60 hover:bg-orange-100/60 transition-colors flex items-start justify-between gap-2"
-                        >
-                          <div
-                            onClick={async () => {
-                              setShowAlertsPopover(false);
-                              await handleMarkNotifRead(n.id);
-                              executeSearch(n.ticker, period, true);
-                            }}
-                            className="flex-1 min-w-0 cursor-pointer"
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-orange-600 truncate">
-                                {n.ticker} · {n.title}
-                              </span>
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-white border border-gray-200 text-gray-600 font-medium shrink-0">
-                                {n.watchlist_name}
-                              </span>
-                            </div>
-                            <p className="text-gray-700 mt-0.5">{n.detail}</p>
-                            <p className="text-[10px] text-gray-400 mt-0.5">
-                              {n.triggered_at}
-                            </p>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleMarkNotifRead(n.id);
-                            }}
-                            title="Marcar como leída"
-                            className="p-1.5 rounded-lg border border-gray-200 bg-white text-gray-500 hover:text-emerald-600 hover:border-emerald-300 transition-colors cursor-pointer shrink-0"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        setShowChangePassModal(true);
+                      }}
+                      className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center gap-2 text-gray-700 cursor-pointer"
+                    >
+                      <KeyRound className="w-3.5 h-3.5 text-gray-500" />
+                      Cambiar contraseña
+                    </button>
+
+                    <div className="my-1 border-t border-gray-100" />
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowUserMenu(false);
+                        logout();
+                      }}
+                      className="w-full px-4 py-2 text-left hover:bg-red-50 flex items-center gap-2 text-red-600 font-medium cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      Cerrar sesión
+                    </button>
                   </div>
                 </div>
               )}
-            </div>
-
-            <Settings className="w-4 h-4 hover:text-white cursor-pointer" />
-            <div className="w-6 h-6 rounded-full bg-orange-600 flex items-center justify-center text-white text-xs font-bold">
-              M
             </div>
           </div>
         </header>
@@ -762,26 +913,28 @@ function App() {
                     </p>
 
                     <div className="flex flex-wrap items-center gap-2 mt-3">
-                      <button
-                        type="button"
-                        onClick={openAddToBoardModal}
-                        className={`flex items-center px-3 py-1.5 border rounded text-xs font-medium transition-colors cursor-pointer shadow-sm ${
-                          isCurrentTickerInAnyWatchlist
-                            ? "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
-                            : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                        }`}
-                      >
-                        <Heart
-                          className={`w-3.5 h-3.5 mr-1.5 text-orange-500 ${
+                      {isAdvisorOrAdmin && (
+                        <button
+                          type="button"
+                          onClick={openAddToBoardModal}
+                          className={`flex items-center px-3 py-1.5 border rounded text-xs font-medium transition-colors cursor-pointer shadow-sm ${
                             isCurrentTickerInAnyWatchlist
-                              ? "fill-orange-500"
-                              : ""
+                              ? "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                              : "border-gray-300 text-gray-700 hover:bg-gray-50"
                           }`}
-                        />
-                        {isCurrentTickerInAnyWatchlist
-                          ? "En tu tablero"
-                          : "Agregar al tablero"}
-                      </button>
+                        >
+                          <Heart
+                            className={`w-3.5 h-3.5 mr-1.5 text-orange-500 ${
+                              isCurrentTickerInAnyWatchlist
+                                ? "fill-orange-500"
+                                : ""
+                            }`}
+                          />
+                          {isCurrentTickerInAnyWatchlist
+                            ? "En tu tablero"
+                            : "Agregar al tablero"}
+                        </button>
+                      )}
                       <button className="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm">
                         USD
                       </button>
@@ -801,20 +954,22 @@ function App() {
                           </>
                         )}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleExportCompany("xlsx")}
-                        disabled={exportingFormat !== null}
-                        title="Descargar libro Excel multi-solapa (.xlsx)"
-                        className="flex items-center px-3 py-1.5 border border-emerald-300 bg-emerald-50/70 rounded text-xs font-medium text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer shadow-sm disabled:opacity-50"
-                      >
-                        {exportingFormat === "xlsx" ? (
-                          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                        ) : (
-                          <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
-                        )}
-                        Excel (.xlsx)
-                      </button>
+                      {isAdvisorOrAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => handleExportCompany("xlsx")}
+                          disabled={exportingFormat !== null}
+                          title="Descargar libro Excel multi-solapa (.xlsx)"
+                          className="flex items-center px-3 py-1.5 border border-emerald-300 bg-emerald-50/70 rounded text-xs font-medium text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer shadow-sm disabled:opacity-50"
+                        >
+                          {exportingFormat === "xlsx" ? (
+                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                          ) : (
+                            <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
+                          )}
+                          Excel (.xlsx)
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleExportCompany("pdf")}
@@ -869,7 +1024,7 @@ function App() {
             )}
 
             {/* VISTA MI TABLERO / WATCHLISTS Y CENTRO DE NOTIFICACIONES */}
-            {activeSidebarTab === "Tablero" && (
+            {activeSidebarTab === "Tablero" && isAdvisorOrAdmin && (
               <WatchlistTab
                 key={tableroInitialSubView}
                 initialSubView={tableroInitialSubView}
@@ -1071,14 +1226,16 @@ function App() {
                       <button className="p-1.5 text-gray-500 hover:text-gray-900 border border-gray-300 rounded bg-white cursor-pointer">
                         <Maximize2 className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleExportCompany("xlsx")}
-                        disabled={exportingFormat !== null}
-                        className="flex items-center text-xs px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 cursor-pointer disabled:opacity-50"
-                      >
-                        <Download className="w-3.5 h-3.5 mr-1.5" /> Exportar
-                      </button>
+                      {isAdvisorOrAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => handleExportCompany("xlsx")}
+                          disabled={exportingFormat !== null}
+                          className="flex items-center text-xs px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 cursor-pointer disabled:opacity-50"
+                        >
+                          <Download className="w-3.5 h-3.5 mr-1.5" /> Exportar
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1245,11 +1402,15 @@ function App() {
               <ValuationTab
                 ticker={currentTicker}
                 onOpenInfo={openGlossary}
-                onOpenValuationModels={(sym) => {
-                  setCurrentTicker(sym);
-                  setHasLoadedCompany(true);
-                  setActiveSidebarTab("Modelos");
-                }}
+                onOpenValuationModels={
+                  isAdvisorOrAdmin
+                    ? (sym) => {
+                        setCurrentTicker(sym);
+                        setHasLoadedCompany(true);
+                        setActiveSidebarTab("Modelos");
+                      }
+                    : undefined
+                }
               />
             )}
 
@@ -1259,7 +1420,7 @@ function App() {
             )}
 
             {/* PESTAÑA: MODELOS DE VALUACIÓN (AUTOMÁTICO Y MANUAL) */}
-            {activeSidebarTab === "Modelos" && (
+            {activeSidebarTab === "Modelos" && isAdvisorOrAdmin && (
               <ValuationModelsTab
                 initialTicker={hasLoadedCompany ? currentTicker : ""}
                 recentTickers={recentTickers}
@@ -1295,7 +1456,7 @@ function App() {
             )}
 
             {/* PESTAÑA: SCREENER FUNDAMENTAL */}
-            {activeSidebarTab === "Screener" && (
+            {activeSidebarTab === "Screener" && isAdvisorOrAdmin && (
               <ScreenerTab
                 key={screenerPresetId}
                 initialPresetId={screenerPresetId}
@@ -1306,7 +1467,7 @@ function App() {
         </div>
 
         {/* MODAL AGREGAR AL TABLERO DESDE CABECERA DE EMPRESA */}
-        {showAddToBoardModal && (
+        {showAddToBoardModal && isAdvisorOrAdmin && (
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
             <div className="bg-white rounded-xl border border-gray-200 shadow-2xl w-full max-w-lg overflow-hidden text-xs">
               <div className="px-5 py-3.5 bg-[#252526] text-white flex items-center justify-between">
@@ -1482,6 +1643,18 @@ function App() {
             </div>
           </div>
         )}
+
+        {/* MODALES DE GESTIÓN DE USUARIOS Y CONTRASEÑA (ETAPA 11) */}
+        <UserManagementModal
+          isOpen={showUserMgmtModal}
+          onClose={() => setShowUserMgmtModal(false)}
+        />
+
+        <ChangePasswordModal
+          isOpen={showChangePassModal}
+          forced={Boolean(user?.must_change_password)}
+          onClose={() => setShowChangePassModal(false)}
+        />
 
         <MetricInfoDrawer
           entry={activeGlossaryInfo?.entry}

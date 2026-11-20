@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import apiClient from "../api/client";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -228,7 +228,7 @@ export default function MacroLabTab() {
   useEffect(() => {
     let cancelled = false;
     axios
-      .get("http://127.0.0.1:8000/api/v1/macro-lab")
+      .get("/macro-lab")
       .then((res) => {
         if (!cancelled) setMacroData(res.data);
       })

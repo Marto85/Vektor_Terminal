@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
+import apiClient from "../api/client";
 import {
   ShieldCheck,
   AlertTriangle,
@@ -60,7 +60,7 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
     let active = true;
 
     axios
-      .get(`http://127.0.0.1:8000/api/v1/company/${ticker}/health`)
+      .get(`/company/${ticker}/health`)
       .then((res) => {
         if (active) {
           setFetchState({ ticker, data: res.data, error: null });

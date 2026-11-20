@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import axios from 'axios';
+import apiClient from "../api/client";
 import * as LightweightCharts from 'lightweight-charts';
 import {
   ChevronDown,
@@ -130,8 +130,8 @@ export default function StockChart({ ticker, companyName }) {
       setLoadingChart(true);
       setChartError(null);
       try {
-        const res = await axios.get(
-          `http://127.0.0.1:8000/api/v1/company/${ticker.toUpperCase()}/history`,
+        const res = await apiClient.get(
+          `/company/${ticker.toUpperCase()}/history`,
           { params: { range: timeframe } }
         );
         if (!cancelled) {

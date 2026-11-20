@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
+import apiClient from "../api/client";
 import {
   Loader2,
   Calculator,
@@ -252,8 +252,8 @@ export default function ValuationTab({ ticker, onOpenInfo, onOpenValuationModels
       setLoading(true);
       setError(null);
       try {
-        const res = await axios.get(
-          `http://127.0.0.1:8000/api/v1/company/${ticker.toUpperCase()}/valuation`
+        const res = await apiClient.get(
+          `/company/${ticker.toUpperCase()}/valuation`
         );
         if (!cancelled) {
           setValData(res.data);
@@ -292,8 +292,8 @@ export default function ValuationTab({ ticker, onOpenInfo, onOpenValuationModels
       setPeersLoading(true);
       setPeersError(null);
       try {
-        const res = await axios.get(
-          `http://127.0.0.1:8000/api/v1/company/${upperTicker}/peers`
+        const res = await apiClient.get(
+          `/company/${upperTicker}/peers`
         );
         if (!cancelled) {
           setPeersData(res.data);

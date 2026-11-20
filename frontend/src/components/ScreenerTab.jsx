@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import axios from 'axios';
+import apiClient from "../api/client";
 import {
   Filter,
   RefreshCw,
@@ -199,7 +199,7 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
       setLoading(true);
       setError(null);
       try {
-        const res = await axios.get('http://127.0.0.1:8000/api/v1/screener');
+        const res = await apiClient.get('/screener');
         if (!cancelled) {
           setUniverseData(res.data);
         }
@@ -224,7 +224,7 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
     setSyncing(true);
     setError(null);
     try {
-      const res = await axios.post('http://127.0.0.1:8000/api/v1/screener/sync?batch_size=15');
+      const res = await apiClient.post('/screener/sync?batch_size=15');
       setUniverseData(res.data);
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al sincronizar lote de empresas');

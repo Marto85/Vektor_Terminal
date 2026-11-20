@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import axios from "axios";
+import apiClient from "../api/client";
 import {
   Bookmark,
   Plus,
@@ -141,7 +141,7 @@ export default function WatchlistTab({
     setBusyAction(true);
     setFeedbackError(null);
     try {
-      const res = await axios.get("http://127.0.0.1:8000/api/v1/watchlists");
+      const res = await apiClient.get("/watchlists");
       onWatchlistUpdated(res.data);
     } catch (err) {
       setFeedbackError(
@@ -158,7 +158,7 @@ export default function WatchlistTab({
     setBusyAction(true);
     setFeedbackError(null);
     try {
-      const res = await axios.post("http://127.0.0.1:8000/api/v1/watchlists", {
+      const res = await apiClient.post("/watchlists", {
         name: newListName.trim(),
       });
       onWatchlistUpdated(res.data);
@@ -181,8 +181,8 @@ export default function WatchlistTab({
     setBusyAction(true);
     setFeedbackError(null);
     try {
-      const res = await axios.put(
-        `http://127.0.0.1:8000/api/v1/watchlists/${activeWatchlist.id}`,
+      const res = await apiClient.put(
+        `/watchlists/${activeWatchlist.id}`,
         { name: renameValue.trim() }
       );
       onWatchlistUpdated(res.data);
@@ -201,8 +201,8 @@ export default function WatchlistTab({
     setBusyAction(true);
     setFeedbackError(null);
     try {
-      const res = await axios.delete(
-        `http://127.0.0.1:8000/api/v1/watchlists/${activeWatchlist.id}`
+      const res = await apiClient.delete(
+        `/watchlists/${activeWatchlist.id}`
       );
       onWatchlistUpdated(res.data);
       setEditOrderMode(false);
@@ -220,8 +220,8 @@ export default function WatchlistTab({
     setBusyAction(true);
     setFeedbackError(null);
     try {
-      const res = await axios.put(
-        `http://127.0.0.1:8000/api/v1/watchlists/${activeWatchlist.id}/reorder`,
+      const res = await apiClient.put(
+        `/watchlists/${activeWatchlist.id}/reorder`,
         { tickers: newTickersOrder }
       );
       onWatchlistUpdated(res.data);
@@ -267,8 +267,8 @@ export default function WatchlistTab({
     setAddQuery(val);
     if (val.trim().length > 0) {
       try {
-        const res = await axios.get(
-          `http://127.0.0.1:8000/api/v1/search?q=${val}`
+        const res = await apiClient.get(
+          `/search?q=${val}`
         );
         setAddResults(res.data || []);
         setShowAddDropdown(true);
@@ -288,8 +288,8 @@ export default function WatchlistTab({
     setShowAddDropdown(false);
     setAddQuery("");
     try {
-      const res = await axios.post(
-        `http://127.0.0.1:8000/api/v1/watchlists/${activeWatchlist.id}/items`,
+      const res = await apiClient.post(
+        `/watchlists/${activeWatchlist.id}/items`,
         {
           ticker: sym.toUpperCase(),
           buy_target_price: null,
@@ -313,8 +313,8 @@ export default function WatchlistTab({
     setBusyAction(true);
     setFeedbackError(null);
     try {
-      const res = await axios.delete(
-        `http://127.0.0.1:8000/api/v1/watchlists/${activeWatchlist.id}/items/${sym}`
+      const res = await apiClient.delete(
+        `/watchlists/${activeWatchlist.id}/items/${sym}`
       );
       onWatchlistUpdated(res.data);
     } catch (err) {
@@ -392,8 +392,8 @@ export default function WatchlistTab({
       }));
 
     try {
-      const res = await axios.post(
-        `http://127.0.0.1:8000/api/v1/watchlists/${activeWatchlist.id}/items`,
+      const res = await apiClient.post(
+        `/watchlists/${activeWatchlist.id}/items`,
         {
           ticker: editingItem.ticker,
           buy_target_price: editBuyTarget !== "" ? Number(editBuyTarget) : null,
@@ -417,8 +417,8 @@ export default function WatchlistTab({
   const handleMarkAllRead = async () => {
     setBusyAction(true);
     try {
-      const res = await axios.post(
-        "http://127.0.0.1:8000/api/v1/notifications/read-all"
+      const res = await apiClient.post(
+        "/notifications/read-all"
       );
       onWatchlistUpdated(res.data);
     } finally {
@@ -428,8 +428,8 @@ export default function WatchlistTab({
 
   const handleMarkOneReadOnly = async (notifId) => {
     try {
-      const res = await axios.post(
-        `http://127.0.0.1:8000/api/v1/notifications/${notifId}/read`
+      const res = await apiClient.post(
+        `/notifications/${notifId}/read`
       );
       onWatchlistUpdated(res.data);
     } catch {
@@ -449,8 +449,8 @@ export default function WatchlistTab({
   const handleClearNotifications = async () => {
     setBusyAction(true);
     try {
-      const res = await axios.delete(
-        "http://127.0.0.1:8000/api/v1/notifications"
+      const res = await apiClient.delete(
+        "/notifications"
       );
       onWatchlistUpdated(res.data);
     } finally {

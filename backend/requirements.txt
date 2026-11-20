@@ -10,3 +10,6 @@ httpx==0.27.2
 deep-translator
 openpyxl
 fpdf2
+PyJWT
+bcrypt
+psycopg2-binary

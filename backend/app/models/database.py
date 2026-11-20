@@ -1,3 +1,5 @@
+from datetime import datetime
+from typing import Optional
 from sqlalchemy import (
     create_engine,
     Column,
@@ -10,15 +12,45 @@ from sqlalchemy import (
     Text,
     ForeignKey,
     UniqueConstraint,
+    inspect,
     text,
 )
-from sqlalchemy.orm import declarative_base, sessionmaker
-from datetime import datetime
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Mapped, mapped_column
 from app.core.config import DATABASE_URL
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+is_sqlite = DATABASE_URL.startswith("sqlite")
+engine_kwargs = (
+    {"connect_args": {"check_same_thread": False}}
+    if is_sqlite
+    else {"pool_pre_ping": True}
+)
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(160), unique=True, nullable=False, index=True)
+    full_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="client", index=True
+    )  # superadmin | advisor | client
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    advisor_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    advisor: Mapped[Optional["User"]] = relationship("User", remote_side=[id], backref="clients")
 
 
 class CompanyData(Base):
@@ -50,6 +82,7 @@ class CompanyEstimatesCache(Base):
     ticker = Column(String, primary_key=True, index=True)
     estimates_data = Column(JSON)
     last_updated = Column(DateTime, default=datetime.utcnow)
+
 
 class CompanyOwnershipCache(Base):
     __tablename__ = "company_ownership_cache"
@@ -105,6 +138,12 @@ class IndexValuationSnapshot(Base):
 class Watchlist(Base):
     __tablename__ = "watchlists"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
     name = Column(String(60), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -141,9 +180,27 @@ class AlertNotification(Base):
     triggered_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
-# Inicializar tablas y migrar columna `position` si la tabla ya existía sin ella
-Base.metadata.create_all(bind=engine)
-with engine.begin() as conn:
-    cols = [row[1] for row in conn.execute(text("PRAGMA table_info(watchlist_items)")).fetchall()]
-    if "position" not in cols:
-        conn.execute(text("ALTER TABLE watchlist_items ADD COLUMN position INTEGER NOT NULL DEFAULT 0"))
+def run_lightweight_migrations():
+    """Agrega columnas nuevas de forma compatible con SQLite y PostgreSQL."""
+    Base.metadata.create_all(bind=engine)
+    inspector = inspect(engine)
+
+    with engine.begin() as conn:
+        if inspector.has_table("watchlist_items"):
+            wi_cols = {c["name"] for c in inspector.get_columns("watchlist_items")}
+            if "position" not in wi_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE watchlist_items ADD COLUMN position INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+
+        if inspector.has_table("watchlists"):
+            wl_cols = {c["name"] for c in inspector.get_columns("watchlists")}
+            if "user_id" not in wl_cols:
+                conn.execute(
+                    text("ALTER TABLE watchlists ADD COLUMN user_id INTEGER NULL")
+                )
+
+
+run_lightweight_migrations()

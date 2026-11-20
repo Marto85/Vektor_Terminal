@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
+import apiClient from "../api/client";
 import {
   Building2,
   UserCheck,
@@ -53,8 +53,8 @@ export default function OwnershipInsidersTab({ ticker }) {
     setLoading(true);
     setError(null);
 
-    axios
-      .get(`http://127.0.0.1:8000/api/v1/company/${ticker}/ownership`)
+    apiClient
+      .get(`/company/${ticker}/ownership`)
       .then((res) => {
         if (active) setData(res.data);
       })
