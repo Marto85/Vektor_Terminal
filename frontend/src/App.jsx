@@ -41,6 +41,7 @@ import ValuationModelsTab from "./components/ValuationModelsTab";
 import MacroLabTab from "./components/MacroLabTab";
 import InvestmentThesisTab from "./components/InvestmentThesisTab";
 import FinancialHealthPanel from "./components/FinancialHealthPanel";
+import FinancialsQuickCards from "./components/FinancialsQuickCards";
 import OwnershipInsidersTab from "./components/OwnershipInsidersTab";
 import MetricInfoDrawer from "./components/MetricInfoDrawer";
 import { getGlossaryEntry } from "./data/metricsGlossary";
@@ -1029,6 +1030,16 @@ function App() {
                     </button>
                   ))}
                 </div>
+
+                {!isLoading && !error && financialData.length > 0 && (
+                  <FinancialsQuickCards
+                    financialData={financialData}
+                    activeContentTab={activeContentTab}
+                    period={period}
+                    onOpenInfo={openGlossary}
+                  />
+                )}
+
                 {activeContentTab === "Ratios" && period === "annual" && (
                   <FinancialHealthPanel
                     ticker={currentTicker}
