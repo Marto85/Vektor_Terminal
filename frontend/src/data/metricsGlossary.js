@@ -45,6 +45,20 @@ export const METRICS_GLOSSARY = {
     example:
       'Market Cap de US$ 10.000 MM + Deuda de US$ 3.000 MM − Caja de US$ 1.000 MM = EV de US$ 12.000 MM.',
   },
+  'Efectivo e Inversiones a Corto Plazo': {
+    title: 'Efectivo, Equivalentes e Inversiones a Corto Plazo',
+    formula: 'Efectivo y Equivalentes + Valores Negociables e Inversiones Líquidas (< 12 meses)',
+    explanation:
+      'Representa la liquidez inmediata del balance (caja en bancos, Letras del Tesoro y fondos de liquidez) disponible para afrontar obligaciones, financiar operaciones o recomprar acciones sin necesidad de emitir deuda.',
+    evaluates:
+      'El colchón financiero bruto de la compañía antes de restar sus pasivos financieros (deuda de corto y largo plazo).',
+    benchmarks: [
+      'Liquidez bruta > Deuda financiera total: posición de caja neta (máxima flexibilidad financiera).',
+      'Conviene vigilar qué proporción está retenida en filiales extranjeras o restringida regulatoria/operativamente.',
+    ],
+    example:
+      'US$ 21.843 MM en efectivo + US$ 55.000 MM en Letras del Tesoro a corto plazo = US$ 76.843 MM de liquidez disponible.',
+  },
   'Deuda neta LTM (MM)': {
     title: 'Deuda Neta (Net Debt)',
     formula: 'Deuda Financiera Total (Corto + Largo Plazo) − Efectivo e Inversiones Líquidas',
@@ -58,6 +72,34 @@ export const METRICS_GLOSSARY = {
     ],
     example:
       'Deuda total de US$ 4.000 MM y caja por US$ 5.500 MM → Deuda neta de (US$ 1.500 MM), es decir, US$ 1.500 MM de caja neta.',
+  },
+  'Patrimonio Neto (Book Value)': {
+    title: 'Patrimonio Neto Contable (Shareholders’ Equity)',
+    formula: 'Total Activo − Total Pasivo (Capital Social + Resultados Acumulados ± Otros Resultados Integrales)',
+    explanation:
+      'Representa el valor contable residual que corresponde a los accionistas si se liquidaran todos los activos a su valor en libros y se cancelaran todos los pasivos.',
+    evaluates:
+      'La acumulación histórica de capital y utilidades retenidas. Su crecimiento sostenido refleja retención rentable de beneficios; caídas fuertes suelen deberse a recompras masivas de acciones o pérdidas acumuladas.',
+    benchmarks: [
+      'En bancos y aseguradoras es la base directa de capacidad de crecimiento y solvencia regulatoria.',
+      'En empresas que recompran acciones agresivamente (ej. Apple o McDonald’s), el patrimonio contable puede ser bajo o incluso negativo sin implicar estrés financiero.',
+    ],
+    example:
+      'Activos totales de US$ 600.000 MM − Pasivos totales de US$ 157.613 MM = Patrimonio Neto de US$ 442.387 MM.',
+  },
+  'Capital de Trabajo Neto (NWC)': {
+    title: 'Capital de Trabajo Neto (Net Working Capital)',
+    formula: 'Total Activo Corriente − Total Pasivo Corriente',
+    explanation:
+      'Mide el excedente (o déficit) en dólares de recursos de corto plazo (< 12 meses: caja, cuentas por cobrar e inventarios) respecto de las obligaciones exigibles en el mismo plazo (proveedores y deuda corriente).',
+    evaluates:
+      'La holgura operativa de corto plazo en términos absolutos. Se complementa con el Ratio de Liquidez Corriente (Activo Corriente ÷ Pasivo Corriente).',
+    benchmarks: [
+      'Positivo (Activo Corriente > Pasivo Corriente): colchón operativo cómodo para financiar el ciclo comercial.',
+      'Negativo en negocios de cobro inmediato (retail masivo o suscripciones prepagas): puede ser estructuralmente sano si el flujo operativo (CFO) es alto y recurrente.',
+    ],
+    example:
+      'Activo corriente de US$ 208.000 MM − Pasivo corriente de US$ 169.115 MM = Capital de Trabajo Neto de US$ 38.885 MM (liquidez corriente de 1,23x).',
   },
   'Deuda neta/EBITDA LTM': {
     title: 'Deuda Neta / EBITDA',
@@ -581,6 +623,21 @@ export const METRICS_GLOSSARY = {
       'Margen FCF 5% – 12%: sólido en negocios industriales o comerciales.',
     ],
     example: 'CFO de US$ 180 MM − CapEx de US$ 50 MM = FCF de US$ 130 MM.',
+  },
+  'Conversión de FCF (FCF / Beneficio Neto)': {
+    title: 'Ratio de Conversión de Caja (FCF / Beneficio Neto)',
+    formula: '(Flujo de Caja Libre ÷ Beneficio Neto) × 100',
+    explanation:
+      'Mide qué porcentaje de la ganancia neta contable termina convirtiéndose efectivamente en Flujo de Caja Libre disponible para el accionista.',
+    evaluates:
+      'La calidad real de los beneficios y la intensidad de capital: si una empresa reporta ganancias altas pero su conversión es baja (<50%), gran parte de la utilidad queda inmovilizada en CapEx o capital de trabajo.',
+    benchmarks: [
+      '> 90% – 100%: conversión excelente (típica de negocios asset-light y suscripciones).',
+      '60% – 90%: conversión saludable en compañías industriales o en crecimiento moderado.',
+      '< 50%: alta reinversión en CapEx de expansión o acumulación de cuentas por cobrar/inventarios.',
+    ],
+    example:
+      'Si el Beneficio Neto es US$ 133.749 MM y el FCF es US$ 66.987 MM, la conversión es del 50% (el resto financia expansión de infraestructura).',
   },
   'Ratio de liquidez (x)': {
     title: 'Ratio de Liquidez Corriente (Current Ratio)',

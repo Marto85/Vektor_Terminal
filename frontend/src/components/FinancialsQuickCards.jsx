@@ -160,7 +160,7 @@ export default function FinancialsQuickCards({
             ? `${gmDelta >= 0 ? "+" : ""}${gmDelta.toFixed(1)} pp ${compLabel} · ${fmtMoneyMM(gpCurr)}`
             : fmtMoneyMM(gpCurr),
         trend: gmDelta,
-        glossaryKey: "Margen de beneficio bruto %",
+        glossaryKey: "Margen bruto LTM",
       },
       {
         title: "Margen Operativo (EBIT)",
@@ -170,14 +170,14 @@ export default function FinancialsQuickCards({
             ? `${omDelta >= 0 ? "+" : ""}${omDelta.toFixed(1)} pp ${compLabel} · ${fmtMoneyMM(ebitCurr)}`
             : fmtMoneyMM(ebitCurr),
         trend: omDelta,
-        glossaryKey: "Margen de beneficio operativo (EBIT) %",
+        glossaryKey: "Margen EBIT LTM",
       },
       {
         title: `Beneficio Neto (${currP})`,
         value: fmtMoneyMM(niCurr),
         sub: `Margen neto ${fmtPct(nmCurr)}${niGrowth !== null ? ` (${niGrowth >= 0 ? "+" : ""}${niGrowth.toFixed(1)}%)` : ""}`,
         trend: niGrowth,
-        glossaryKey: "Beneficio Neto",
+        glossaryKey: "Margen neto LTM",
       },
     ];
   } else if (activeContentTab === "Balance de Situación") {
@@ -227,7 +227,7 @@ export default function FinancialsQuickCards({
         value: fmtMoneyMM(cashTotal),
         sub: `Deuda financiera total: ${fmtMoneyMM(debtTotal)}`,
         trend: null,
-        glossaryKey: "Efectivo y equivalentes",
+        glossaryKey: "Efectivo e Inversiones a Corto Plazo",
       },
       {
         title: isNetCash ? "Posición de Caja Neta" : "Deuda Neta",
@@ -236,7 +236,7 @@ export default function FinancialsQuickCards({
           ? "La caja supera a la deuda financiera"
           : "Deuda total menos caja disponible",
         trend: isNetCash ? 1 : netDebt > 0 ? -1 : 0,
-        glossaryKey: "Deuda Neta",
+        glossaryKey: "Deuda neta LTM (MM)",
       },
       {
         title: `Patrimonio Neto (${currP})`,
@@ -246,7 +246,7 @@ export default function FinancialsQuickCards({
             ? `${eqGrowth >= 0 ? "+" : ""}${eqGrowth.toFixed(1)}% ${compLabel}`
             : "Capital contable de accionistas",
         trend: eqGrowth,
-        glossaryKey: "Patrimonio neto",
+        glossaryKey: "Patrimonio Neto (Book Value)",
       },
       {
         title: "Capital de Trabajo Neto",
@@ -256,7 +256,7 @@ export default function FinancialsQuickCards({
             ? `Liquidez corriente: ${fmtMult(currRatio, "x")}`
             : "Activo corriente - Pasivo corriente",
         trend: workingCap !== null ? (workingCap >= 0 ? 1 : -1) : null,
-        glossaryKey: "Ratio de liquidez (x)",
+        glossaryKey: "Capital de Trabajo Neto (NWC)",
       },
     ];
   } else if (activeContentTab === "Estado de Flujo de Efectivo") {
@@ -333,7 +333,7 @@ export default function FinancialsQuickCards({
             : "Requiere beneficio neto positivo",
         trend:
           cashConversion !== null ? (cashConversion >= 90 ? 1 : 0) : null,
-        glossaryKey: "Flujo de caja libre (FCF)",
+        glossaryKey: "Conversión de FCF (FCF / Beneficio Neto)",
       },
     ];
   } else if (activeContentTab === "Ratios") {
@@ -372,8 +372,9 @@ export default function FinancialsQuickCards({
         title: `Rentabilidad ROE (${currP})`,
         value: fmtPct(roeCurr),
         sub: `ROA sobre activos totales: ${fmtPct(roaCurr)}`,
-        trend: roeCurr !== null ? (roeCurr >= 15 ? 1 : roeCurr < 0 ? -1 : 0) : null,
-        glossaryKey: "Rentabilidad sobre capital (ROE) %",
+        trend:
+          roeCurr !== null ? (roeCurr >= 15 ? 1 : roeCurr < 0 ? -1 : 0) : null,
+        glossaryKey: "ROE LTM",
       },
       {
         title: "Ciclo Conversión Efectivo (CCC)",
@@ -387,7 +388,8 @@ export default function FinancialsQuickCards({
         title: "Liquidez Corriente",
         value: fmtMult(liqCurr, "x"),
         sub: `Quick Ratio (prueba ácida): ${fmtMult(quickCurr, "x")}`,
-        trend: liqCurr !== null ? (liqCurr >= 1.2 ? 1 : liqCurr < 1 ? -1 : 0) : null,
+        trend:
+          liqCurr !== null ? (liqCurr >= 1.2 ? 1 : liqCurr < 1 ? -1 : 0) : null,
         glossaryKey: "Ratio de liquidez (x)",
       },
       {
@@ -405,7 +407,7 @@ export default function FinancialsQuickCards({
                 ? -1
                 : 0
             : null,
-        glossaryKey: "Deuda total / EBITDA (x)",
+        glossaryKey: "Deuda neta/EBITDA LTM",
       },
     ];
   }

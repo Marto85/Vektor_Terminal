@@ -148,7 +148,6 @@ function App() {
     "Balance de Situación",
     "Estado de Flujo de Efectivo",
     "Ratios",
-    "Segmentos",
   ];
 
   const saveToRecent = (sym, prof) => {
