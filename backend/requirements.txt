@@ -7,5 +7,6 @@ requests
 ratelimit
 pytest
 httpx==0.27.2
-httpx2
 deep-translator
+openpyxl
+fpdf2

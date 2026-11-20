@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Any
 from datetime import datetime
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 import requests
 
 from app.models.database import SessionLocal
-from app.core.yf_client import get_company_profile
+from app.core.yf_client import get_company_profile, get_cached_market_snapshot
 from app.services.company_service import get_raw_financials
 from app.services.financial_parser import extract_annual_metrics, extract_quarterly_metrics
 from app.services.ratios_calculator import calculate_ratios, build_financial_health_report
@@ -34,6 +35,7 @@ from app.services.thesis_service import (
     reset_custom_segments,
 )
 from app.services.ownership_service import build_ownership_and_insiders_report
+from app.services.export_service import build_company_workbook_bytes, build_company_pdf_bytes
 
 router = APIRouter()
 
@@ -251,6 +253,112 @@ def get_company_ownership(ticker: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error obteniendo propiedad institucional e insiders: {str(e)}")
+
+
+def _collect_company_export_payload(ticker: str, period: str, db: Session) -> dict[str, Any]:
+    clean_ticker = ticker.strip().upper()
+    profile = dict(get_company_profile(clean_ticker, db) or {})
+
+    try:
+        snapshot = get_cached_market_snapshot(clean_ticker, db) or {}
+        info = snapshot.get("info") if isinstance(snapshot.get("info"), dict) else {}
+        profile["info"] = info
+        profile["fx_rate"] = snapshot.get("fx_rate") or 1.0
+    except Exception:
+        profile["info"] = {}
+        profile["fx_rate"] = 1.0
+
+    raw_annual = get_raw_financials(clean_ticker, db)
+    annual_metrics = extract_annual_metrics(raw_annual)
+    current_year = datetime.now().year
+    years_range = [str(y) for y in range(current_year - 6, current_year + 1)]
+    annual_with_ratios = calculate_ratios(list(annual_metrics), years_range)
+
+    if period == "quarterly":
+        raw_q = get_raw_financials(clean_ticker, db, is_quarterly=True)
+        statements = extract_quarterly_metrics(raw_q)
+    else:
+        statements = annual_with_ratios
+
+    try:
+        health = build_financial_health_report(clean_ticker, annual_metrics, db)
+    except Exception:
+        health = {}
+
+    try:
+        valuation = build_valuation_report(clean_ticker, db)
+    except Exception:
+        valuation = {}
+
+    try:
+        ownership = build_ownership_and_insiders_report(clean_ticker, db)
+    except Exception:
+        ownership = {}
+
+    return {
+        "ticker": clean_ticker,
+        "profile": profile,
+        "market": profile,
+        "statements": statements,
+        "health": health,
+        "valuation": valuation,
+        "ownership": ownership,
+    }
+
+
+@router.get("/company/{ticker}/export/xlsx")
+def export_company_xlsx(
+    ticker: str,
+    period: str = Query("annual", pattern="^(annual|quarterly)$"),
+    db: Session = Depends(get_db),
+):
+    try:
+        payload = _collect_company_export_payload(ticker, period, db)
+        xlsx_bytes = build_company_workbook_bytes(
+            ticker=payload["ticker"],
+            period=period,
+            profile=payload["profile"],
+            market=payload["market"],
+            statements=payload["statements"],
+            valuation=payload["valuation"],
+            ownership=payload["ownership"],
+            health=payload.get("health") or {},
+        )
+        filename = f"{payload['ticker']}_VektorTerminal_{period}.xlsx"
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error exportando libro Excel: {str(e)}")
+
+
+@router.get("/company/{ticker}/export/pdf")
+def export_company_pdf(ticker: str, db: Session = Depends(get_db)):
+    try:
+        payload = _collect_company_export_payload(ticker, "annual", db)
+        pdf_bytes = build_company_pdf_bytes(
+            ticker=payload["ticker"],
+            profile=payload["profile"],
+            market=payload["market"],
+            statements=payload["statements"],
+            valuation=payload["valuation"],
+            ownership=payload["ownership"],
+            health=payload.get("health") or {},
+        )
+        filename = f"{payload['ticker']}_Informe_Ejecutivo.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error exportando informe PDF: {str(e)}")
 
 
 @router.get("/company/{ticker}/thesis-onepager")

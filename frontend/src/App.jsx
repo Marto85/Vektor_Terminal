@@ -4,6 +4,7 @@ import {
   Home,
   Bookmark,
   FileText,
+  FileSpreadsheet,
   BarChart3,
   PieChart,
   Scale,
@@ -74,6 +75,7 @@ function App() {
 
   const [profileData, setProfileData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState(null);
   const [error, setError] = useState(null);
   const [recentTickers, setRecentTickers] = useState(loadRecentTickers);
 
@@ -215,6 +217,36 @@ function App() {
       );
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleExportCompany = async (format) => {
+    if (!currentTicker || exportingFormat) return;
+    setExportingFormat(format);
+    try {
+      const url =
+        format === "xlsx"
+          ? `http://127.0.0.1:8000/api/v1/company/${currentTicker}/export/xlsx?period=${period}`
+          : `http://127.0.0.1:8000/api/v1/company/${currentTicker}/export/pdf`;
+
+      const response = await axios.get(url, { responseType: "blob" });
+      const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.setAttribute(
+        "download",
+        format === "xlsx"
+          ? `${currentTicker}_VektorTerminal_${period}.xlsx`
+          : `${currentTicker}_Informe_Ejecutivo.pdf`,
+      );
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error(`Error exportando ${format.toUpperCase()}:`, err);
+    } finally {
+      setExportingFormat(null);
     }
   };
 
@@ -729,7 +761,7 @@ function App() {
                       {profileData ? profileData.name : "Cargando..."}
                     </p>
 
-                    <div className="flex items-center space-x-2 mt-3">
+                    <div className="flex flex-wrap items-center gap-2 mt-3">
                       <button
                         type="button"
                         onClick={openAddToBoardModal}
@@ -768,6 +800,34 @@ function App() {
                             <ChevronDown className="w-3.5 h-3.5 ml-1.5" />
                           </>
                         )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleExportCompany("xlsx")}
+                        disabled={exportingFormat !== null}
+                        title="Descargar libro Excel multi-solapa (.xlsx)"
+                        className="flex items-center px-3 py-1.5 border border-emerald-300 bg-emerald-50/70 rounded text-xs font-medium text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer shadow-sm disabled:opacity-50"
+                      >
+                        {exportingFormat === "xlsx" ? (
+                          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
+                        )}
+                        Excel (.xlsx)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleExportCompany("pdf")}
+                        disabled={exportingFormat !== null}
+                        title="Descargar informe ejecutivo en PDF"
+                        className="flex items-center px-3 py-1.5 border border-slate-300 bg-slate-50 rounded text-xs font-medium text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer shadow-sm disabled:opacity-50"
+                      >
+                        {exportingFormat === "pdf" ? (
+                          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                        ) : (
+                          <FileText className="w-3.5 h-3.5 mr-1.5 text-slate-600" />
+                        )}
+                        Informe PDF
                       </button>
                     </div>
                   </div>
@@ -1001,7 +1061,12 @@ function App() {
                       <button className="p-1.5 text-gray-500 hover:text-gray-900 border border-gray-300 rounded bg-white cursor-pointer">
                         <Maximize2 className="w-3.5 h-3.5" />
                       </button>
-                      <button className="flex items-center text-xs px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 cursor-pointer">
+                      <button
+                        type="button"
+                        onClick={() => handleExportCompany("xlsx")}
+                        disabled={exportingFormat !== null}
+                        className="flex items-center text-xs px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 cursor-pointer disabled:opacity-50"
+                      >
                         <Download className="w-3.5 h-3.5 mr-1.5" /> Exportar
                       </button>
                     </div>
