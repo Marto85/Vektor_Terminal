@@ -19,9 +19,21 @@ Documento vivo de arquitectura y evolución funcional de **VektorTerminal**.
 
 ## Etapas Pendientes
 
-- [ ] **Etapa 14A — Análisis Técnico (Motor de Indicadores y Gráfico Avanzado):** Incorporación de indicadores técnicos configurables sobre `Lightweight Charts` (medias móviles SMA/EMA, Bandas de Bollinger, RSI, MACD, Volumen con perfil/VWAP y ATR) con múltiples temporalidades (`15m`, `1h`, `1d`, `1wk`).
-- [ ] **Etapa 14B — Análisis Técnico (Niveles, Dibujo Interactivo y Screener Técnico):** Soportes y resistencias automáticos, retrocesos de Fibonacci, herramientas de dibujo en gráfico, alertas técnicas combinadas con filtros fundamentales y detección de regímenes de tendencia/sobreventa para timing de entrada.
-- [ ] **Etapa 15 — Preparación para Producción y Despliegue (Render + Vercel):**
+- [ ] **Etapa 14A — Análisis Técnico (Motor de Indicadores y Gráfico Avanzado):** Incorporación de indicadores técnicos configurables sobre `Lightweight Charts` (medias móviles SMA/EMA, Bandas de Bollinger, RSI, MACD, Volumen con media móvil/VWAP/Perfil y ATR) con múltiples temporalidades (`15m`, `1h`, `1d`, `1wk`).
+- [ ] **Etapa 14B — Análisis Técnico por Enfoque Seleccionable (Niveles Automáticos con Confirmación de Volumen):** Selector de lente metodológica en el gráfico técnico para analizar el activo desde el enfoque elegido por el usuario, incorporando **de forma transversal la validación de comportamiento por volumen** (volumen relativo `RVOL` vs. media móvil de 20 ruedas, acumulación/distribución y divergencias precio-volumen) en todos los modos:
+  - **Tendencia y Medias Móviles:** detección de régimen tendencial, canales de regresión lineal y cruces clave (`SMA 20/50/200`) validados con volumen creciente en impulsos y retracción en retrocesos.
+  - **Chartismo Clásico:** detección automática de soportes y resistencias por pivotes históricos, zonas de ruptura (*breakouts*), dobles techos/pisos y cuñas/triángulos, diferenciando rupturas confirmadas por expansión de volumen frente a falsos quiebres (*fakeouts*) con bajo volumen.
+  - **Ondas de Elliott y Fibonacci:** conteo algorítmico de ondas impulsivas (`1-2-3-4-5`) y correctivas (`A-B-C`) bajo reglas de validación estructural y firma de volumen (expansión máxima en onda 3 y divergencia de agotamiento en onda 5), combinado con retrocesos y extensiones de Fibonacci (`0.382`, `0.5`, `0.618`, `1.618`).
+  - **Momentum y Volatilidad:** detección automática de divergencias RSI/MACD/OBV, compresión de volatilidad (Bollinger Squeeze) y niveles de stop técnico basados en ATR.
+- [ ] **Etapa 14C — Rigor Fundamental Avanzado, Catalizadores SEC y TWR en Carteras:**
+  - **Asignación de Capital y Dilución Real:** cálculo histórico de **ROIIC** (Retorno sobre Capital Invertido Incremental), **Tasa de Reinversión**, crecimiento sostenible implícito, **FCF ajustado por SBC** (*Stock-Based Compensation*), dilución neta de acciones a 5 años y descomposición del retorno total del accionista (*TSR Bridge*: ventas, márgenes, dilución y múltiplo).
+  - **Alerta Automática de Nuevos Filings SEC:** verificación de nuevos reportes `10-K`, `10-Q` y `8-K` en EDGAR para los emisores en Watchlist con notificación directa en la campana de alertas.
+  - **Auditoría de Portafolios con TWR y Dividendos:** incorporación de rendimiento ponderado por tiempo (**TWR — *Time-Weighted Return***) y registro de dividendos cobrados/reinvertidos en el módulo de Carteras & CRM para comparación auditada contra *benchmarks*.
+- [ ] **Etapa 15 — Adaptación Responsive y Versión Mobile (PWA):**
+  - **Navegación Mobile:** reemplazo de la barra lateral fija en pantallas chicas (`< 768px`) por menú desplegable (*drawer*) y barra inferior de acceso rápido, más cabecera compacta con búsqueda y acciones colapsables.
+  - **Tablas Financieras, Gráficos y Controles Táctiles:** scroll horizontal fluido con primera columna fija (`sticky`) en estados contables, comparador y screener; ajuste táctil en `Lightweight Charts` y modales/drawers adaptados a pantalla completa en móvil.
+  - **Progressive Web App (PWA):** configuración de `manifest.webmanifest`, íconos instalables y *service worker* para instalar la terminal directamente en pantalla de inicio en iOS y Android.
+- [ ] **Etapa 16 — Preparación para Producción y Despliegue (Render + Vercel):**
   - **Migración de Persistencia a PostgreSQL:** reemplazar SQLite por una instancia gestionada en Neon o Supabase (`DATABASE_URL` + `psycopg2-binary`) para garantizar persistencia entre reinicios del contenedor en Render.
   - **Optimización de Bundle Frontend (*Code-Splitting*):** aplicar `React.lazy()` + `Suspense` en pestañas secundarias y configurar `manualChunks` en `vite.config.js` para reducir el chunk inicial por debajo de `500 kB` y acelerar la carga en Vercel.
 
