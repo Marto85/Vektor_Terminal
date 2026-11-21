@@ -227,7 +227,7 @@ export default function MacroLabTab() {
 
   useEffect(() => {
     let cancelled = false;
-    axios
+    apiClient
       .get("/macro-lab")
       .then((res) => {
         if (!cancelled) setMacroData(res.data);

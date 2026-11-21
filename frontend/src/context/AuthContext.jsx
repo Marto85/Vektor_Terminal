@@ -2,10 +2,35 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient, { getStoredToken, setStoredToken } from "../api/client";
 import { AuthContext } from "./authStore";
 
+function consumeInitialUrlAuthParams() {
+  if (typeof window === "undefined") {
+    return { oauthToken: null, oauthError: null, resetToken: null };
+  }
+  const url = new URL(window.location.href);
+  const oauthToken = url.searchParams.get("oauth_token");
+  const oauthError = url.searchParams.get("oauth_error");
+  const resetToken = url.searchParams.get("reset_token");
+
+  if (oauthToken || oauthError) {
+    url.searchParams.delete("oauth_token");
+    url.searchParams.delete("oauth_error");
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+  }
+  return { oauthToken, oauthError, resetToken };
+}
+
 export function AuthProvider({ children }) {
+  const [initialUrlParams] = useState(() => consumeInitialUrlAuthParams());
+
   const [user, setUser] = useState(null);
+  const [oauthError, setOauthError] = useState(
+    () => initialUrlParams.oauthError || ""
+  );
+  const [pendingResetToken, setPendingResetToken] = useState(
+    () => initialUrlParams.resetToken || ""
+  );
   const [loadingAuth, setLoadingAuth] = useState(() =>
-    Boolean(getStoredToken())
+    Boolean(initialUrlParams.oauthToken || getStoredToken())
   );
 
   const logout = useCallback(() => {
@@ -32,7 +57,10 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    const token = getStoredToken();
+    if (initialUrlParams.oauthToken) {
+      setStoredToken(initialUrlParams.oauthToken);
+    }
+    const token = initialUrlParams.oauthToken || getStoredToken();
     if (!token) return;
 
     let cancelled = false;
@@ -54,7 +82,7 @@ export function AuthProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialUrlParams.oauthToken]);
 
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -65,12 +93,63 @@ export function AuthProvider({ children }) {
       window.removeEventListener("vektor:unauthorized", handleUnauthorized);
   }, []);
 
-  const login = useCallback(async (email, password) => {
-    const res = await apiClient.post("/auth/login", { email, password });
+ const login = useCallback(async (identifier, password) => {
+    const cleanId = (identifier || "").trim();
+    const res = await apiClient.post("/auth/login", {
+      email: cleanId,
+      password,
+    });
     const { access_token, user: loggedUser } = res.data;
     setStoredToken(access_token);
     setUser(loggedUser);
     return loggedUser;
+  }, []);
+
+  const registerPublic = useCallback(
+    async ({ username, email, full_name, password }) => {
+      const res = await apiClient.post("/auth/register", {
+        username,
+        email,
+        full_name,
+        password,
+      });
+      const { access_token, user: createdUser } = res.data;
+      setStoredToken(access_token);
+      setUser(createdUser);
+      return createdUser;
+    },
+    []
+  );
+
+  const requestRecovery = useCallback(async (email) => {
+    const res = await apiClient.post("/auth/forgot-password", { email });
+    return res.data;
+  }, []);
+
+  const resetPasswordWithToken = useCallback(async (token, newPassword) => {
+    const res = await apiClient.post("/auth/reset-password", {
+      token,
+      new_password: newPassword,
+    });
+    const { access_token, user: updatedUser } = res.data;
+    setStoredToken(access_token);
+    setUser(updatedUser);
+    setPendingResetToken("");
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("reset_token")) {
+        url.searchParams.delete("reset_token");
+        window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+      }
+    }
+    return updatedUser;
+  }, []);
+
+  const startOAuthLogin = useCallback(async (provider) => {
+    const res = await apiClient.get(`/auth/oauth/${provider}/login`);
+    if (res.data?.authorize_url) {
+      window.location.href = res.data.authorize_url;
+    }
   }, []);
 
   const changePassword = useCallback(async (currentPassword, newPassword) => {
@@ -89,7 +168,15 @@ export function AuthProvider({ children }) {
       user,
       loadingAuth,
       isAuthenticated: Boolean(user),
+      oauthError,
+      clearOauthError: () => setOauthError(""),
+      pendingResetToken,
+      clearPendingResetToken: () => setPendingResetToken(""),
       login,
+      registerPublic,
+      requestRecovery,
+      resetPasswordWithToken,
+      startOAuthLogin,
       logout,
       changePassword,
       refreshProfile,
@@ -98,7 +185,20 @@ export function AuthProvider({ children }) {
         user?.role === "superadmin" || user?.role === "advisor",
       isClient: user?.role === "client",
     }),
-    [user, loadingAuth, login, logout, changePassword, refreshProfile]
+    [
+      user,
+      loadingAuth,
+      oauthError,
+      pendingResetToken,
+      login,
+      registerPublic,
+      requestRecovery,
+      resetPasswordWithToken,
+      startOAuthLogin,
+      logout,
+      changePassword,
+      refreshProfile,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

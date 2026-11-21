@@ -59,7 +59,7 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
     if (!ticker) return;
     let active = true;
 
-    axios
+    apiClient
       .get(`/company/${ticker}/health`)
       .then((res) => {
         if (active) {

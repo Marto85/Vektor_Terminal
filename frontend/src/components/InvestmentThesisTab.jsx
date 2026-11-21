@@ -86,7 +86,7 @@ export default function InvestmentThesisTab({
     if (!selectedTicker) return;
     let cancelled = false;
 
-    axios
+    apiClient
       .get(
         `/company/${selectedTicker}/thesis-onepager`
       )

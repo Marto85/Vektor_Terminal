@@ -12,4 +12,4 @@ openpyxl
 fpdf2
 PyJWT
 bcrypt
-psycopg2-binary
+psycopg2-binaryemail-validator

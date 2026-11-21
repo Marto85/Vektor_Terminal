@@ -41,3 +41,21 @@ VEKTOR_ADMIN_EMAIL = os.getenv(
 ).strip().lower()
 VEKTOR_ADMIN_PASSWORD = os.getenv("VEKTOR_ADMIN_PASSWORD", "Admin1234!")
 VEKTOR_ADMIN_NAME = os.getenv("VEKTOR_ADMIN_NAME", "Administrador Vektor")
+
+# --- Configuración OAuth 2.0 y Correo (Etapa 13 - Opcional / Tier Gratuito) ---
+FRONTEND_APP_URL = os.getenv("FRONTEND_APP_URL", "http://localhost:5173").rstrip("/")
+BACKEND_PUBLIC_URL = os.getenv("BACKEND_PUBLIC_URL", "http://127.0.0.1:8000").rstrip("/")
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "").strip()
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "").strip()
+
+# Envío de correos (opcional: SMTP Gmail App Password o Resend API Key)
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USER or "no-reply@vektorterminal.local").strip()
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()

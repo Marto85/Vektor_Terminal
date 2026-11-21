@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Home,
+  Briefcase,
   Bookmark,
   FileText,
   FileSpreadsheet,
@@ -50,6 +51,7 @@ import FinancialHealthPanel from "./components/FinancialHealthPanel";
 import FinancialsQuickCards from "./components/FinancialsQuickCards";
 import OwnershipInsidersTab from "./components/OwnershipInsidersTab";
 import MetricInfoDrawer from "./components/MetricInfoDrawer";
+import PortfoliosCRMTab from "./components/PortfoliosCRMTab";
 import { getGlossaryEntry } from "./data/metricsGlossary";
 
 const RECENT_STORAGE_KEY = "tf_recent_tickers_v1";
@@ -180,6 +182,12 @@ function App() {
 
   const allGlobalNavItems = [
     { id: "Inicio", name: "Inicio y Mercado", icon: Home, clientAllowed: true },
+    {
+      id: "Carteras",
+      name: isClient ? "Mi Cartera" : "Carteras y Clientes",
+      icon: Briefcase,
+      clientAllowed: true,
+    },
     { id: "Tablero", name: "Mi Tablero", icon: Bookmark, clientAllowed: false },
     { id: "Screener", name: "Screener", icon: Filter, clientAllowed: false },
     { id: "Comparador", name: "Comparador", icon: Scale, clientAllowed: true },
@@ -371,6 +379,7 @@ function App() {
     setSearchResults([]);
     const shouldSwitch =
       activeSidebarTab === "Inicio" ||
+      activeSidebarTab === "Carteras" ||
       activeSidebarTab === "Tablero" ||
       activeSidebarTab === "Screener" ||
       activeSidebarTab === "Modelos" ||
@@ -385,6 +394,7 @@ function App() {
       setShowDropdown(false);
       const shouldSwitch =
         activeSidebarTab === "Inicio" ||
+        activeSidebarTab === "Carteras" ||
         activeSidebarTab === "Tablero" ||
         activeSidebarTab === "Screener" ||
         activeSidebarTab === "Modelos" ||
@@ -1020,6 +1030,13 @@ function App() {
                   handleOpenScreenerWithPreset(presetId)
                 }
                 recentTickers={recentTickers}
+              />
+            )}
+
+            {/* VISTA CRM DE CLIENTES Y CARTERAS (PPP) */}
+            {activeSidebarTab === "Carteras" && (
+              <PortfoliosCRMTab
+                onSelectCompany={(sym) => executeSearch(sym, period, true)}
               />
             )}
 

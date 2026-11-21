@@ -1,11 +1,33 @@
-# Manual de Usuario — Terminal Financiera
+# Manual de Usuario — VektorTerminal
 
 ## 1. Descripción General
-**Terminal Financiera** es una plataforma de investigación fundamental y valoración de acciones globales y ADRs. Integra estados contables oficiales de la SEC (EDGAR), series macroeconómicas, estimaciones de consenso y cotizaciones de mercado en una interfaz unificada con caché local en SQLite para consultas rápidas.
+**VektorTerminal** es una plataforma de investigación fundamental, valoración de acciones globales y ADRs, y gestión de carteras de inversión. Integra estados contables oficiales de la SEC (EDGAR), series macroeconómicas, estimaciones de consenso y cotizaciones de mercado en una interfaz unificada con autenticación multi-usuario y persistencia local.
 
 ---
 
-## 2. Búsqueda y Cabecera Global
+## 2. Acceso, Registro y Gestión de Cuenta
+
+### Inicio de Sesión
+- Podés ingresar escribiendo tu **nombre de usuario** o tu **correo electrónico** junto con tu contraseña.
+- También podés acceder con un clic mediante tu cuenta de **Google** o **GitHub** (cuando estén habilitados en la configuración del servidor).
+
+### Crear Cuenta (Registro Público)
+- Desde la pestaña **Crear cuenta** en la pantalla de acceso podés registrar un usuario nuevo completando un **nombre de usuario único** (3 a 32 caracteres en minúsculas, números, punto o guion bajo), tu **nombre completo**, un **correo electrónico** y una **contraseña** de al menos 8 caracteres.
+- Las cuentas creadas por registro público ingresan automáticamente con el perfil **Cliente (`client`)**.
+
+### Recuperar Usuario y Contraseña
+1. Hacé clic en **¿Olvidaste tu usuario o clave?** en la pantalla de ingreso.
+2. Ingresá el correo electrónico asociado a tu cuenta para recibir un recordatorio con tu nombre de usuario registrado y un código temporal válido por **15 minutos**.
+3. Pegá el código recibido (o abrí directamente el enlace de recuperación) y definí una nueva contraseña para ingresar de inmediato.
+
+### Roles y Administración de Usuarios
+- **`client` (Cliente):** acceso completo a investigación fundamental, watchlists, comparador, screener y consulta de su cartera asignada.
+- **`advisor` (Asesor):** acceso a las herramientas de análisis más el módulo **Carteras & CRM** para gestionar legajos de clientes y registrar operaciones.
+- **`superadmin` (Administrador):** acceso total al sistema y al panel **Usuarios** en la cabecera superior para crear cuentas internas, asignar roles y vincular clientes con asesores.
+
+---
+
+## 3. Búsqueda y Cabecera Global
 1. En la barra superior, escribí el **Ticker** o el nombre de la empresa (ej. `MSFT`, `AAPL`, `MELI`, `JPM`, `YPF`) y seleccioná una sugerencia del desplegable o presioná **Enter**.
 2. La cabecera muestra la cotización actual en USD, la variación diaria y los botones de acción rápida:
    - **Agregar al tablero / En tu tablero:** guarda el emisor en una watchlist con objetivos de compra/venta y alertas.
@@ -20,7 +42,7 @@
 
 ---
 
-## 3. Navegación por Módulos (Barra Lateral)
+## 4. Navegación por Módulos (Barra Lateral)
 
 ### A. Panorama de Mercado y Macro Lab
 - **Panorama de Mercado:** resume el desempeño diario y valuación (`P/E Trailing`, `P/E Forward`, *Earnings Yield* y *Dividend Yield*) de los principales índices globales (`S&P 500`, `Nasdaq 100`, `Dow Jones`, `Russell 2000`, `EWZ`, `EEM`), guardando instantáneas históricas diarias.
@@ -29,7 +51,7 @@
 ### B. Watchlists y Alertas
 - Permite crear múltiples listas de seguimiento, reordenar emisores, definir **precios objetivo de compra y venta**, registrar notas de tesis y configurar alertas sobre métricas fundamentales o de mercado con panel de notificaciones.
 
-### C. Resumen y noticias
+### C. Resumen y Noticias
 - Presenta la descripción del negocio traducida al español, el enlace al sitio corporativo oficial, las últimas noticias relevantes del emisor y los próximos eventos corporativos.
 
 ### D. Finanzas
@@ -81,15 +103,19 @@ Buscador cuantitativo sobre un universo curado de emisores globales y ADRs:
    - **Exportar CSV:** descarga la tabla filtrada con las columnas visibles en formato compatible con Excel.
    - **Acceso directo:** hacer clic sobre cualquier fila abre inmediatamente el análisis completo de esa empresa en la terminal.
 
+### J. Carteras & CRM (Asesores y Clientes)
+- **Gestión de Legajos y Portafolios:** permite a asesores y administradores crear carteras por cliente y moneda base, registrar operaciones de compra y venta con cálculo automático de **Precio Promedio Ponderado (`PPP`)**, controlar liquidez disponible y evaluar valuación a mercado en tiempo real.
+- **Vista Cliente:** los usuarios con rol `client` visualizan sus tenencias consolidadas, resultado latente/realizado y distribución sectorial.
+
 ---
 
-## 4. Convenciones de Lectura
+## 5. Convenciones de Lectura
 - **Cifras entre paréntesis:** indican valores negativos o caja neta positiva (deuda neta negativa), siguiendo la convención contable estándar.
 - **`N/M` (No Significativo):** indica que el múltiplo no es interpretable porque el denominador (beneficio neto o flujo de caja libre LTM) es negativo o nulo; estos valores se excluyen del cálculo de promedios y medianas.
 - **`-` (Guión):** dato no disponible o métrica no aplicable al sector (por ejemplo, `EV/EBITDA`, `P/FCF`, `FCF Yield`, `ROIC` o `DN/EBITDA` en bancos).
 
 ---
 
-## 5. Inicio Rápido en Entorno Local (Git Bash)
+## 6. Inicio Rápido en Entorno Local (Git Bash)
 - **Backend:** `cd backend && source venv/Scripts/activate && uvicorn app.main:app --reload`
 - **Frontend:** `cd frontend && npm run dev`

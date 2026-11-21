@@ -50,8 +50,12 @@ export default function OwnershipInsidersTab({ ticker }) {
   useEffect(() => {
     if (!ticker) return;
     let active = true;
-    setLoading(true);
-    setError(null);
+
+    Promise.resolve().then(() => {
+      if (!active) return;
+      setLoading(true);
+      setError(null);
+    });
 
     apiClient
       .get(`/company/${ticker}/ownership`)

@@ -34,23 +34,21 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
-    email: Mapped[str] = mapped_column(String(160), unique=True, nullable=False, index=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="client", index=True
-    )  # superadmin | advisor | client
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    hashed_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    auth_provider: Mapped[str] = mapped_column(String(20), nullable=False, default="local")  # local | google | github
+    oauth_sub: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="client", index=True)  # superadmin | advisor | client
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     advisor_id: Mapped[Optional[int]] = mapped_column(
-        Integer,
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
-    advisor: Mapped[Optional["User"]] = relationship("User", remote_side=[id], backref="clients")
+    advisor: Mapped[Optional["User"]] = relationship("User", remote_side=[id], foreign_keys=[advisor_id])
 
 
 class CompanyData(Base):
@@ -179,6 +177,58 @@ class AlertNotification(Base):
     is_read = Column(Boolean, default=False, nullable=False)
     triggered_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+class ClientProfile(Base):
+    __tablename__ = "client_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+    risk_profile: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="moderado"
+    )  # conservador | moderado | agresivo
+    investment_horizon: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="largo_plazo"
+    )  # corto_plazo | mediano_plazo | largo_plazo
+    target_currency: Mapped[str] = mapped_column(String(10), nullable=False, default="USD")
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class PortfolioTransaction(Base):
+    __tablename__ = "portfolio_transactions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
+    client_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    tx_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, index=True
+    )  # BUY | SELL | DIVIDEND | DEPOSIT | WITHDRAWAL
+    ticker: Mapped[Optional[str]] = mapped_column(String(24), nullable=True, index=True)
+    tx_date: Mapped[str] = mapped_column(String(10), nullable=False)  # YYYY-MM-DD
+    quantity: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    unit_price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    commission: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    currency: Mapped[str] = mapped_column(String(10), nullable=False, default="USD")
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
 
 def run_lightweight_migrations():
     """Agrega columnas nuevas de forma compatible con SQLite y PostgreSQL."""
@@ -201,6 +251,61 @@ def run_lightweight_migrations():
                 conn.execute(
                     text("ALTER TABLE watchlists ADD COLUMN user_id INTEGER NULL")
                 )
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+def run_schema_migrations() -> None:
+    """Agrega columnas nuevas a tablas existentes de forma idempotente (SQLite/PostgreSQL)."""
+    from sqlalchemy import inspect, text
+
+    inspector = inspect(engine)
+    if "users" not in inspector.get_table_names():
+        return
+
+    existing_cols = {col["name"] for col in inspector.get_columns("users")}
+
+    with engine.begin() as conn:
+        if "username" not in existing_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR(50)"))
+        if "auth_provider" not in existing_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN auth_provider VARCHAR(20) DEFAULT 'local' NOT NULL"))
+        if "oauth_sub" not in existing_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN oauth_sub VARCHAR(255)"))
+
+        # Poblar username en filas previas que no lo tengan
+        rows = conn.execute(text("SELECT id, email, username FROM users")).fetchall()
+        used_usernames = {
+            (r[2] or "").strip().lower()
+            for r in rows
+            if r[2] and str(r[2]).strip()
+        }
+        for uid, email, uname in rows:
+            if not uname or not str(uname).strip():
+                base = (email or f"user{uid}").split("@")[0].lower()
+                base = "".join(ch for ch in base if ch.isalnum() or ch in ("_", "."))[:30] or f"user{uid}"
+                candidate = base
+                idx = 1
+                while candidate in used_usernames:
+                    idx += 1
+                    candidate = f"{base}{idx}"
+                used_usernames.add(candidate)
+                conn.execute(
+                    text("UPDATE users SET username = :u WHERE id = :id"),
+                    {"u": candidate, "id": uid},
+                )
+
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username)"))
 
 
 run_lightweight_migrations()
