@@ -1,7 +1,7 @@
 # Manual de Usuario — VektorTerminal
 
 ## 1. Descripción General
-**VektorTerminal** es una plataforma de investigación fundamental, análisis técnico interactivo, valoración de acciones globales y ADRs, y gestión de carteras de inversión. Integra estados contables oficiales de la SEC (EDGAR), series macroeconómicas, estimaciones de consenso y cotizaciones de mercado en una interfaz unificada con autenticación multi-usuario y persistencia local.
+**VektorTerminal** es una plataforma de investigación fundamental, análisis técnico interactivo, valoración de acciones globales y ADRs, y gestión de carteras de inversión. Integra estados contables oficiales de la SEC (EDGAR), series macroeconómicas, estimaciones de consenso y cotizaciones de mercado en una interfaz unificada *responsive* (instalable como aplicación PWA en teléfonos y escritorio) con autenticación multi-usuario y persistencia local.
 
 ---
 
@@ -27,7 +27,7 @@
 
 ---
 
-## 3. Búsqueda y Cabecera Global
+## 3. Búsqueda, Cabecera Global y Versión Mobile (PWA)
 1. En la barra superior, escribí el **Ticker** o el nombre de la empresa (ej. `MSFT`, `AAPL`, `MELI`, `JPM`, `YPF`) y seleccioná una sugerencia del desplegable o presioná **Enter**.
 2. La cabecera muestra la cotización actual en USD, la variación diaria y los botones de acción rápida:
   - **Agregar al tablero / En tu tablero:** guarda el emisor en una watchlist con objetivos de compra/venta y alertas.
@@ -35,6 +35,11 @@
   - **Excel (.xlsx):** descarga un libro Excel multi-solapa (7 hojas: *Resumen & Múltiplos*, *Resultados*, *Balance*, *Flujo de Efectivo*, *Ratios*, *Valoración* y *Propiedad e Insiders*) respetando la periodicidad activa (*Anual* o *Trimestral*).
   - **Informe PDF:** genera y descarga un reporte ejecutivo vectorial en formato `.pdf` con tarjetas KPI, salud financiera, evolución contable anual, múltiplos históricos, expectativas implícitas y tenedores institucionales/insiders.
 3. **Glosario interactivo (`i`):** en cualquier tabla o panel donde aparezca el ícono de información junto a una métrica, hacé clic para abrir el panel lateral con su definición, fórmula, criterios de interpretación y rangos de referencia.
+
+### Navegación en Teléfonos y Instalación como App (PWA)
+- **Menú y Barra Inferior Táctil:** en pantallas menores a `768px`, la barra lateral fija se reemplaza por un menú desplegable (**botón de menú** arriba a la izquierda) y una **barra inferior de acceso rápido** (*Inicio*, *Carteras*, *Tablero/Comparar*, *Empresa activa* y *Más*).
+- **Tablas Adaptativas:** las tablas contables mantienen fija la columna de métricas (`sticky`) mientras deslizás horizontalmente los ejercicios anuales o trimestrales.
+- **Instalar en Pantalla de Inicio:** al abrir la terminal desplegada desde Chrome/Edge (Android o escritorio) o Safari (iOS -> *Compartir -> Agregar a inicio*), podés instalar **VektorTerminal** como aplicación independiente sin barra de navegador.
 
 ### Gráfico Interactivo, Análisis Técnico y Panel de Estructura de Capital
 - **Selector de métrica:** permite alternar entre *Price*, *% Change*, *Total Return* (con dividendos reinvertidos), *Drawdowns*, *10k Growth*, *Market Cap* y *Enterprise Value*, en rangos de `3m` a `max` y temporalidades de velas `15m`, `1h`, `1D` y `1 Sem`, más vista en pantalla completa.
@@ -80,7 +85,7 @@ Se divide en dos subsecciones:
   - **DCF Inverso (Expectations Investing):** calcula la tasa de crecimiento implícita en la cotización actual del mercado a 5 y 10 años.
   - **Simulador de Valor Intrínseco:**
     - *Empresas Estándar:* **DCF en 2 Etapas** (diferenciando CapEx de expansión en años 1–5 y CapEx de mantenimiento en perpetuidad) con triangulación simultánea por **Perpetuidad de Gordon** y **Múltiplo de Salida**.
-    - *Bancos y Financieras:* **Modelo Excess Return** basado en ROE esperado, Costo de Equity ($K_e$), *Payout Ratio* y múltiplo de salida **P/TBV**.
+    - *Bancos y Financieras:* **Modelo Excess Return** basado en ROE esperado, Costo de Equity (`Ke`), *Payout Ratio* y múltiplo de salida **P/TBV**.
 2. **Competidores:**
   - Compara automáticamente la empresa activa contra sus pares directos del sector, mostrando **Promedio**, **Mediana** y la **Prima / (Descuento)** porcentual de la empresa analizada frente a la mediana del grupo.
 

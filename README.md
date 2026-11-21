@@ -1,6 +1,6 @@
 # VektorTerminal — Terminal Financiera
 
-Plataforma web full-stack de análisis fundamental, análisis técnico interactivo, valoración intrínseca, seguimiento macroeconómico, screening cuantitativo y gestión multi-cliente de carteras de inversión, construida sobre datos oficiales de la SEC (EDGAR), FRED y Yahoo Finance con persistencia y caché local en SQLite.
+Plataforma web full-stack *responsive* (instalable como **PWA**) de análisis fundamental, análisis técnico interactivo, valoración intrínseca, seguimiento macroeconómico, screening cuantitativo y gestión multi-cliente de carteras de inversión, construida sobre datos oficiales de la SEC (EDGAR), FRED y Yahoo Finance con persistencia y caché local en SQLite.
 
 ## Ejecución Local (Git Bash)
 
@@ -32,15 +32,16 @@ backend/venv/Scripts/pytest -v && npm --prefix frontend test -- --run && npm --p
     - Registro público abierto (`POST /api/v1/auth/register`) con asignación automática de rol `client`, recuperación de usuario y contraseña mediante tokens temporales de 15 minutos (`PasswordResetToken`) con envío SMTP/Resend o salida en consola local, y autenticación federada OAuth 2.0 nativa con **Google** y **GitHub**.
   - **Gestión de Clientes y Portafolios (CRM + PPP + TWR):** Legajos de clientes vinculados a asesores (`ClientProfile`), carteras multi-moneda, registro de operaciones de compra, venta, dividendos y movimientos de caja con cálculo de Precio Promedio Ponderado (`PPP`), tenencias consolidadas y rendimiento ponderado por tiempo (**TWR — *Time-Weighted Return***) encadenado por sub-períodos de flujos externos.
   - **Estados Contables, Ratios y Asignación de Capital:** Extracción y estandarización XBRL desde `data.sec.gov` (formularios `10-K`, `10-Q`, `20-F` y `6-K`) con respaldo normalizado, cálculo histórico de márgenes, retornos, Piotroski F-Score, Altman Z-Score, **ROIC / ROIIC**, **Reinvestment Rate**, **FCF ajustado por SBC** (*Stock-Based Compensation*) y descomposición **TSR Bridge**.
-  - **Datos de Mercado y Normalización FX / FCF:** Cliente `yfinance` con conversión automática de moneda contable a moneda de cotización (`{FIN}{TRADE}=X` para ADRs de LatAm/internacionales), cálculo auditado de flujo de caja libre móvil ($\text{FCF LTM} = \text{OCF}_{\text{LTM}} - \vert{}\text{CapEx}_{\text{LTM}}\vert{}$), series históricas OHLCV intradiarias y de cierre (`15m`, `1h`, `1d`, `1wk`, `1mo`) y exclusión sectorial de métricas no aplicables en entidades financieras.
+  - **Datos de Mercado y Normalización FX / FCF:** Cliente `yfinance` con conversión automática de moneda contable a moneda de cotización (`{FIN}{TRADE}=X` para ADRs de LatAm/internacionales), cálculo auditado de flujo de caja libre móvil (`FCF LTM = OCF LTM - |CapEx LTM|`), series históricas OHLCV intradiarias y de cierre (`15m`, `1h`, `1d`, `1wk`, `1mo`) y exclusión sectorial de métricas no aplicables en entidades financieras.
   - **Motores de Valoración y Comparables:** DCF en 2 etapas (expansión vs. mantenimiento) con doble valor terminal, DCF inverso (*Expectations Investing*), modelo bancario *Excess Return*, comparables sectoriales automáticos, comparador manual multi-empresa y Screener Fundamental sobre universo curado.
   - **Panorama de Mercado y Macro Lab:** Seguimiento de índices globales, múltiplos históricos de índices (`IndexValuationSnapshot`), curva de rendimientos del Tesoro, tasas reales, inflación y diferenciales de crédito (`MacroSeriesCache`).
   - **Watchlists, Alertas SEC y Tesis de Inversión:** Listas de seguimiento con objetivos de precio, alertas de métricas fundamentales y **detección automática de nuevos filings SEC (`10-K`, `10-Q`, `20-F`, `6-K`)**, más generación de One-Pager Ejecutivo con extracción dimensional XBRL por *streaming* (`StatementBusinessSegmentsAxis`, `ProductOrServiceAxis`, `StatementGeographicalAxis`) y edición persistente en SQLite (`CompanySegmentsCache`).
   - **Propiedad Institucional e Insiders (`13F` / `Form 4`):** Extracción, normalización y caché (TTL 12h) de tenedores institucionales (`13F`), fondos mutuos y transacciones de directivos/ejecutivos (`Form 4`).
   - **Exportación Masiva e Informes Ejecutivos:** Generación de libros Excel `.xlsx` multi-solapa (`openpyxl`) con normalización contable anual o trimestral (7 hojas: *Resumen & Múltiplos*, *Resultados*, *Balance*, *Flujo de Efectivo*, *Ratios*, *Valoración* y *Propiedad e Insiders*) e informes ejecutivos `.pdf` vectoriales (`fpdf2`).
   - **Persistencia y Migraciones Idempotentes:** SQLite vía SQLAlchemy con actualización automática de esquema al iniciar (`run_schema_migrations`), migrable a PostgreSQL en producción mediante `DATABASE_URL`.
-- **Frontend:** React + Vite + Tailwind CSS (`frontend/src`)
-  - Pantalla de acceso unificada (`Ingresar`, `Crear cuenta`, `Recuperar acceso` y OAuth 2.0 con Google/GitHub), gestión de roles en interfaz, gráfico interactivo OHLCV (`TradingView Lightweight Charts`) con indicadores técnicos y 4 enfoques automáticos de análisis técnico validados por volumen, gráficos analíticos (`Recharts`), tablas financieras con encabezados fijos, glosario lateral interactivo, descarga directa de libros Excel (`.xlsx`), informes ejecutivos (`.pdf`), exportación a CSV y vista optimizada para impresión (`print:`).
+- **Frontend:** React + Vite + Tailwind CSS + PWA (`frontend/src` y `frontend/public`)
+  - Diseño adaptativo escritorio/móvil con menú *drawer* y barra inferior de acceso rápido en pantallas chicas (`< 768px`), manifiesto web (`manifest.webmanifest`) y Service Worker (`sw.js`) para instalación nativa en iOS, Android y escritorio.
+  - Pantalla de acceso unificada (`Ingresar`, `Crear cuenta`, `Recuperar acceso` y OAuth 2.0 con Google/GitHub), gestión de roles en interfaz, gráfico interactivo OHLCV (`TradingView Lightweight Charts`) con indicadores técnicos y 4 enfoques automáticos de análisis técnico validados por volumen, gráficos analíticos (`Recharts`), tablas financieras con encabezados y primera columna fijos (`sticky`), glosario lateral interactivo, descarga directa de libros Excel (`.xlsx`), informes ejecutivos (`.pdf`), exportación a CSV y vista optimizada para impresión (`print:`).
 
 ## Estructura Principal del Proyecto
 
@@ -79,6 +80,11 @@ Terminal Financiera/
 │   └── requirements.txt
 └── frontend/
     ├── README.md
+    ├── index.html                         # Metadatos viewport, theme-color y enlace a manifest.webmanifest
+    ├── public/
+    │   ├── manifest.webmanifest           # Manifiesto PWA instalable (standalone, íconos y colores)
+    │   ├── sw.js                          # Service Worker para caché de shell y fallback offline
+    │   └── vektor-favicon.svg
     └── src/
         ├── api/client.js                  # Cliente Axios con interceptor JWT y manejo de sesión expirada
         ├── context/
@@ -107,5 +113,6 @@ Terminal Financiera/
         │   └── MetricInfoDrawer.jsx       # Glosario lateral de definiciones y rangos
         ├── __tests__/                     # Suite de pruebas automatizadas con Vitest
         ├── data/metricsGlossary.js
-        └── App.jsx
+        ├── main.jsx                       # Punto de entrada React y registro PWA en producción
+        └── App.jsx                        # Layout responsive desktop/mobile (drawer + bottom bar)
 ```

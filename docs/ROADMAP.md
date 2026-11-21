@@ -20,15 +20,15 @@ Documento vivo de arquitectura y evolución funcional de **VektorTerminal**.
   - **Asignación de Capital y Dilución Real:** cálculo histórico de **ROIIC** (interanual y acumulado multi-año), **Tasa de Reinversión**, crecimiento intrínseco sostenible, **FCF ajustado por SBC** (*Stock-Based Compensation*) con alerta de dilución económica, variación neta de acciones diluidas y **TSR Bridge**.
   - **Alerta Automática de Nuevos Filings SEC:** detección deduplicada de nuevos reportes `10-K`, `10-Q`, `20-F` y `6-K` en EDGAR (últimos 30 días) para los emisores en Watchlist con notificación directa en la campana de alertas.
   - **Auditoría de Portafolios con TWR y Dividendos:** incorporación de rendimiento ponderado por tiempo (**TWR — *Time-Weighted Return***) encadenado por sub-períodos de flujos externos y registro de dividendos/movimientos de caja en el módulo de Carteras & CRM.
+- [x] **Etapa 15 — Adaptación Responsive y Versión Mobile (PWA):**
+  - **Navegación Mobile:** menú lateral desplegable (*drawer*) con cierre táctil y barra inferior fija de acceso rápido en pantallas chicas (`< 768px`), además de cabecera de empresa y pestañas desplazables horizontalmente sin alterar el layout de escritorio.
+  - **Tablas Financieras Responsivas:** scroll horizontal fluido con primera columna fija (`sticky left-0`) y ancho optimizado en dispositivos móviles.
+  - **Progressive Web App (PWA):** configuración de `manifest.webmanifest`, ícono vectorial instalable y *service worker* (`sw.js`) registrado en producción (`import.meta.env.PROD`) para instalar la terminal en iOS, Android y escritorio.
 
 ---
 
 ## Etapas Pendientes
 
-- [ ] **Etapa 15 — Adaptación Responsive y Versión Mobile (PWA):**
-  - **Navegación Mobile:** reemplazo de la barra lateral fija en pantallas chicas (`< 768px`) por menú desplegable (*drawer*) y barra inferior de acceso rápido, más cabecera compacta con búsqueda y acciones colapsables.
-  - **Tablas Financieras, Gráficos y Controles Táctiles:** scroll horizontal fluido con primera columna fija (`sticky`) en estados contables, comparador y screener; ajuste táctil en `Lightweight Charts` y modales/drawers adaptados a pantalla completa en móvil.
-  - **Progressive Web App (PWA):** configuración de `manifest.webmanifest`, íconos instalables y *service worker* para instalar la terminal directamente en pantalla de inicio en iOS y Android.
 - [ ] **Etapa 16 — Preparación para Producción y Despliegue (Render + Vercel):**
   - **Migración de Persistencia a PostgreSQL:** reemplazar SQLite por una instancia gestionada en Neon o Supabase (`DATABASE_URL` + `psycopg2-binary`) para garantizar persistencia entre reinicios del contenedor en Render.
   - **Optimización de Bundle Frontend (*Code-Splitting*):** aplicar `React.lazy()` + `Suspense` en pestañas secundarias y configurar `manualChunks` en `vite.config.js` para reducir el chunk inicial por debajo de `500 kB` y acelerar la carga en Vercel.
