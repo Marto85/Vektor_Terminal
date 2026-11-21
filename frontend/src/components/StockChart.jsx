@@ -1138,7 +1138,7 @@ export default function StockChart({ ticker, companyName }) {
                 </div>
 
                 {hasSubPanel && (
-                  <div className="relative w-full h-[94px] border-t border-gray-200 bg-[#fafafa]">
+                  <div className="relative w-full h-23.5 border-t border-gray-200 bg-[#fafafa]">
                     <div className="absolute left-2 top-1 z-10 flex items-center space-x-1">
                       {['rsi', 'macd', 'atr']
                         .filter((k) => indicators[k])
@@ -1310,7 +1310,7 @@ export default function StockChart({ ticker, companyName }) {
 
         {/* Barra inferior del gráfico */}
         <div className="px-4 py-2.5 mt-auto border-t border-gray-100 flex items-center justify-between gap-2 bg-[#fcfcfc] rounded-bl-lg">
-          <div className="relative flex-1 max-w-[290px]">
+          <div className="relative flex-1 max-w-72.5">
             <input
               type="text"
               placeholder={
