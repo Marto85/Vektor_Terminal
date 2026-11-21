@@ -123,20 +123,152 @@ def fetch_live_quotes(tickers: list[str]) -> dict[str, dict]:
     return quotes
 
 
+def _compute_twr_metrics(
+    ordered_txs: list[PortfolioTransaction],
+    ending_total_equity: float,
+    net_external_deposits: float,
+) -> dict:
+    """
+    Calcula el Time-Weighted Return (TWR) encadenando sub-períodos delimitados
+    por flujos externos de caja (DEPOSIT / WITHDRAWAL), aislando el rendimiento
+    puro de selección de activos respecto al timing de aportes/retiros.
+    """
+    if not ordered_txs:
+        return {
+            "twr_pct": 0.0,
+            "twr_annualized_pct": None,
+            "net_contributed_capital": 0.0,
+            "subperiods_count": 0,
+            "days_invested": 0,
+        }
+
+    # Agrupar transacciones por fecha
+    by_date: dict[str, list[PortfolioTransaction]] = {}
+    for tx in ordered_txs:
+        d = (tx.tx_date or "").strip()
+        by_date.setdefault(d, []).append(tx)
+
+    sorted_dates = sorted(by_date.keys())
+    qty_by_sym: dict[str, float] = {}
+    last_known_price: dict[str, float] = {}
+    cash = 0.0
+
+    subperiod_returns: list[float] = []
+    v_start: float | None = None
+
+    for d in sorted_dates:
+        day_txs = by_date[d]
+        external_flow_today = 0.0
+
+        # Primero calculamos el flujo externo del día y actualizamos precios de referencia
+        for tx in day_txs:
+            ttype = (tx.tx_type or "").upper()
+            sym = (tx.ticker or "").strip().upper()
+            qty = float(tx.quantity or 0.0)
+            price = float(tx.unit_price or 0.0)
+            comm = float(tx.commission or 0.0)
+
+            if ttype == "DEPOSIT":
+                external_flow_today += qty * price - comm
+            elif ttype == "WITHDRAWAL":
+                external_flow_today -= qty * price + comm
+            elif sym and price > 0.0:
+                last_known_price[sym] = price
+
+        # Valuación de la cartera antes del flujo externo del día
+        holdings_val_before = sum(
+            qty_by_sym.get(s, 0.0) * last_known_price.get(s, 0.0)
+            for s in qty_by_sym
+        )
+        equity_before_flow = holdings_val_before + max(0.0, cash)
+
+        if external_flow_today != 0.0:
+            if v_start is not None and v_start > 1e-6:
+                r_sub = (equity_before_flow - v_start) / v_start
+                subperiod_returns.append(r_sub)
+            v_start = max(0.0, equity_before_flow + external_flow_today)
+
+        # Aplicar todas las transacciones del día al estado de cartera
+        for tx in day_txs:
+            ttype = (tx.tx_type or "").upper()
+            sym = (tx.ticker or "").strip().upper()
+            qty = float(tx.quantity or 0.0)
+            price = float(tx.unit_price or 0.0)
+            comm = float(tx.commission or 0.0)
+
+            if ttype == "DEPOSIT":
+                cash += qty * price - comm
+            elif ttype == "WITHDRAWAL":
+                cash -= qty * price + comm
+            elif ttype == "BUY" and sym:
+                qty_by_sym[sym] = qty_by_sym.get(sym, 0.0) + qty
+                last_known_price[sym] = price
+                cash -= qty * price + comm
+            elif ttype == "SELL" and sym:
+                qty_by_sym[sym] = max(0.0, qty_by_sym.get(sym, 0.0) - qty)
+                if price > 0.0:
+                    last_known_price[sym] = price
+                cash += qty * price - comm
+            elif ttype == "DIVIDEND":
+                cash += qty * price - comm
+
+        # Si el cliente arrancó comprando sin depósito previo explícito, tomar capital inicial invertido
+        if v_start is None:
+            holdings_val_after = sum(
+                qty_by_sym.get(s, 0.0) * last_known_price.get(s, 0.0)
+                for s in qty_by_sym
+            )
+            initial_eq = holdings_val_after + max(0.0, cash)
+            if initial_eq > 1e-6:
+                v_start = initial_eq
+
+    # Cerrar el sub-período final con la valuación actual de mercado (ending_total_equity)
+    if v_start is not None and v_start > 1e-6:
+        r_final = (ending_total_equity - v_start) / v_start
+        subperiod_returns.append(r_final)
+
+    compound = 1.0
+    for r in subperiod_returns:
+        compound *= max(0.0, 1.0 + r)
+
+    twr_pct = (compound - 1.0) * 100.0 if subperiod_returns else 0.0
+
+    days_invested = 0
+    twr_annualized_pct: float | None = None
+    try:
+        d_first = datetime.strptime(sorted_dates[0], "%Y-%m-%d")
+        d_now = datetime.now()
+        days_invested = max((d_now - d_first).days, 1)
+        if days_invested >= 365 and compound > 0.0:
+            years = days_invested / 365.25
+            twr_annualized_pct = round(((compound ** (1.0 / years)) - 1.0) * 100.0, 2)
+    except Exception:
+        days_invested = 0
+
+    return {
+        "twr_pct": round(twr_pct, 2),
+        "twr_annualized_pct": twr_annualized_pct,
+        "net_contributed_capital": round(net_external_deposits, 2),
+        "subperiods_count": len(subperiod_returns),
+        "days_invested": days_invested,
+    }
+
+
 def compute_portfolio_positions(
     transactions: list[PortfolioTransaction],
     quotes_map: Optional[dict[str, dict]] = None,
 ) -> dict:
     """
-    Motor contable de Precio Promedio Ponderado (PPP).
+    Motor contable de Precio Promedio Ponderado (PPP) + Time-Weighted Return (TWR).
     Ordena cronológicamente por (tx_date, id) y calcula tenencias, PPP,
-    P&L realizado, P&L no realizado, dividendos y caja neta.
+    P&L realizado, P&L no realizado, dividendos, caja neta y TWR.
     """
     ordered = sorted(transactions, key=lambda t: (t.tx_date or "", t.id or 0))
     ledger: dict[str, dict] = {}
     cash_balance = 0.0
     total_dividends = 0.0
     total_realized_pnl = 0.0
+    net_external_deposits = 0.0
 
     for tx in ordered:
         ttype = (tx.tx_type or "").upper()
@@ -146,11 +278,15 @@ def compute_portfolio_positions(
         comm = float(tx.commission or 0.0)
 
         if ttype == "DEPOSIT":
-            cash_balance += qty * price - comm
+            net_dep = qty * price - comm
+            cash_balance += net_dep
+            net_external_deposits += net_dep
             continue
 
         if ttype == "WITHDRAWAL":
-            cash_balance -= qty * price + comm
+            net_wdr = qty * price + comm
+            cash_balance -= net_wdr
+            net_external_deposits -= net_wdr
             continue
 
         if not sym:
@@ -270,6 +406,13 @@ def compute_portfolio_positions(
         if total_invested_cost > 1e-9
         else 0.0
     )
+    total_equity = total_market_value + max(0.0, cash_balance)
+
+    twr_metrics = _compute_twr_metrics(
+        ordered_txs=ordered,
+        ending_total_equity=total_equity,
+        net_external_deposits=net_external_deposits,
+    )
 
     return {
         "summary": {
@@ -281,7 +424,8 @@ def compute_portfolio_positions(
             "total_realized_pnl": round(total_realized_pnl, 2),
             "total_dividends": round(total_dividends, 2),
             "cash_balance": round(cash_balance, 2),
-            "total_equity": round(total_market_value + max(0.0, cash_balance), 2),
+            "total_equity": round(total_equity, 2),
+            **twr_metrics,
         },
         "holdings": holdings,
     }
@@ -456,7 +600,6 @@ def add_portfolio_transaction(
         notes=(notes or "").strip() or None,
     )
 
-    # Validación preventiva de integridad de tenencias (evitar venta en descubierto)
     existing_txs = (
         db.query(PortfolioTransaction)
         .filter(PortfolioTransaction.client_id == target.id)
@@ -506,7 +649,6 @@ def delete_portfolio_transaction(
         )
         .all()
     )
-    # Verificar que eliminar esta compra no deje ventas posteriores sin respaldo
     compute_portfolio_positions(remaining_txs, quotes_map={})
 
     db.delete(tx)

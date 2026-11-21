@@ -9,11 +9,14 @@ from app.models.database import (
     CompanyMarketCache,
     CompanyEstimatesCache,
     CompanyProfile,
+    CompanyData,
 )
 from app.core.yf_client import get_company_profile
+from app.core.sec_client import get_cik_from_ticker, get_recent_sec_filings
 
 MAX_WATCHLISTS = 10
 ARG_TZ = timezone(timedelta(hours=-3))
+SEC_FILING_LOOKBACK_DAYS = 30
 
 METRIC_LABELS: dict[str, str] = {
     "price": "Precio (US$)",
@@ -126,12 +129,64 @@ def _extract_ticker_snapshot(ticker: str, db: Session) -> dict[str, Any]:
     }
 
 
+def _check_recent_sec_filings_for_ticker(
+    db: Session,
+    watchlist_id: int,
+    watchlist_name: str,
+    ticker: str,
+    company_name: str,
+) -> list[dict[str, Any]]:
+    """
+    Detecta filings SEC recientes (10-K, 10-Q, 20-F, 6-K) presentados en los últimos 30 días
+    para los tickers en seguimiento y devuelve alertas nuevas.
+    """
+    sym = ticker.upper().strip()
+    comp_row = db.query(CompanyData).filter(CompanyData.ticker == sym).first()
+    cik = str(getattr(comp_row, "cik", "") or "").strip() if comp_row else ""
+
+    if not cik:
+        try:
+            cik = get_cik_from_ticker(sym)
+        except Exception:
+            return []
+
+    try:
+        filings = get_recent_sec_filings(cik, limit=3)
+    except Exception:
+        return []
+
+    cutoff_date = (datetime.now(timezone.utc) - timedelta(days=SEC_FILING_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    alerts_out: list[dict[str, Any]] = []
+
+    for f in filings:
+        f_date = str(f.get("filing_date") or "")
+        acc_num = str(f.get("accession_number") or "")
+        form_name = str(f.get("form") or "")
+        if not f_date or not acc_num or f_date < cutoff_date:
+            continue
+
+        fp = f"sec_filing:{sym}:{acc_num}"
+        alerts_out.append({
+            "fingerprint": fp,
+            "watchlist_id": watchlist_id,
+            "watchlist_name": watchlist_name,
+            "ticker": sym,
+            "name": company_name,
+            "type": "sec_filing",
+            "label": f"Nuevo filing SEC {form_name}",
+            "detail": f"Presentado el {f_date} (Período {f.get('report_date') or 'N/D'}) · {f.get('document_url')}",
+        })
+
+    return alerts_out
+
+
 def _evaluate_and_persist_alerts(
     db: Session,
     watchlist_id: int,
     watchlist_name: str,
     item: WatchlistItem,
     snap: dict[str, Any],
+    sec_filings_cache: dict[str, list[dict[str, Any]]],
 ) -> list[dict[str, Any]]:
     triggered: list[dict[str, Any]] = []
     price = snap.get("price")
@@ -200,7 +255,12 @@ def _evaluate_and_persist_alerts(
                 "detail": f"{m_label}: {current_val:.2f} {op} {threshold:.2f}",
             })
 
-    # Deduplicar contra cualquier notificación ya emitida (leída o no) para esta misma regla/umbral
+    if sym not in sec_filings_cache:
+        sec_filings_cache[sym] = _check_recent_sec_filings_for_ticker(
+            db, watchlist_id, watchlist_name, sym, comp_name
+        )
+    triggered.extend(sec_filings_cache[sym])
+
     for al in triggered:
         already_emitted = (
             db.query(AlertNotification)
@@ -230,6 +290,7 @@ def get_all_watchlists_payload(db: Session) -> dict[str, Any]:
     watchlists = db.query(Watchlist).order_by(Watchlist.id.asc()).all()
 
     snapshots_cache: dict[str, dict[str, Any]] = {}
+    sec_filings_cache: dict[str, list[dict[str, Any]]] = {}
     all_triggered_alerts: list[dict[str, Any]] = []
     watchlists_out: list[dict[str, Any]] = []
 
@@ -250,7 +311,9 @@ def get_all_watchlists_payload(db: Session) -> dict[str, Any]:
                 snapshots_cache[sym] = _extract_ticker_snapshot(sym, db)
             snap = snapshots_cache[sym]
 
-            item_alerts = _evaluate_and_persist_alerts(db, wl_id, wl_name, it, snap)
+            item_alerts = _evaluate_and_persist_alerts(
+                db, wl_id, wl_name, it, snap, sec_filings_cache
+            )
             all_triggered_alerts.extend(item_alerts)
 
             price = snap.get("price")
@@ -453,7 +516,6 @@ def upsert_watchlist_item(
     sell_val = float(sell_target_price) if sell_target_price not in (None, "") else None
     note_val = (thesis_note or "").strip()
 
-    # Si se editan objetivos o reglas de este ticker, limpiamos sus huellas previas para permitir re-disparo si aplica
     db.query(AlertNotification).filter(
         AlertNotification.watchlist_id == watchlist_id,
         AlertNotification.ticker == sym,

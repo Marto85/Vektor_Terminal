@@ -14,6 +14,7 @@ import {
   PieChart,
   History,
   ExternalLink,
+  Activity,
 } from "lucide-react";
 import apiClient from "../api/client";
 import { useAuth } from "../context/authStore";
@@ -230,7 +231,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
       setUnitPrice("");
       setCommission("0");
       setTxNotes("");
-      setFeedback("Operación registrada y PPP recalculado.");
+      setFeedback("Operación registrada, PPP y TWR recalculados.");
     } catch (err) {
       setError(
         err?.response?.data?.detail || "Error al registrar la operación."
@@ -242,7 +243,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
 
   const handleDeleteTransaction = async (txId) => {
     if (!selectedClientId) return;
-    if (!window.confirm("¿Eliminar esta operación y recalcular tenencias y PPP?")) {
+    if (!window.confirm("¿Eliminar esta operación y recalcular tenencias, PPP y TWR?")) {
       return;
     }
     setError("");
@@ -267,6 +268,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
   const currency = portfolio?.client?.target_currency || "USD";
   const requiresTicker =
     txType === "BUY" || txType === "SELL" || txType === "DIVIDEND";
+  const twrVal = Number(summary?.twr_pct || 0);
 
   return (
     <div className="space-y-6 text-gray-800">
@@ -284,8 +286,8 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">
               {isClient
-                ? "Posiciones consolidadas, Precio Promedio Ponderado (PPP) y rendimiento en tiempo real."
-                : "Administrá el perfil patrimonial de tus clientes, registrá operaciones y monitoreá PPP."}
+                ? "Posiciones consolidadas, Precio Promedio Ponderado (PPP) y rendimiento TWR."
+                : "Administrá el perfil patrimonial de tus clientes, registrá operaciones y monitoreá PPP y TWR."}
             </p>
           </div>
         </div>
@@ -334,19 +336,19 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
         <div className="bg-white border border-gray-200 rounded-xl p-16 flex flex-col items-center justify-center text-orange-500">
           <Loader2 className="w-8 h-8 animate-spin mb-2" />
           <p className="text-xs font-medium text-gray-600">
-            Calculando tenencias, PPP y cotizaciones de mercado...
+            Calculando tenencias, PPP, TWR y cotizaciones de mercado...
           </p>
         </div>
       ) : (
         portfolio && (
           <>
-            {/* TARJETAS KPI RESUMEN DE CARTERA */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {/* TARJETAS KPI RESUMEN DE CARTERA (6 KPIs incluyendo TWR) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3.5">
               <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
                 <p className="text-[11px] font-semibold text-gray-400 uppercase">
                   Valor de Mercado
                 </p>
-                <p className="text-xl font-bold text-gray-900 mt-1">
+                <p className="text-lg font-bold text-gray-900 mt-1">
                   {formatCurrency(summary?.total_market_value, currency)}
                 </p>
                 <p className="text-[11px] text-gray-500 mt-1">
@@ -358,11 +360,11 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
                 <p className="text-[11px] font-semibold text-gray-400 uppercase">
                   Capital Invertido (PPP)
                 </p>
-                <p className="text-xl font-bold text-gray-900 mt-1">
+                <p className="text-lg font-bold text-gray-900 mt-1">
                   {formatCurrency(summary?.total_invested_cost, currency)}
                 </p>
                 <p className="text-[11px] text-gray-500 mt-1">
-                  Costo base de tenencia activa
+                  Aportes netos: {formatCurrency(summary?.net_contributed_capital, currency)}
                 </p>
               </div>
 
@@ -371,7 +373,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
                   Resultado No Realizado
                 </p>
                 <p
-                  className={`text-xl font-bold mt-1 flex items-center gap-1 ${
+                  className={`text-lg font-bold mt-1 flex items-center gap-1 ${
                     (summary?.total_unrealized_pnl || 0) >= 0
                       ? "text-emerald-600"
                       : "text-red-600"
@@ -397,10 +399,33 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
               </div>
 
               <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-                <p className="text-[11px] font-semibold text-gray-400 uppercase">
-                  P&L Realizado + Dividendos
+                <p className="text-[11px] font-semibold text-gray-400 uppercase flex items-center gap-1">
+                  <Activity className="w-3.5 h-3.5 text-orange-500" />
+                  Rendimiento TWR
                 </p>
-                <p className="text-xl font-bold text-gray-900 mt-1">
+                <p
+                  className={`text-lg font-bold mt-1 ${
+                    twrVal >= 0 ? "text-emerald-600" : "text-red-600"
+                  }`}
+                >
+                  {twrVal >= 0 ? "+" : ""}
+                  {twrVal.toFixed(2)}%
+                </p>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  {summary?.twr_annualized_pct !== null &&
+                  summary?.twr_annualized_pct !== undefined
+                    ? `Anualizado: ${
+                        summary.twr_annualized_pct >= 0 ? "+" : ""
+                      }${Number(summary.twr_annualized_pct).toFixed(2)}%`
+                    : `Sin sesgo de flujos (${summary?.subperiods_count || 0} tramos)`}
+                </p>
+              </div>
+
+              <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                <p className="text-[11px] font-semibold text-gray-400 uppercase">
+                  P&L Realizado + Div.
+                </p>
+                <p className="text-lg font-bold text-gray-900 mt-1">
                   {formatCurrency(
                     (summary?.total_realized_pnl || 0) +
                       (summary?.total_dividends || 0),
@@ -418,11 +443,11 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
                   <DollarSign className="w-3.5 h-3.5 text-orange-500" />
                   Liquidez / Caja Neta
                 </p>
-                <p className="text-xl font-bold text-gray-900 mt-1">
+                <p className="text-lg font-bold text-gray-900 mt-1">
                   {formatCurrency(summary?.cash_balance, currency)}
                 </p>
                 <p className="text-[11px] text-gray-500 mt-1">
-                  Patrimonio total: {formatCurrency(summary?.total_equity, currency)}
+                  Patrimonio: {formatCurrency(summary?.total_equity, currency)}
                 </p>
               </div>
             </div>

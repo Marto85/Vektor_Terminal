@@ -33,7 +33,6 @@ def _get_resilient_val(lookup: dict[str, dict[str, float]], metric: str, y: str)
     if raw != 0.0:
         return raw
 
-    # Reconstrucciones de respaldo si el tag XBRL de SEC quedó en 0.0
     if metric == "Patrimonio neto":
         ta = lookup.get("Total activo", {}).get(y, 0.0)
         tl = lookup.get("Total pasivo", {}).get(y, 0.0)
@@ -47,6 +46,91 @@ def _get_resilient_val(lookup: dict[str, dict[str, float]], metric: str, y: str)
             return ebt + intr
 
     return raw
+
+
+def _compute_year_economic_components(
+    lookup: dict[str, dict[str, float]],
+    years_range: list[str],
+    idx: int,
+) -> dict[str, float]:
+    y = years_range[idx]
+    ventas = _get_resilient_val(lookup, "Ingresos Totales", y)
+    ebit = _get_resilient_val(lookup, "Beneficio Operativo", y)
+    ebt = _get_resilient_val(lookup, "Beneficio antes de Impuestos", y)
+    tax = _get_resilient_val(lookup, "Gasto por Impuesto a las Ganancias", y)
+    da = _get_resilient_val(lookup, "Depreciación y Amortización", y)
+
+    eff_tax = _safe_div(tax, ebt) if (ebt > 0.0 and tax >= 0.0) else 0.21
+    eff_tax = min(max(eff_tax, 0.0), 0.45)
+    nopat = ebit * (1.0 - eff_tax)
+
+    deuda_total = (
+        _get_resilient_val(lookup, "Deuda a corto plazo", y)
+        + _get_resilient_val(lookup, "Deuda a largo plazo", y)
+    )
+    patrimonio = _get_resilient_val(lookup, "Patrimonio neto", y)
+    cash_st = (
+        _get_resilient_val(lookup, "Efectivo y equivalentes", y)
+        + _get_resilient_val(lookup, "Inversiones a corto plazo", y)
+    )
+    invested_capital = max(deuda_total + patrimonio - cash_st, 0.0)
+
+    cfo = _get_resilient_val(lookup, "Efectivo de Operaciones (CFO)", y)
+    capex = abs(_get_resilient_val(lookup, "Gastos de capital (CapEx)", y))
+    fcf_reported = _get_resilient_val(lookup, "Flujo de caja libre (FCF)", y)
+    if fcf_reported == 0.0 and (cfo != 0.0 or capex != 0.0):
+        fcf_reported = cfo - capex
+
+    sbc = abs(_get_resilient_val(lookup, "Compensación basada en acciones", y))
+    fcf_adj_sbc = fcf_reported - sbc
+
+    # Capital de trabajo operativo no financiero: (Activo Corr - Caja) - (Pasivo Corr - Deuda CP)
+    ac_curr = _get_resilient_val(lookup, "Total activo corriente", y)
+    pc_curr = _get_resilient_val(lookup, "Total pasivo corriente", y)
+    dcp_curr = _get_resilient_val(lookup, "Deuda a corto plazo", y)
+    nwc_curr = (ac_curr - cash_st) - (pc_curr - dcp_curr)
+
+    delta_nwc = 0.0
+    if idx > 0:
+        y_prev = years_range[idx - 1]
+        ac_prev = _get_resilient_val(lookup, "Total activo corriente", y_prev)
+        pc_prev = _get_resilient_val(lookup, "Total pasivo corriente", y_prev)
+        dcp_prev = _get_resilient_val(lookup, "Deuda a corto plazo", y_prev)
+        cash_prev = (
+            _get_resilient_val(lookup, "Efectivo y equivalentes", y_prev)
+            + _get_resilient_val(lookup, "Inversiones a corto plazo", y_prev)
+        )
+        nwc_prev = (ac_prev - cash_prev) - (pc_prev - dcp_prev)
+        delta_nwc = nwc_curr - nwc_prev
+
+    net_reinvestment = (capex - da) + delta_nwc
+    reinvestment_rate_pct = _safe_div(net_reinvestment, nopat) * 100.0 if nopat > 0.0 else 0.0
+    roic_pct = _safe_div(nopat, invested_capital) * 100.0 if invested_capital > 0.0 else 0.0
+
+    shares = (
+        _get_resilient_val(lookup, "Acciones en Circulación (Diluidas)", y)
+        or _get_resilient_val(lookup, "Acciones en Circulación (Básicas)", y)
+    )
+    dividends_paid = abs(_get_resilient_val(lookup, "Pago de dividendos", y))
+    buybacks_paid = abs(_get_resilient_val(lookup, "Recompra de acciones", y))
+
+    return {
+        "ventas": ventas,
+        "ebit": ebit,
+        "nopat": nopat,
+        "invested_capital": invested_capital,
+        "roic_pct": roic_pct,
+        "fcf_reported": fcf_reported,
+        "sbc": sbc,
+        "fcf_adj_sbc": fcf_adj_sbc,
+        "sbc_to_fcf_pct": (_safe_div(sbc, fcf_reported) * 100.0) if fcf_reported > 0.0 else 0.0,
+        "sbc_to_sales_pct": (_safe_div(sbc, ventas) * 100.0) if ventas > 0.0 else 0.0,
+        "net_reinvestment": net_reinvestment,
+        "reinvestment_rate_pct": reinvestment_rate_pct,
+        "shares": shares,
+        "dividends_paid": dividends_paid,
+        "buybacks_paid": buybacks_paid,
+    }
 
 
 def calculate_ratios(financial_data: list, years_range: list) -> list:
@@ -63,6 +147,11 @@ def calculate_ratios(financial_data: list, years_range: list) -> list:
         if prev == 0.0:
             return curr
         return (curr + prev) / 2.0
+
+    econ_by_idx = [
+        _compute_year_economic_components(lookup, years_range, idx)
+        for idx in range(len(years_range))
+    ]
 
     ratios = []
 
@@ -120,10 +209,29 @@ def calculate_ratios(financial_data: list, years_range: list) -> list:
         dpo = _safe_div(avg_ap, cogs) * 365.0 if cogs > 0 else 0.0
         ccc = (dso + dio - dpo) if (ventas > 0 and (dso > 0 or dio > 0 or dpo > 0)) else 0.0
 
+        # Asignación de Capital y Calidad de FCF (Etapa 14C)
+        ec = econ_by_idx[idx]
+        roiic_yoy = 0.0
+        net_dilution_pct = 0.0
+        if idx > 0:
+            ec_prev = econ_by_idx[idx - 1]
+            delta_ic = ec["invested_capital"] - ec_prev["invested_capital"]
+            delta_nopat = ec["nopat"] - ec_prev["nopat"]
+            if delta_ic > 0.0 and ec_prev["invested_capital"] > 0.0:
+                roiic_yoy = (delta_nopat / delta_ic) * 100.0
+            if ec_prev["shares"] > 0.0 and ec["shares"] > 0.0:
+                net_dilution_pct = ((ec["shares"] - ec_prev["shares"]) / ec_prev["shares"]) * 100.0
+
         ratios.append({
             "Año": y,
             "Rentabilidad sobre activos (ROA) %": {"val": roa, "pct": True},
             "Rentabilidad sobre capital (ROE) %": {"val": roe, "pct": True},
+            "ROIC (NOPAT / Capital Invertido) %": {"val": ec["roic_pct"], "pct": True},
+            "ROIIC Incremental Interanual %": {"val": roiic_yoy, "pct": True},
+            "Tasa de Reinversión (Reinvestment Rate) %": {"val": ec["reinvestment_rate_pct"], "pct": True},
+            "FCF Ajustado por SBC (US$ MM)": {"val": ec["fcf_adj_sbc"], "pct": False},
+            "SBC / FCF Reportado %": {"val": ec["sbc_to_fcf_pct"], "pct": True},
+            "Dilución / Recompra Neta Acciones %": {"val": net_dilution_pct, "pct": True},
             "Margen de beneficio bruto %": {"val": margen_bruto, "pct": True},
             "Margen de beneficio operativo (EBIT) %": {"val": margen_operativo, "pct": True},
             "Margen neto %": {"val": margen_neto, "pct": True},
@@ -145,9 +253,15 @@ def calculate_ratios(financial_data: list, years_range: list) -> list:
         })
 
     secciones_tikr = [
-        ("Ratios de rentabilidad:", [
+        ("Ratios de rentabilidad y asignación de capital:", [
             "Rentabilidad sobre activos (ROA) %",
             "Rentabilidad sobre capital (ROE) %",
+            "ROIC (NOPAT / Capital Invertido) %",
+            "ROIIC Incremental Interanual %",
+            "Tasa de Reinversión (Reinvestment Rate) %",
+            "FCF Ajustado por SBC (US$ MM)",
+            "SBC / FCF Reportado %",
+            "Dilución / Recompra Neta Acciones %",
         ]),
         ("Análisis de los márgenes:", [
             "Margen de beneficio bruto %",
@@ -274,6 +388,127 @@ def _evaluate_criterion_status(passed: bool, near: bool) -> str:
     return "fail"
 
 
+def _build_capital_allocation_and_tsr(
+    sym: str,
+    lookup: dict[str, dict[str, float]],
+    years_range: list[str],
+    valid_years: list[str],
+    mcap_mm: float,
+) -> dict[str, Any]:
+    idx_curr = years_range.index(valid_years[-1])
+    idx_prev = years_range.index(valid_years[-2])
+
+    ec_curr = _compute_year_economic_components(lookup, years_range, idx_curr)
+    ec_prev = _compute_year_economic_components(lookup, years_range, idx_prev)
+
+    # Ventana multi-año (hasta 3 ejercicios atrás si hay datos válidos)
+    base_year = valid_years[max(0, len(valid_years) - 4)]
+    idx_base = years_range.index(base_year)
+    ec_base = _compute_year_economic_components(lookup, years_range, idx_base)
+    span_years = max(int(valid_years[-1]) - int(base_year), 1)
+
+    delta_ic_1y = ec_curr["invested_capital"] - ec_prev["invested_capital"]
+    delta_nopat_1y = ec_curr["nopat"] - ec_prev["nopat"]
+    roiic_1y_pct: float | None = None
+    if delta_ic_1y > 0.0 and ec_prev["invested_capital"] > 0.0:
+        roiic_1y_pct = round((delta_nopat_1y / delta_ic_1y) * 100.0, 2)
+
+    delta_ic_multi = ec_curr["invested_capital"] - ec_base["invested_capital"]
+    delta_nopat_multi = ec_curr["nopat"] - ec_base["nopat"]
+    roiic_multi_pct: float | None = None
+    if delta_ic_multi > 0.0 and ec_base["invested_capital"] > 0.0:
+        roiic_multi_pct = round((delta_nopat_multi / delta_ic_multi) * 100.0, 2)
+
+    if delta_ic_multi <= 0.0 and delta_nopat_multi > 0.0:
+        roiic_note = (
+            f"Crecimiento sin consumo neto de capital ({base_year}→{valid_years[-1]}): NOPAT subió "
+            f"US$ {delta_nopat_multi:,.0f} MM reduciendo capital invertido."
+        )
+    elif roiic_multi_pct is not None:
+        roiic_note = (
+            f"Cada US$ 100 invertidos incrementalmente ({base_year}→{valid_years[-1]}) generó "
+            f"US$ {roiic_multi_pct:.1f} de NOPAT anual adicional."
+        )
+    else:
+        roiic_note = "Sin expansión positiva de NOPAT sobre capital incremental en el período."
+
+    intrinsic_growth_pct = round((ec_curr["roic_pct"] / 100.0) * ec_curr["reinvestment_rate_pct"], 2)
+
+    # Calidad de FCF post-SBC
+    sbc_erosion = ec_curr["sbc_to_fcf_pct"]
+    if ec_curr["fcf_reported"] <= 0.0:
+        sbc_verdict = "FCF reportado negativo o nulo; el gasto en SBC profundiza la salida económica."
+        sbc_color = "red"
+    elif sbc_erosion >= 25.0:
+        sbc_verdict = f"Alerta de dilución económica: el SBC consume {sbc_erosion:.1f}% del FCF reportado."
+        sbc_color = "amber"
+    else:
+        sbc_verdict = f"FCF limpio: el SBC representa solo {sbc_erosion:.1f}% del FCF reportado."
+        sbc_color = "emerald"
+
+    # TSR Bridge (Descomposición del retorno anualizado en la ventana base_year -> y_curr)
+    fundamental_cagr_pct = 0.0
+    if ec_base["ventas"] > 0.0 and ec_curr["ventas"] > 0.0:
+        fundamental_cagr_pct = (((ec_curr["ventas"] / ec_base["ventas"]) ** (1.0 / span_years)) - 1.0) * 100.0
+
+    net_share_change_cagr_pct = 0.0
+    if ec_base["shares"] > 0.0 and ec_curr["shares"] > 0.0:
+        net_share_change_cagr_pct = (((ec_curr["shares"] / ec_base["shares"]) ** (1.0 / span_years)) - 1.0) * 100.0
+
+    # Retorno anualizado al accionista vía dividendos + recompras netas de dilución
+    div_yield_pct = _safe_div(ec_curr["dividends_paid"], mcap_mm) * 100.0 if mcap_mm > 0.0 else 0.0
+    net_buyback_yield_pct = -net_share_change_cagr_pct
+    capital_return_pct = div_yield_pct + net_buyback_yield_pct
+
+    actual_price_cagr_pct: float | None = None
+    try:
+        hist = yf.Ticker(sym).history(period=f"{min(span_years, 5)}y", interval="1mo")
+        if hist is not None and len(hist) >= 2:
+            p0 = float(hist["Close"].iloc[0])
+            p1 = float(hist["Close"].iloc[-1])
+            yrs_h = max((hist.index[-1] - hist.index[0]).days / 365.25, 0.5)
+            if p0 > 0.0 and p1 > 0.0:
+                actual_price_cagr_pct = (((p1 / p0) ** (1.0 / yrs_h)) - 1.0) * 100.0
+    except Exception:
+        actual_price_cagr_pct = None
+
+    total_tsr_pct = (
+        round(actual_price_cagr_pct + div_yield_pct, 2)
+        if actual_price_cagr_pct is not None
+        else round(fundamental_cagr_pct + capital_return_pct, 2)
+    )
+    multiple_expansion_pct = round(total_tsr_pct - fundamental_cagr_pct - capital_return_pct, 2)
+
+    return {
+        "base_year": base_year,
+        "curr_year": valid_years[-1],
+        "span_years": span_years,
+        "roic_pct": round(ec_curr["roic_pct"], 2),
+        "roiic_1y_pct": roiic_1y_pct,
+        "roiic_multi_pct": roiic_multi_pct,
+        "roiic_note": roiic_note,
+        "invested_capital_mm": round(ec_curr["invested_capital"], 2),
+        "nopat_mm": round(ec_curr["nopat"], 2),
+        "reinvestment_rate_pct": round(ec_curr["reinvestment_rate_pct"], 2),
+        "intrinsic_growth_pct": intrinsic_growth_pct,
+        "fcf_reported_mm": round(ec_curr["fcf_reported"], 2),
+        "sbc_mm": round(ec_curr["sbc"], 2),
+        "fcf_adj_sbc_mm": round(ec_curr["fcf_adj_sbc"], 2),
+        "sbc_to_fcf_pct": round(ec_curr["sbc_to_fcf_pct"], 2),
+        "sbc_to_sales_pct": round(ec_curr["sbc_to_sales_pct"], 2),
+        "sbc_verdict": sbc_verdict,
+        "sbc_color": sbc_color,
+        "tsr_bridge": {
+            "total_tsr_cagr_pct": total_tsr_pct,
+            "fundamental_growth_pct": round(fundamental_cagr_pct, 2),
+            "capital_return_pct": round(capital_return_pct, 2),
+            "dividend_yield_pct": round(div_yield_pct, 2),
+            "net_buyback_yield_pct": round(net_buyback_yield_pct, 2),
+            "multiple_change_pct": multiple_expansion_pct,
+        },
+    }
+
+
 def build_financial_health_report(
     ticker: str,
     financial_data: list[dict[str, Any]],
@@ -334,9 +569,7 @@ def build_financial_health_report(
     mcap_mm = float((md.get("summary_metrics") or {}).get("capital", {}).get("market_cap") or 0.0)
     sector_info = _classify_sector_profile(sector, industry)
 
-    # =========================================================================
-    # 1. PIOTROSKI F-SCORE (0 a 9 puntos) con semáforo de proximidad y condición
-    # =========================================================================
+    # 1. PIOTROSKI F-SCORE (0 a 9 puntos)
     ni_curr = get_val("Beneficio Neto", y_curr)
     ni_prev = get_val("Beneficio Neto", y_prev)
     ta_curr = get_val("Total activo", y_curr)
@@ -365,28 +598,20 @@ def build_financial_health_report(
 
     f1_pass = roa_curr > 0
     f1_near = (not f1_pass) and (roa_curr >= -1.5)
-
     f2_pass = cfo_curr > 0
     f2_near = (not f2_pass) and (ta_curr > 0 and _safe_div(cfo_curr, ta_curr) >= -0.015)
-
     f3_pass = roa_curr > roa_prev
     f3_near = (not f3_pass) and ((roa_curr - roa_prev) >= -1.0)
-
     f4_pass = cfo_curr > ni_curr
     f4_near = (not f4_pass) and (abs(ni_curr) > 0 and _safe_div(cfo_curr, abs(ni_curr)) >= 0.85)
-
     f5_pass = ltd_ratio_curr <= ltd_ratio_prev
     f5_near = (not f5_pass) and ((ltd_ratio_curr - ltd_ratio_prev) <= 2.0)
-
     f6_pass = cr_curr > cr_prev
     f6_near = (not f6_pass) and (cr_prev > 0 and (cr_prev - cr_curr) <= 0.10)
-
     f7_pass = (shares_curr <= shares_prev * 1.005) if (shares_curr > 0 and shares_prev > 0) else True
     f7_near = (not f7_pass) and (shares_prev > 0 and shares_curr <= shares_prev * 1.02)
-
     f8_pass = gm_curr > gm_prev
     f8_near = (not f8_pass) and ((gm_prev - gm_curr) <= 1.0)
-
     f9_pass = at_curr > at_prev
     f9_near = (not f9_pass) and (at_prev > 0 and (at_prev - at_curr) <= 0.05)
 
@@ -512,9 +737,7 @@ def build_financial_health_report(
         f_zone = "Debilidad Operativa / Balance Frágil"
         f_color = "red"
 
-    # =========================================================================
-    # 2. ALTMAN Z-SCORE (1968) Y Z''-SCORE (NO MANUFACTURERAS / SERVICIOS)
-    # =========================================================================
+    # 2. ALTMAN Z-SCORE
     wc = get_val("Total activo corriente", y_curr) - get_val("Total pasivo corriente", y_curr)
     re = get_val("Ganancias retenidas", y_curr)
     ebit_curr = get_val("Beneficio Operativo", y_curr)
@@ -552,9 +775,7 @@ def build_financial_health_report(
         z_dp_zone = "Zona de Estrés Financiero (< 1,10)"
         z_dp_color = "red"
 
-    # =========================================================================
-    # 3. RESUMEN DUPONT (3 Y 5 FACTORES) DEL ÚLTIMO EJERCICIO
-    # =========================================================================
+    # 3. DUPONT
     ebt_curr = get_val("Beneficio antes de Impuestos", y_curr)
     net_margin_pct = _safe_div(ni_curr, sales_curr) * 100.0
     asset_turnover = _safe_div(sales_curr, ta_curr)
@@ -564,6 +785,15 @@ def build_financial_health_report(
     tax_burden = _safe_div(ni_curr, ebt_curr)
     interest_burden = _safe_div(ebt_curr, ebit_curr)
     ebit_margin_pct = _safe_div(ebit_curr, sales_curr) * 100.0
+
+    # 4. ASIGNACIÓN DE CAPITAL, FCF POST-SBC Y TSR BRIDGE (Etapa 14C)
+    capital_allocation = _build_capital_allocation_and_tsr(
+        sym=sym,
+        lookup=lookup,
+        years_range=years_range,
+        valid_years=valid_years,
+        mcap_mm=mcap_mm,
+    )
 
     return {
         "ticker": sym,
@@ -622,4 +852,5 @@ def build_financial_health_report(
                 "equity_multiplier": round(equity_multiplier, 2),
             },
         },
+        "capital_allocation": capital_allocation,
     }

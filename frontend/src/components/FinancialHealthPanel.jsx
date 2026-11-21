@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronUp,
   Info,
+  TrendingUp,
 } from "lucide-react";
 
 function badgeClasses(color, applicable = true) {
@@ -43,6 +44,12 @@ function criterionDotStyle(status, applicable) {
   if (status === "pass") return "bg-emerald-500";
   if (status === "near") return "bg-amber-500";
   return "bg-red-500";
+}
+
+function formatSignedPct(val) {
+  if (val === null || val === undefined || Number.isNaN(Number(val))) return "N/A";
+  const num = Number(val);
+  return `${num >= 0 ? "+" : ""}${num.toFixed(1)}%`;
 }
 
 export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
@@ -92,7 +99,7 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
     return (
       <div className="bg-white border border-gray-200 rounded-lg p-6 mb-5 flex items-center justify-center text-xs text-orange-500">
         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-        Evaluando Piotroski F-Score, Altman Z-Score y DuPont para {ticker}...
+        Evaluando Piotroski F-Score, Altman Z-Score, ROIIC y TSR Bridge para {ticker}...
       </div>
     );
   }
@@ -110,6 +117,7 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
     piotroski,
     altman,
     dupont,
+    capital_allocation,
   } = healthData;
 
   const isFinancialSector = sector_applicability?.profile === "financial";
@@ -135,7 +143,7 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
           )}
           <div>
             <p className="font-bold text-gray-900">
-              Diagnóstico de Salud Financiera y Calidad Contable (
+              Diagnóstico de Salud Financiera y Asignación de Capital (
               {fiscal_year_prev} → {fiscal_year_curr})
             </p>
             <p className="text-[11px] text-gray-600 mt-0.5">
@@ -194,7 +202,6 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
               </span>
             </div>
 
-            {/* Leyenda de semáforo de criterios independientes */}
             <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-gray-600">
               <span className="inline-flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
@@ -210,7 +217,6 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
               </span>
             </div>
 
-            {/* Grilla 3x3 de criterios independientes etiquetados */}
             <div className="grid grid-cols-3 gap-1.5 mt-2.5">
               {piotroski.criteria.map((c) => {
                 const isSelected = selectedCriterionId === c.id;
@@ -248,7 +254,6 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
               })}
             </div>
 
-            {/* Visor instantáneo de condición requerida al pasar o tocar una ficha */}
             {inspectedCriterion ? (
               <div className="mt-2.5 p-2.5 rounded-lg bg-slate-900 text-white text-[11px] space-y-1">
                 <div className="flex items-center justify-between">
@@ -289,7 +294,6 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
               </p>
             )}
 
-            {/* Advertencia sectorial explícita */}
             <div
               className={`mt-2.5 p-2.5 rounded-lg border text-[11px] leading-relaxed ${
                 piotroski.applicable
@@ -533,6 +537,164 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
           </p>
         </div>
       </div>
+
+      {/* BLOQUE 4: ROIIC, REINVESTMENT RATE, FCF POST-SBC Y TSR BRIDGE (ETAPA 14C) */}
+      {capital_allocation && !isFinancialSector && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Sub-tarjeta A: ROIIC & Reinvestment Rate */}
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between pb-2.5 border-b border-gray-100">
+                <h4 className="font-bold text-sm text-gray-900">
+                  ROIIC & Tasa de Reinversión
+                </h4>
+                <span className="px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-800 text-[11px] font-bold">
+                  ROIC {capital_allocation.roic_pct.toFixed(1)}%
+                </span>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2.5">
+                <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-200">
+                  <p className="text-[10px] font-bold uppercase text-gray-500">
+                    ROIIC ({capital_allocation.base_year}→{capital_allocation.curr_year})
+                  </p>
+                  <p className="text-lg font-extrabold text-gray-900 mt-0.5">
+                    {capital_allocation.roiic_multi_pct !== null
+                      ? `${capital_allocation.roiic_multi_pct.toFixed(1)}%`
+                      : "N/A"}
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    1Y:{" "}
+                    {capital_allocation.roiic_1y_pct !== null
+                      ? `${capital_allocation.roiic_1y_pct.toFixed(1)}%`
+                      : "ΔIC ≤ 0"}
+                  </p>
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-200">
+                  <p className="text-[10px] font-bold uppercase text-gray-500">
+                    Reinvestment Rate
+                  </p>
+                  <p className="text-lg font-extrabold text-gray-900 mt-0.5">
+                    {capital_allocation.reinvestment_rate_pct.toFixed(1)}%
+                  </p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    Crec. intrínseco: {capital_allocation.intrinsic_growth_pct.toFixed(1)}%
+                  </p>
+                </div>
+              </div>
+
+              <p className="mt-2.5 p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-[11px] text-slate-700 leading-relaxed">
+                {capital_allocation.roiic_note}
+              </p>
+            </div>
+          </div>
+
+          {/* Sub-tarjeta B: Calidad de FCF Post-SBC */}
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between pb-2.5 border-b border-gray-100">
+                <h4 className="font-bold text-sm text-gray-900">
+                  Calidad de FCF (Post-SBC)
+                </h4>
+                <span
+                  className={`px-2 py-0.5 rounded border text-[11px] font-bold ${badgeClasses(
+                    capital_allocation.sbc_color,
+                    true
+                  )}`}
+                >
+                  SBC / FCF: {capital_allocation.sbc_to_fcf_pct.toFixed(1)}%
+                </span>
+              </div>
+
+              <div className="mt-3 space-y-1.5 text-[11px]">
+                <div className="flex justify-between py-1 border-b border-gray-100">
+                  <span className="text-gray-600">FCF Reportado ({fiscal_year_curr}):</span>
+                  <span className="font-bold text-gray-900 tabular-nums">
+                    US$ {capital_allocation.fcf_reported_mm.toLocaleString("en-US", { maximumFractionDigits: 0 })} MM
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-gray-100">
+                  <span className="text-gray-600">(-) Compensación en Acciones (SBC):</span>
+                  <span className="font-semibold text-red-600 tabular-nums">
+                    -US$ {capital_allocation.sbc_mm.toLocaleString("en-US", { maximumFractionDigits: 0 })} MM
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="font-bold text-gray-900">FCF Real (Post-SBC):</span>
+                  <span
+                    className={`font-extrabold tabular-nums ${
+                      capital_allocation.fcf_adj_sbc_mm >= 0
+                        ? "text-emerald-700"
+                        : "text-red-700"
+                    }`}
+                  >
+                    US$ {capital_allocation.fcf_adj_sbc_mm.toLocaleString("en-US", { maximumFractionDigits: 0 })} MM
+                  </span>
+                </div>
+              </div>
+
+              <div
+                className={`mt-2.5 p-2.5 rounded-lg border text-[11px] leading-relaxed ${badgeClasses(
+                  capital_allocation.sbc_color,
+                  true
+                )}`}
+              >
+                {capital_allocation.sbc_verdict}
+              </div>
+            </div>
+          </div>
+
+          {/* Sub-tarjeta C: TSR Bridge (Descomposición del Retorno al Accionista) */}
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between pb-2.5 border-b border-gray-100">
+                <div className="flex items-center gap-1.5">
+                  <TrendingUp className="w-4 h-4 text-orange-500" />
+                  <h4 className="font-bold text-sm text-gray-900">
+                    TSR Bridge ({capital_allocation.span_years}Y CAGR)
+                  </h4>
+                </div>
+                <span className="px-2 py-0.5 rounded bg-orange-50 border border-orange-200 text-orange-800 text-[11px] font-bold">
+                  TSR {formatSignedPct(capital_allocation.tsr_bridge.total_tsr_cagr_pct)}
+                </span>
+              </div>
+
+              <div className="mt-3 space-y-1.5 text-[11px]">
+                <div className="flex justify-between py-1 border-b border-gray-100">
+                  <span className="text-gray-600">1. Crecimiento Fundamental (Ventas):</span>
+                  <span className="font-bold text-gray-900 tabular-nums">
+                    {formatSignedPct(capital_allocation.tsr_bridge.fundamental_growth_pct)}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1 border-b border-gray-100">
+                  <span className="text-gray-600">2. Retorno de Capital (Div + Recompras):</span>
+                  <span className="font-bold text-gray-900 tabular-nums">
+                    {formatSignedPct(capital_allocation.tsr_bridge.capital_return_pct)}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-gray-600">3. Expansión / Contracción Múltiplo:</span>
+                  <span
+                    className={`font-bold tabular-nums ${
+                      capital_allocation.tsr_bridge.multiple_change_pct >= 0
+                        ? "text-emerald-700"
+                        : "text-red-700"
+                    }`}
+                  >
+                    {formatSignedPct(capital_allocation.tsr_bridge.multiple_change_pct)}
+                  </span>
+                </div>
+              </div>
+
+              <p className="mt-2.5 p-2.5 rounded-lg bg-gray-50 border border-gray-200 text-[11px] text-gray-600 leading-relaxed">
+                Dividendo: {capital_allocation.tsr_bridge.dividend_yield_pct.toFixed(1)}% ·
+                Recompra neta: {formatSignedPct(capital_allocation.tsr_bridge.net_buyback_yield_pct)} anual.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* DESPLEGABLE DETALLADO DE LOS 9 CRITERIOS PIOTROSKI */}
       {showPiotroskiDetails && (
