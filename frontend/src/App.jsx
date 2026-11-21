@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import {
   Home,
   Briefcase,
@@ -35,26 +35,27 @@ import {
 import apiClient from "./api/client";
 import { useAuth } from "./context/authStore";
 import LoginScreen from "./components/auth/LoginScreen";
-import ChangePasswordModal from "./components/auth/ChangePasswordModal";
-import UserManagementModal from "./components/auth/UserManagementModal";
 import BrandLogo from "./components/BrandLogo";
 import HomeOverview from "./components/HomeOverview";
-import WatchlistTab from "./components/WatchlistTab";
 import { ALERTABLE_METRICS } from "./data/watchlistConstants";
 import StockChart from "./components/StockChart";
 import CapitalStructurePanel from "./components/CapitalStructurePanel";
-import ValuationTab from "./components/ValuationTab";
-import ComparatorTab from "./components/ComparatorTab";
-import ScreenerTab from "./components/ScreenerTab";
-import ValuationModelsTab from "./components/ValuationModelsTab";
-import MacroLabTab from "./components/MacroLabTab";
-import InvestmentThesisTab from "./components/InvestmentThesisTab";
 import FinancialHealthPanel from "./components/FinancialHealthPanel";
 import FinancialsQuickCards from "./components/FinancialsQuickCards";
-import OwnershipInsidersTab from "./components/OwnershipInsidersTab";
 import MetricInfoDrawer from "./components/MetricInfoDrawer";
-import PortfoliosCRMTab from "./components/PortfoliosCRMTab";
 import { getGlossaryEntry } from "./data/metricsGlossary";
+
+const ChangePasswordModal = lazy(() => import("./components/auth/ChangePasswordModal"));
+const UserManagementModal = lazy(() => import("./components/auth/UserManagementModal"));
+const WatchlistTab = lazy(() => import("./components/WatchlistTab"));
+const ValuationTab = lazy(() => import("./components/ValuationTab"));
+const ComparatorTab = lazy(() => import("./components/ComparatorTab"));
+const ScreenerTab = lazy(() => import("./components/ScreenerTab"));
+const ValuationModelsTab = lazy(() => import("./components/ValuationModelsTab"));
+const MacroLabTab = lazy(() => import("./components/MacroLabTab"));
+const InvestmentThesisTab = lazy(() => import("./components/InvestmentThesisTab"));
+const OwnershipInsidersTab = lazy(() => import("./components/OwnershipInsidersTab"));
+const PortfoliosCRMTab = lazy(() => import("./components/PortfoliosCRMTab"));
 
 const RECENT_STORAGE_KEY = "tf_recent_tickers_v1";
 
@@ -63,6 +64,15 @@ const ROLE_BADGE_MAP = {
   advisor: { label: "Asesor", cls: "bg-orange-500/20 text-orange-300 border-orange-500/40" },
   client: { label: "Cliente", cls: "bg-blue-500/20 text-blue-300 border-blue-500/40" },
 };
+
+function TabFallback() {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+      <Loader2 className="w-7 h-7 text-orange-500 animate-spin mb-2" />
+      <p className="text-xs font-medium">Cargando módulo...</p>
+    </div>
+  );
+}
 
 function loadRecentTickers() {
   try {
@@ -1109,20 +1119,24 @@ function App() {
 
             {/* VISTA CRM DE CLIENTES Y CARTERAS (PPP + TWR) */}
             {activeSidebarTab === "Carteras" && (
-              <PortfoliosCRMTab
-                onSelectCompany={(sym) => executeSearch(sym, period, true)}
-              />
+              <Suspense fallback={<TabFallback />}>
+                <PortfoliosCRMTab
+                  onSelectCompany={(sym) => executeSearch(sym, period, true)}
+                />
+              </Suspense>
             )}
 
             {/* VISTA MI TABLERO / WATCHLISTS Y CENTRO DE NOTIFICACIONES */}
             {activeSidebarTab === "Tablero" && isAdvisorOrAdmin && (
-              <WatchlistTab
-                key={tableroInitialSubView}
-                initialSubView={tableroInitialSubView}
-                watchlistData={watchlistData}
-                onWatchlistUpdated={(updated) => setWatchlistData(updated)}
-                onSelectCompany={(sym) => executeSearch(sym, period, true)}
-              />
+              <Suspense fallback={<TabFallback />}>
+                <WatchlistTab
+                  key={tableroInitialSubView}
+                  initialSubView={tableroInitialSubView}
+                  watchlistData={watchlistData}
+                  onWatchlistUpdated={(updated) => setWatchlistData(updated)}
+                  onSelectCompany={(sym) => executeSearch(sym, period, true)}
+                />
+              </Suspense>
             )}
 
             {/* BLOQUE GLOBAL EMPRESA: Gráfico (Izq) y Panel de Datos 2 Columnas (Der) */}
@@ -1490,69 +1504,85 @@ function App() {
 
             {/* PESTAÑA: VALORACIÓN */}
             {activeSidebarTab === "Valoracion" && (
-              <ValuationTab
-                ticker={currentTicker}
-                onOpenInfo={openGlossary}
-                onOpenValuationModels={
-                  isAdvisorOrAdmin
-                    ? (sym) => {
-                        setCurrentTicker(sym);
-                        setHasLoadedCompany(true);
-                        setActiveSidebarTab("Modelos");
-                      }
-                    : undefined
-                }
-              />
+              <Suspense fallback={<TabFallback />}>
+                <ValuationTab
+                  ticker={currentTicker}
+                  onOpenInfo={openGlossary}
+                  onOpenValuationModels={
+                    isAdvisorOrAdmin
+                      ? (sym) => {
+                          setCurrentTicker(sym);
+                          setHasLoadedCompany(true);
+                          setActiveSidebarTab("Modelos");
+                        }
+                      : undefined
+                  }
+                />
+              </Suspense>
             )}
 
             {/* PESTAÑA: PROPIEDAD INSTITUCIONAL (13F) E INSIDERS (FORM 4) */}
             {activeSidebarTab === "Propiedad" && (
-              <OwnershipInsidersTab ticker={currentTicker} />
+              <Suspense fallback={<TabFallback />}>
+                <OwnershipInsidersTab ticker={currentTicker} />
+              </Suspense>
             )}
 
             {/* PESTAÑA: MODELOS DE VALUACIÓN (AUTOMÁTICO Y MANUAL) */}
             {activeSidebarTab === "Modelos" && isAdvisorOrAdmin && (
-              <ValuationModelsTab
-                initialTicker={hasLoadedCompany ? currentTicker : ""}
-                recentTickers={recentTickers}
-                onOpenInfo={openGlossary}
-                onSelectGlobalTicker={(sym) => {
-                  setCurrentTicker(sym);
-                  setHasLoadedCompany(true);
-                }}
-              />
+              <Suspense fallback={<TabFallback />}>
+                <ValuationModelsTab
+                  initialTicker={hasLoadedCompany ? currentTicker : ""}
+                  recentTickers={recentTickers}
+                  onOpenInfo={openGlossary}
+                  onSelectGlobalTicker={(sym) => {
+                    setCurrentTicker(sym);
+                    setHasLoadedCompany(true);
+                  }}
+                />
+              </Suspense>
             )}
 
             {/* PESTAÑA: MACRO LAB & PERSPECTIVA HISTÓRICA GLOBAL */}
-            {activeSidebarTab === "MacroLab" && <MacroLabTab />}
+            {activeSidebarTab === "MacroLab" && (
+              <Suspense fallback={<TabFallback />}>
+                <MacroLabTab />
+              </Suspense>
+            )}
 
             {/* PESTAÑA: TESIS DE INVERSIÓN (ONE-PAGER EJECUTIVO PARA CLIENTES) */}
             {activeSidebarTab === "Tesis" && (
-              <InvestmentThesisTab
-                initialTicker={hasLoadedCompany ? currentTicker : ""}
-                recentTickers={recentTickers}
-                onSelectGlobalTicker={(sym) => {
-                  setCurrentTicker(sym);
-                  setHasLoadedCompany(true);
-                }}
-              />
+              <Suspense fallback={<TabFallback />}>
+                <InvestmentThesisTab
+                  initialTicker={hasLoadedCompany ? currentTicker : ""}
+                  recentTickers={recentTickers}
+                  onSelectGlobalTicker={(sym) => {
+                    setCurrentTicker(sym);
+                    setHasLoadedCompany(true);
+                  }}
+                />
+              </Suspense>
             )}
 
             {/* PESTAÑA: COMPARADOR MANUAL (HASTA 5 EMPRESAS) */}
             {activeSidebarTab === "Comparador" && (
-              <ComparatorTab
-                currentTicker={currentTicker}
-                onOpenInfo={openGlossary}
-              />
+              <Suspense fallback={<TabFallback />}>
+                <ComparatorTab
+                  currentTicker={currentTicker}
+                  onOpenInfo={openGlossary}
+                />
+              </Suspense>
             )}
 
             {/* PESTAÑA: SCREENER FUNDAMENTAL */}
             {activeSidebarTab === "Screener" && isAdvisorOrAdmin && (
-              <ScreenerTab
-                key={screenerPresetId}
-                initialPresetId={screenerPresetId}
-                onSelectCompany={(sym) => executeSearch(sym, period, true)}
-              />
+              <Suspense fallback={<TabFallback />}>
+                <ScreenerTab
+                  key={screenerPresetId}
+                  initialPresetId={screenerPresetId}
+                  onSelectCompany={(sym) => executeSearch(sym, period, true)}
+                />
+              </Suspense>
             )}
           </div>
         </div>
@@ -1807,16 +1837,22 @@ function App() {
         )}
 
         {/* MODALES DE GESTIÓN DE USUARIOS Y CONTRASEÑA */}
-        <UserManagementModal
-          isOpen={showUserMgmtModal}
-          onClose={() => setShowUserMgmtModal(false)}
-        />
+        <Suspense fallback={null}>
+          {showUserMgmtModal && (
+            <UserManagementModal
+              isOpen={showUserMgmtModal}
+              onClose={() => setShowUserMgmtModal(false)}
+            />
+          )}
 
-        <ChangePasswordModal
-          isOpen={showChangePassModal}
-          forced={Boolean(user?.must_change_password)}
-          onClose={() => setShowChangePassModal(false)}
-        />
+          {showChangePassModal && (
+            <ChangePasswordModal
+              isOpen={showChangePassModal}
+              forced={Boolean(user?.must_change_password)}
+              onClose={() => setShowChangePassModal(false)}
+            />
+          )}
+        </Suspense>
 
         <MetricInfoDrawer
           entry={activeGlossaryInfo?.entry}

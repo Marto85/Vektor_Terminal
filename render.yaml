@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: vektorterminal-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: VEKTOR_ENV
+        value: production
+      - key: VEKTOR_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: FRONTEND_APP_URL
+        sync: false
+      - key: BACKEND_PUBLIC_URL
+        sync: false
+      - key: SEC_USER_AGENT
+        value: Martin Juan finanzas.juridicos@gmail.com
+      - key: VEKTOR_ADMIN_EMAIL
+        sync: false
+      - key: VEKTOR_ADMIN_PASSWORD
+        sync: false

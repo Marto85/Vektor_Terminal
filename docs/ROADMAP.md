@@ -24,14 +24,9 @@ Documento vivo de arquitectura y evolución funcional de **VektorTerminal**.
   - **Navegación Mobile:** menú lateral desplegable (*drawer*) con cierre táctil y barra inferior fija de acceso rápido en pantallas chicas (`< 768px`), además de cabecera de empresa y pestañas desplazables horizontalmente sin alterar el layout de escritorio.
   - **Tablas Financieras Responsivas:** scroll horizontal fluido con primera columna fija (`sticky left-0`) y ancho optimizado en dispositivos móviles.
   - **Progressive Web App (PWA):** configuración de `manifest.webmanifest`, ícono vectorial instalable y *service worker* (`sw.js`) registrado en producción (`import.meta.env.PROD`) para instalar la terminal en iOS, Android y escritorio.
-
----
-
-## Etapas Pendientes
-
-- [ ] **Etapa 16 — Preparación para Producción y Despliegue (Render + Vercel):**
-  - **Migración de Persistencia a PostgreSQL:** reemplazar SQLite por una instancia gestionada en Neon o Supabase (`DATABASE_URL` + `psycopg2-binary`) para garantizar persistencia entre reinicios del contenedor en Render.
-  - **Optimización de Bundle Frontend (*Code-Splitting*):** aplicar `React.lazy()` + `Suspense` en pestañas secundarias y configurar `manualChunks` en `vite.config.js` para reducir el chunk inicial por debajo de `500 kB` y acelerar la carga en Vercel.
+- [x] **Etapa 16 — Preparación para Producción y Despliegue (Render + Vercel):**
+  - **Persistencia en PostgreSQL y Backend Ready (`render.yaml`):** normalización automática de `postgres://` a `postgresql://` (`psycopg2-binary`), endpoint `/health` y blueprint de Render preparado para Neon/Supabase sin afectar SQLite en desarrollo local.
+  - **Optimización de Bundle Frontend (`vite.config.js` + `App.jsx` + `vercel.json`):** carga diferida (`React.lazy` + `Suspense`) en módulos secundarios, particionado de dependencias con `manualChunks` y configuración de rewrites SPA/API y cabeceras de caché para Service Worker en Vercel.
 
 ---
 

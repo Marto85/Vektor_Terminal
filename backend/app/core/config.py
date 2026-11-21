@@ -10,7 +10,10 @@ SEC_USER_AGENT = os.getenv(
 )
 
 # URL de base de datos: SQLite local por defecto; PostgreSQL en producción
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./financial_data.db")
+_RAW_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./financial_data.db").strip()
+if _RAW_DATABASE_URL.startswith("postgres://"):
+    _RAW_DATABASE_URL = _RAW_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+DATABASE_URL = _RAW_DATABASE_URL
 
 # Seguridad y JWT
 _DEFAULT_SECRET = "vektor-dev-secret-key-change-in-production-2026"
