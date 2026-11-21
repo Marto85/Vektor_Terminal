@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Any
-from datetime import datetime
+from datetime import datetime, timezone
 import pandas as pd
 import yfinance as yf
 from sqlalchemy.orm import Session
@@ -464,12 +464,13 @@ def search_ticker(q: str):
 @router.get("/company/{ticker}/history")
 def get_company_history(
     ticker: str,
-    range: str = Query("1y", pattern="^(3m|6m|ytd|1y|3y|5y|10y|max)$")
+    range: str = Query("1y", pattern="^(3m|6m|ytd|1y|3y|5y|10y|max)$"),
+    interval: str | None = Query(None, pattern="^(15m|1h|1d|1wk|1mo)$"),
 ):
     """
     Devuelve series históricas OHLCV para todas las métricas del selector
     (Price, % Change, Total Return, Drawdowns, 10k Growth, Market Cap, Enterprise Value),
-    junto con el retorno acumulado y CAGR del período.
+    soportando temporalidades intradiarias (15m, 1h) y de cierre (1d, 1wk, 1mo).
     """
     range_config = {
         "3m":  ("3mo", "1d"),
@@ -482,7 +483,15 @@ def get_company_history(
         "max": ("max", "1mo"),
     }
 
-    yf_period, yf_interval = range_config[range]
+    yf_period, default_interval = range_config[range]
+    yf_interval = interval or default_interval
+    is_intraday = yf_interval in ("15m", "1h")
+
+    # Yahoo Finance limita 15m a 60 días y 1h a 730 días
+    if yf_interval == "15m":
+        yf_period = "60d"
+    elif yf_interval == "1h" and range in ("3y", "5y", "10y", "max"):
+        yf_period = "730d"
 
     try:
         tk = yf.Ticker(ticker.upper())
@@ -493,8 +502,14 @@ def get_company_history(
 
         hist = hist.dropna(subset=["Open", "High", "Low", "Close"]).reset_index()
 
-        date_col = "Date" if "Date" in hist.columns else hist.columns[0]
-        hist[date_col] = pd.to_datetime(hist[date_col]).dt.tz_localize(None)
+        date_col = "Datetime" if "Datetime" in hist.columns else ("Date" if "Date" in hist.columns else hist.columns[0])
+        ts_series = pd.to_datetime(hist[date_col])
+        if ts_series.dt.tz is not None:
+            ts_series = ts_series.dt.tz_convert("UTC").dt.tz_localize(None)
+        hist[date_col] = ts_series
+
+        # Deduplicar marcas temporales por seguridad en Lightweight Charts
+        hist = hist.drop_duplicates(subset=[date_col], keep="last").reset_index(drop=True)
 
         shares_mm = 0.0
         net_debt_mm = 0.0
@@ -526,7 +541,7 @@ def get_company_history(
         prev_vals: dict[str, float | None] = {m: None for m in series_by_metric}
         running_peak = float(hist["High"].iloc[0])
 
-        def build_point(metric_name: str, date_str: str, o: float, h: float, l: float, c: float, v: int, is_pct: bool = False):
+        def build_point(metric_name: str, time_val: str | int, o: float, h: float, l: float, c: float, v: int, is_pct: bool = False):
             prev_c = prev_vals[metric_name]
             chg = round(c - prev_c, 2) if prev_c is not None else round(c - o, 2)
             if is_pct:
@@ -537,7 +552,7 @@ def get_company_history(
 
             prev_vals[metric_name] = c
             series_by_metric[metric_name].append({
-                "time": date_str,
+                "time": time_val,
                 "open": round(o, 2),
                 "high": round(h, 2),
                 "low": round(l, 2),
@@ -553,7 +568,12 @@ def get_company_history(
             l = float(row["Low"])
             c = float(row["Close"])
             v = int(row["Volume"]) if pd.notna(row["Volume"]) else 0
-            date_str = row[date_col].strftime("%Y-%m-%d")
+
+            dt_val = row[date_col]
+            if is_intraday:
+                time_val: str | int = int(dt_val.replace(tzinfo=timezone.utc).timestamp())
+            else:
+                time_val = dt_val.strftime("%Y-%m-%d")
 
             adj_c = float(row["Adj Close"]) if (has_adj and pd.notna(row["Adj Close"])) else c
             adj_factor = (adj_c / c) if c != 0 else 1.0
@@ -561,12 +581,12 @@ def get_company_history(
             adj_h = h * adj_factor
             adj_l = l * adj_factor
 
-            build_point("Price", date_str, o, h, l, c, v, is_pct=False)
+            build_point("Price", time_val, o, h, l, c, v, is_pct=False)
 
             if first_close > 0:
                 build_point(
                     "% Change",
-                    date_str,
+                    time_val,
                     ((o - first_close) / first_close) * 100,
                     ((h - first_close) / first_close) * 100,
                     ((l - first_close) / first_close) * 100,
@@ -578,7 +598,7 @@ def get_company_history(
             if first_adj > 0:
                 build_point(
                     "Total Return",
-                    date_str,
+                    time_val,
                     ((adj_o - first_adj) / first_adj) * 100,
                     ((adj_h - first_adj) / first_adj) * 100,
                     ((adj_l - first_adj) / first_adj) * 100,
@@ -589,7 +609,7 @@ def get_company_history(
 
                 build_point(
                     "10k Growth",
-                    date_str,
+                    time_val,
                     10000.0 * (adj_o / first_adj),
                     10000.0 * (adj_h / first_adj),
                     10000.0 * (adj_l / first_adj),
@@ -604,14 +624,14 @@ def get_company_history(
             dd_h = ((h - running_peak) / running_peak) * 100 if running_peak > 0 else 0.0
             dd_l = ((l - running_peak) / running_peak) * 100 if running_peak > 0 else 0.0
             dd_c = ((c - running_peak) / running_peak) * 100 if running_peak > 0 else 0.0
-            build_point("Drawdowns", date_str, dd_o, dd_h, dd_l, dd_c, v, is_pct=True)
+            build_point("Drawdowns", time_val, dd_o, dd_h, dd_l, dd_c, v, is_pct=True)
 
             if shares_mm > 0:
                 mc_o, mc_h, mc_l, mc_c = o * shares_mm, h * shares_mm, l * shares_mm, c * shares_mm
-                build_point("Market Cap", date_str, mc_o, mc_h, mc_l, mc_c, v, is_pct=False)
+                build_point("Market Cap", time_val, mc_o, mc_h, mc_l, mc_c, v, is_pct=False)
                 build_point(
                     "Enterprise Value",
-                    date_str,
+                    time_val,
                     mc_o + net_debt_mm,
                     mc_h + net_debt_mm,
                     mc_l + net_debt_mm,
@@ -621,7 +641,8 @@ def get_company_history(
                 )
 
         last_close = float(hist["Close"].iloc[-1])
-        days_diff = (hist[date_col].iloc[-1] - hist[date_col].iloc[0]).days
+        seconds_diff = (hist[date_col].iloc[-1] - hist[date_col].iloc[0]).total_seconds()
+        days_diff = max(seconds_diff / 86400.0, 0.01)
         years = max(days_diff / 365.25, 0.01)
 
         total_return_pct = round(((last_close - first_close) / first_close) * 100, 1) if first_close > 0 else 0.0
@@ -631,6 +652,7 @@ def get_company_history(
             "ticker": ticker.upper(),
             "range": range,
             "interval": yf_interval,
+            "isIntraday": is_intraday,
             "years": round(years, 2),
             "totalReturnPct": total_return_pct,
             "cagrPct": cagr_pct,
