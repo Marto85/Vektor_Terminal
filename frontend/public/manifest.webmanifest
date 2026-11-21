@@ -1,0 +1,17 @@
+{
+  "name": "VektorTerminal — Equity Research & Portfolio",
+  "short_name": "VektorTerminal",
+  "description": "Terminal financiera full-stack para análisis fundamental, técnico y gestión de carteras.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e1e1e",
+  "theme_color": "#252526",
+  "icons": [
+    {
+      "src": "/vektor-favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

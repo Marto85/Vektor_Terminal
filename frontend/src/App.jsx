@@ -29,6 +29,8 @@ import {
   KeyRound,
   LogOut,
   Shield,
+  Menu,
+  MoreHorizontal,
 } from "lucide-react";
 import apiClient from "./api/client";
 import { useAuth } from "./context/authStore";
@@ -91,6 +93,7 @@ function App() {
   const [showChart, setShowChart] = useState(true);
   const [activeGlossaryInfo, setActiveGlossaryInfo] = useState(null);
   const [screenerPresetId, setScreenerPresetId] = useState("all");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [tickerInput, setTickerInput] = useState("");
   const [currentTicker, setCurrentTicker] = useState("MSFT");
@@ -106,12 +109,12 @@ function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
 
-  // Estado Multi-Watchlist y Notificaciones (Etapa 4)
+  // Estado Multi-Watchlist y Notificaciones
   const [watchlistData, setWatchlistData] = useState(null);
   const [showAlertsPopover, setShowAlertsPopover] = useState(false);
   const alertsPopoverRef = useRef(null);
 
-  // Menú de usuario y modales de autenticación/administración (Etapa 11)
+  // Menú de usuario y modales de autenticación/administración
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showUserMgmtModal, setShowUserMgmtModal] = useState(false);
   const [showChangePassModal, setShowChangePassModal] = useState(false);
@@ -254,6 +257,7 @@ function App() {
     const upperTicker = tickerToSearch.toUpperCase();
     setIsLoading(true);
     setError(null);
+    setMobileMenuOpen(false);
 
     if (switchToSummary) {
       setActiveSidebarTab("Resumen");
@@ -312,6 +316,7 @@ function App() {
 
   const handleOpenCompanyTab = (tabId) => {
     setActiveSidebarTab(tabId);
+    setMobileMenuOpen(false);
     if (!hasLoadedCompany) {
       executeSearch(currentTicker, period, false);
     }
@@ -321,12 +326,14 @@ function App() {
     if (isClient) return;
     setScreenerPresetId(presetId);
     setActiveSidebarTab("Screener");
+    setMobileMenuOpen(false);
   };
 
   const handleOpenTablero = (sub = "lists") => {
     if (isClient) return;
     setTableroInitialSubView(sub);
     setActiveSidebarTab("Tablero");
+    setMobileMenuOpen(false);
   };
 
   const handleMarkNotifRead = async (notifId) => {
@@ -558,10 +565,116 @@ function App() {
     .charAt(0)
     .toUpperCase();
 
+  const renderSidebarNavigation = () => (
+    <div className="flex-1 overflow-y-auto py-4 space-y-5">
+      {/* Sección Global */}
+      <div>
+        <div className="px-3 mb-2">
+          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            Mercado y Descubrimiento
+          </p>
+        </div>
+        <nav className="space-y-0.5 px-2">
+          {globalNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeSidebarTab === item.id;
+
+            return (
+              <button
+                key={item.id}
+                onClick={() => {
+                  if (item.id === "Screener") {
+                    handleOpenScreenerWithPreset("all");
+                  } else if (item.id === "Tablero") {
+                    handleOpenTablero("lists");
+                  } else {
+                    setActiveSidebarTab(item.id);
+                    setMobileMenuOpen(false);
+                  }
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 md:py-1.5 text-xs rounded transition-colors ${
+                  isActive
+                    ? "bg-orange-500/10 text-orange-500 font-medium cursor-default"
+                    : "text-gray-400 hover:bg-gray-800 hover:text-gray-200 cursor-pointer"
+                }`}
+              >
+                <span className="flex items-center">
+                  <Icon className="w-3.5 h-3.5 mr-2" />
+                  {item.name}
+                </span>
+                {item.id === "Tablero" && unreadNotifCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-orange-500 text-white text-[10px] font-bold">
+                    {unreadNotifCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* Sección Empresa Activa */}
+      <div>
+        <div className="px-3 mb-2">
+          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            {currentTicker} Fundamental Analysis
+          </p>
+        </div>
+        <nav className="space-y-0.5 px-2">
+          {companyNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeSidebarTab === item.id;
+
+            return (
+              <button
+                key={item.id}
+                onClick={() => handleOpenCompanyTab(item.id)}
+                className={`w-full flex items-center px-3 py-2 md:py-1.5 text-xs rounded transition-colors ${
+                  isActive
+                    ? "bg-orange-500/10 text-orange-500 font-medium cursor-default"
+                    : "text-gray-400 hover:bg-gray-800 hover:text-gray-200 cursor-pointer"
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5 mr-2" />
+                {item.name}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* Administración / Cartera (según rol) */}
+      {isAdvisorOrAdmin && (
+        <div>
+          <div className="px-3 mb-2">
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+              Gestión & Accesos
+            </p>
+          </div>
+          <nav className="space-y-0.5 px-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileMenuOpen(false);
+                setShowUserMgmtModal(true);
+              }}
+              className="w-full flex items-center px-3 py-2 md:py-1.5 text-xs rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors cursor-pointer"
+            >
+              <Users className="w-3.5 h-3.5 mr-2" />
+              {user?.role === "superadmin"
+                ? "Usuarios y Roles"
+                : "Mis Clientes"}
+            </button>
+          </nav>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="flex h-screen bg-[#1e1e1e] font-sans text-gray-200 overflow-hidden">
-      {/* SIDEBAR */}
-      <aside className="w-56 bg-[#252526] border-r border-gray-700 flex flex-col shrink-0">
+      {/* SIDEBAR ESCRITORIO (oculto en mobile < 768px) */}
+      <aside className="hidden md:flex w-56 bg-[#252526] border-r border-gray-700 flex-col shrink-0">
         <button
           type="button"
           onClick={() => setActiveSidebarTab("Inicio")}
@@ -571,114 +684,58 @@ function App() {
           <BrandLogo size="md" />
         </button>
 
-        <div className="flex-1 overflow-y-auto py-4 space-y-5">
-          {/* Sección Global */}
-          <div>
-            <div className="px-3 mb-2">
-              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-                Mercado y Descubrimiento
-              </p>
-            </div>
-            <nav className="space-y-0.5 px-2">
-              {globalNavItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeSidebarTab === item.id;
-
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => {
-                      if (item.id === "Screener") {
-                        handleOpenScreenerWithPreset("all");
-                      } else if (item.id === "Tablero") {
-                        handleOpenTablero("lists");
-                      } else {
-                        setActiveSidebarTab(item.id);
-                      }
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-1.5 text-xs rounded transition-colors ${
-                      isActive
-                        ? "bg-orange-500/10 text-orange-500 font-medium cursor-default"
-                        : "text-gray-400 hover:bg-gray-800 hover:text-gray-200 cursor-pointer"
-                    }`}
-                  >
-                    <span className="flex items-center">
-                      <Icon className="w-3.5 h-3.5 mr-2" />
-                      {item.name}
-                    </span>
-                    {item.id === "Tablero" && unreadNotifCount > 0 && (
-                      <span className="px-1.5 py-0.2 rounded-full bg-orange-500 text-white text-[10px] font-bold">
-                        {unreadNotifCount}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-
-          {/* Sección Empresa Activa */}
-          <div>
-            <div className="px-3 mb-2">
-              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-                {currentTicker} Fundamental Analysis
-              </p>
-            </div>
-            <nav className="space-y-0.5 px-2">
-              {companyNavItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeSidebarTab === item.id;
-
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => handleOpenCompanyTab(item.id)}
-                    className={`w-full flex items-center px-3 py-1.5 text-xs rounded transition-colors ${
-                      isActive
-                        ? "bg-orange-500/10 text-orange-500 font-medium cursor-default"
-                        : "text-gray-400 hover:bg-gray-800 hover:text-gray-200 cursor-pointer"
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5 mr-2" />
-                    {item.name}
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-
-          {/* Administración / Cartera (según rol) */}
-          {isAdvisorOrAdmin && (
-            <div>
-              <div className="px-3 mb-2">
-                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-                  Gestión & Accesos
-                </p>
-              </div>
-              <nav className="space-y-0.5 px-2">
-                <button
-                  type="button"
-                  onClick={() => setShowUserMgmtModal(true)}
-                  className="w-full flex items-center px-3 py-1.5 text-xs rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors cursor-pointer"
-                >
-                  <Users className="w-3.5 h-3.5 mr-2" />
-                  {user?.role === "superadmin"
-                    ? "Usuarios y Roles"
-                    : "Mis Clientes"}
-                </button>
-              </nav>
-            </div>
-          )}
-        </div>
+        {renderSidebarNavigation()}
       </aside>
+
+      {/* DRAWER NAVEGACIÓN MOBILE (< 768px) */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex">
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-[1px]"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <aside className="relative w-72 max-w-[82vw] bg-[#252526] border-r border-gray-700 flex flex-col h-full z-10 shadow-2xl">
+            <div className="h-12 flex items-center justify-between px-4 border-b border-gray-700 bg-[#1e1e1e]">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveSidebarTab("Inicio");
+                  setMobileMenuOpen(false);
+                }}
+                className="cursor-pointer text-left"
+              >
+                <BrandLogo size="md" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(false)}
+                aria-label="Cerrar menú"
+                className="p-1.5 text-gray-400 hover:text-white rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {renderSidebarNavigation()}
+          </aside>
+        </div>
+      )}
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#f9fafb]">
-        {/* HEADER CON AUTOCOMPLETADO, NOTIFICACIONES Y USUARIO */}
-        <header className="h-12 bg-[#252526] border-b border-gray-700 flex items-center justify-between px-4 shrink-0 z-50">
-          <div className="flex items-center flex-1 max-w-xl">
+        {/* HEADER RESPONSIVE CON MENÚ MOBILE, AUTOCOMPLETADO, NOTIFICACIONES Y USUARIO */}
+        <header className="h-12 bg-[#252526] border-b border-gray-700 flex items-center justify-between px-2.5 sm:px-4 gap-2 shrink-0 z-40">
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            aria-label="Abrir navegación"
+            className="md:hidden p-1.5 rounded-lg text-gray-300 hover:text-white hover:bg-[#333333] cursor-pointer shrink-0"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+
+          <div className="flex items-center flex-1 max-w-xl min-w-0">
             <div className="relative w-full">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
+              <Search className="w-3.5 h-3.5 absolute left-2.5 sm:left-3 top-1/2 transform -translate-y-1/2 text-gray-500" />
               <input
                 type="text"
                 value={tickerInput}
@@ -688,24 +745,24 @@ function App() {
                   if (searchResults.length > 0) setShowDropdown(true);
                 }}
                 onBlur={() => setShowDropdown(false)}
-                placeholder="Busca entre 100.000 empresas en todo el mundo (Ej: AAPL + Enter)"
-                className="w-full pl-9 pr-4 py-1 bg-[#333333] border border-gray-600 rounded text-xs text-white placeholder-gray-400 focus:outline-none focus:border-orange-500 focus:bg-[#1e1e1e]"
+                placeholder="Buscar ticker (Ej: AAPL, MSFT, MELI)..."
+                className="w-full pl-8 sm:pl-9 pr-3 sm:pr-12 py-1.5 sm:py-1 bg-[#333333] border border-gray-600 rounded text-xs text-white placeholder-gray-400 focus:outline-none focus:border-orange-500 focus:bg-[#1e1e1e]"
               />
-              <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-[10px] text-gray-500 bg-[#252526] px-1 rounded border border-gray-600">
+              <div className="hidden sm:block absolute right-2 top-1/2 transform -translate-y-1/2 text-[10px] text-gray-500 bg-[#252526] px-1 rounded border border-gray-600">
                 Enter
               </div>
 
               {showDropdown && searchResults.length > 0 && (
-                <div className="absolute top-full left-0 w-full mt-1 bg-[#252526] border border-gray-600 rounded shadow-lg overflow-hidden">
+                <div className="absolute top-full left-0 w-full mt-1 bg-[#252526] border border-gray-600 rounded shadow-lg overflow-hidden z-50">
                   {searchResults.map((res, idx) => (
                     <div
                       key={idx}
-                      className="px-4 py-2 hover:bg-[#333333] cursor-pointer flex justify-between items-center border-b border-gray-700/50 last:border-0"
+                      className="px-3 sm:px-4 py-2.5 sm:py-2 hover:bg-[#333333] cursor-pointer flex justify-between items-center border-b border-gray-700/50 last:border-0"
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => handleSelectTicker(res.ticker)}
                     >
                       <div className="flex items-center truncate mr-2">
-                        <span className="font-bold text-orange-500 mr-3 w-12 shrink-0">
+                        <span className="font-bold text-orange-500 mr-2.5 sm:mr-3 w-12 shrink-0">
                           {res.ticker}
                         </span>
                         <span className="text-gray-300 text-xs truncate">
@@ -722,7 +779,7 @@ function App() {
             </div>
           </div>
 
-          <div className="flex items-center space-x-3 text-gray-400">
+          <div className="flex items-center space-x-1.5 sm:space-x-3 text-gray-400 shrink-0">
             {/* Campana de notificaciones persistentes (solo Asesor/Admin) */}
             {isAdvisorOrAdmin && (
               <div className="relative" ref={alertsPopoverRef}>
@@ -730,18 +787,18 @@ function App() {
                   type="button"
                   onClick={() => setShowAlertsPopover((prev) => !prev)}
                   title="Notificaciones y Alertas"
-                  className="relative p-1 hover:text-white cursor-pointer"
+                  className="relative p-1.5 hover:text-white cursor-pointer"
                 >
                   <Bell className="w-4 h-4" />
                   {unreadNotifCount > 0 && (
-                    <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-orange-500 text-white text-[10px] font-bold flex items-center justify-center">
                       {unreadNotifCount}
                     </span>
                   )}
                 </button>
 
                 {showAlertsPopover && (
-                  <div className="absolute right-0 mt-2 w-96 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden text-xs">
+                  <div className="fixed sm:absolute left-2 right-2 sm:left-auto sm:right-0 mt-2 sm:w-96 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden text-xs">
                     <div className="px-4 py-2.5 bg-gray-900 text-white flex items-center justify-between gap-2">
                       <span className="font-bold">
                         Notificaciones ({unreadNotifCount} nuevas)
@@ -797,7 +854,7 @@ function App() {
                                   {n.watchlist_name}
                                 </span>
                               </div>
-                              <p className="text-gray-700 mt-0.5">{n.detail}</p>
+                              <p className="text-gray-700 mt-0.5 wrap-break-word">{n.detail}</p>
                               <p className="text-[10px] text-gray-400 mt-0.5">
                                 {n.triggered_at}
                               </p>
@@ -828,7 +885,7 @@ function App() {
               <button
                 type="button"
                 onClick={() => setShowUserMenu((prev) => !prev)}
-                className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-lg hover:bg-[#333333] transition-colors cursor-pointer"
+                className="flex items-center gap-2 pl-1.5 sm:pl-2 pr-1 py-1 rounded-lg hover:bg-[#333333] transition-colors cursor-pointer"
               >
                 <span
                   className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${roleBadge.cls}`}
@@ -904,101 +961,43 @@ function App() {
           </div>
         </header>
 
-        {/* CABECERA EMPRESA GLOBAL (Visible solo en contexto de empresa individual) */}
+        {/* CABECERA EMPRESA GLOBAL (Adaptativa en Mobile y Desktop) */}
         {isCompanyContextTab && (
           <div className="bg-white border-b border-gray-200 shrink-0">
-            <div className="max-w-7xl mx-auto px-6 py-4">
-              <div className="flex justify-between items-start">
-                <div className="flex items-start space-x-4">
-                  <div className="w-12 h-12 bg-[#dc2626] rounded flex items-center justify-center text-white text-3xl font-bold shrink-0 shadow-sm">
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-4">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+                <div className="flex items-start space-x-3 sm:space-x-4 min-w-0">
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-[#dc2626] rounded flex items-center justify-center text-white text-2xl sm:text-3xl font-bold shrink-0 shadow-sm">
                     {currentTicker.charAt(0)}
                   </div>
 
-                  <div className="flex flex-col">
-                    <h1 className="text-[32px] font-bold text-gray-900 leading-none tracking-tight">
-                      {currentTicker}
-                    </h1>
-                    <p className="text-[15px] text-gray-500 mt-1">
-                      {profileData ? profileData.name : "Cargando..."}
-                    </p>
-
-                    <div className="flex flex-wrap items-center gap-2 mt-3">
-                      {isAdvisorOrAdmin && (
-                        <button
-                          type="button"
-                          onClick={openAddToBoardModal}
-                          className={`flex items-center px-3 py-1.5 border rounded text-xs font-medium transition-colors cursor-pointer shadow-sm ${
-                            isCurrentTickerInAnyWatchlist
-                              ? "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
-                              : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                  <div className="flex flex-col min-w-0">
+                    <div className="flex items-baseline justify-between sm:block gap-2">
+                      <h1 className="text-2xl sm:text-[32px] font-bold text-gray-900 leading-none tracking-tight">
+                        {currentTicker}
+                      </h1>
+                      <div className="sm:hidden text-right">
+                        <span className="text-lg font-bold text-gray-900">
+                          US$ {profileData ? formatNumber(profileData.price) : "0.00"}
+                        </span>
+                        <span
+                          className={`block text-[11px] font-bold ${
+                            profileData?.change < 0 ? "text-[#d93025]" : "text-green-600"
                           }`}
                         >
-                          <Heart
-                            className={`w-3.5 h-3.5 mr-1.5 text-orange-500 ${
-                              isCurrentTickerInAnyWatchlist
-                                ? "fill-orange-500"
-                                : ""
-                            }`}
-                          />
-                          {isCurrentTickerInAnyWatchlist
-                            ? "En tu tablero"
-                            : "Agregar al tablero"}
-                        </button>
-                      )}
-                      <button className="px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm">
-                        USD
-                      </button>
-                      <button
-                        onClick={() => setShowChart((prev) => !prev)}
-                        className="flex items-center px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm"
-                      >
-                        {showChart ? (
-                          <>
-                            Ocultar gráfico{" "}
-                            <ChevronUp className="w-3.5 h-3.5 ml-1.5" />
-                          </>
-                        ) : (
-                          <>
-                            Mostrar gráfico{" "}
-                            <ChevronDown className="w-3.5 h-3.5 ml-1.5" />
-                          </>
-                        )}
-                      </button>
-                      {isAdvisorOrAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => handleExportCompany("xlsx")}
-                          disabled={exportingFormat !== null}
-                          title="Descargar libro Excel multi-solapa (.xlsx)"
-                          className="flex items-center px-3 py-1.5 border border-emerald-300 bg-emerald-50/70 rounded text-xs font-medium text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer shadow-sm disabled:opacity-50"
-                        >
-                          {exportingFormat === "xlsx" ? (
-                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                          ) : (
-                            <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
-                          )}
-                          Excel (.xlsx)
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleExportCompany("pdf")}
-                        disabled={exportingFormat !== null}
-                        title="Descargar informe ejecutivo en PDF"
-                        className="flex items-center px-3 py-1.5 border border-slate-300 bg-slate-50 rounded text-xs font-medium text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer shadow-sm disabled:opacity-50"
-                      >
-                        {exportingFormat === "pdf" ? (
-                          <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                        ) : (
-                          <FileText className="w-3.5 h-3.5 mr-1.5 text-slate-600" />
-                        )}
-                        Informe PDF
-                      </button>
+                          {profileData
+                            ? `${profileData.change > 0 ? "+" : profileData.change < 0 ? "-" : ""}${formatNumber(Math.abs(profileData.change_pct), true)}`
+                            : "0,00%"}
+                        </span>
+                      </div>
                     </div>
+                    <p className="text-xs sm:text-[15px] text-gray-500 mt-1 truncate">
+                      {profileData ? profileData.name : "Cargando..."}
+                    </p>
                   </div>
                 </div>
 
-                <div className="text-right flex flex-col items-end">
+                <div className="hidden sm:flex text-right flex-col items-end shrink-0">
                   <h2 className="text-[36px] font-bold text-gray-900 leading-none tracking-tight">
                     US$ {profileData ? formatNumber(profileData.price) : "0.00"}
                   </h2>
@@ -1014,13 +1013,88 @@ function App() {
                   </p>
                 </div>
               </div>
+
+              {/* Barra de acciones rápida desplazable en móvil */}
+              <div className="flex items-center gap-2 mt-3 overflow-x-auto pb-1">
+                {isAdvisorOrAdmin && (
+                  <button
+                    type="button"
+                    onClick={openAddToBoardModal}
+                    className={`flex items-center px-2.5 sm:px-3 py-1.5 border rounded text-xs font-medium transition-colors cursor-pointer shadow-sm shrink-0 ${
+                      isCurrentTickerInAnyWatchlist
+                        ? "border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                        : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                    }`}
+                  >
+                    <Heart
+                      className={`w-3.5 h-3.5 mr-1.5 text-orange-500 ${
+                        isCurrentTickerInAnyWatchlist
+                          ? "fill-orange-500"
+                          : ""
+                      }`}
+                    />
+                    {isCurrentTickerInAnyWatchlist
+                      ? "En tu tablero"
+                      : "Agregar al tablero"}
+                  </button>
+                )}
+                <button className="px-2.5 sm:px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm shrink-0">
+                  USD
+                </button>
+                <button
+                  onClick={() => setShowChart((prev) => !prev)}
+                  className="flex items-center px-2.5 sm:px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm shrink-0"
+                >
+                  {showChart ? (
+                    <>
+                      Ocultar gráfico{" "}
+                      <ChevronUp className="w-3.5 h-3.5 ml-1.5" />
+                    </>
+                  ) : (
+                    <>
+                      Mostrar gráfico{" "}
+                      <ChevronDown className="w-3.5 h-3.5 ml-1.5" />
+                    </>
+                  )}
+                </button>
+                {isAdvisorOrAdmin && (
+                  <button
+                    type="button"
+                    onClick={() => handleExportCompany("xlsx")}
+                    disabled={exportingFormat !== null}
+                    title="Descargar libro Excel multi-solapa (.xlsx)"
+                    className="flex items-center px-2.5 sm:px-3 py-1.5 border border-emerald-300 bg-emerald-50/70 rounded text-xs font-medium text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer shadow-sm disabled:opacity-50 shrink-0"
+                  >
+                    {exportingFormat === "xlsx" ? (
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                    ) : (
+                      <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
+                    )}
+                    Excel (.xlsx)
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleExportCompany("pdf")}
+                  disabled={exportingFormat !== null}
+                  title="Descargar informe ejecutivo en PDF"
+                  className="flex items-center px-2.5 sm:px-3 py-1.5 border border-slate-300 bg-slate-50 rounded text-xs font-medium text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer shadow-sm disabled:opacity-50 shrink-0"
+                >
+                  {exportingFormat === "pdf" ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <FileText className="w-3.5 h-3.5 mr-1.5 text-slate-600" />
+                  )}
+                  Informe PDF
+                </button>
+              </div>
             </div>
           </div>
         )}
 
-        {/* ÁREA DE CONTENIDO CONDICIONAL */}
-        <div className="flex-1 overflow-auto">
-          <div className="max-w-7xl mx-auto px-6 py-6">
+        {/* ÁREA DE CONTENIDO CONDICIONAL (con espacio inferior en mobile para la bottom bar) */}
+        <div className="flex-1 overflow-auto pb-16 md:pb-0">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
             {/* VISTA PORTAL INICIAL */}
             {activeSidebarTab === "Inicio" && (
               <HomeOverview
@@ -1033,7 +1107,7 @@ function App() {
               />
             )}
 
-            {/* VISTA CRM DE CLIENTES Y CARTERAS (PPP) */}
+            {/* VISTA CRM DE CLIENTES Y CARTERAS (PPP + TWR) */}
             {activeSidebarTab === "Carteras" && (
               <PortfoliosCRMTab
                 onSelectCompany={(sym) => executeSearch(sym, period, true)}
@@ -1066,14 +1140,14 @@ function App() {
               </div>
             )}
 
-            {/* Sub-Nav de Empresa Individual */}
+            {/* Sub-Nav de Empresa Individual (desplazable en mobile) */}
             {isCompanyContextTab && (
-              <div className="flex border-b border-gray-200 mb-6 space-x-8 px-2">
+              <div className="flex border-b border-gray-200 mb-5 sm:mb-6 space-x-5 sm:space-x-8 px-1 sm:px-2 overflow-x-auto whitespace-nowrap">
                 {companyNavItems.map((item) => (
                   <button
                     key={item.id}
                     onClick={() => handleOpenCompanyTab(item.id)}
-                    className={`pb-3 text-[15px] transition-colors relative ${
+                    className={`pb-2.5 sm:pb-3 text-xs sm:text-[15px] transition-colors relative shrink-0 ${
                       activeSidebarTab === item.id
                         ? "text-orange-500 font-semibold cursor-default"
                         : "text-gray-500 hover:text-gray-800 font-medium cursor-pointer"
@@ -1090,12 +1164,12 @@ function App() {
 
             {/* PESTAÑA: RESUMEN Y NOTICIAS */}
             {activeSidebarTab === "Resumen" && (
-              <div className="space-y-6">
-                <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-5">
+              <div className="space-y-4 sm:space-y-6">
+                <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 sm:p-5">
                   <h3 className="text-sm font-bold text-gray-900 mb-2">
                     Acerca de la empresa
                   </h3>
-                  <p className="text-sm text-gray-600 leading-relaxed mb-3">
+                  <p className="text-xs sm:text-sm text-gray-600 leading-relaxed mb-3">
                     {profileData?.description || "Buscando descripción..."}
                   </p>
                   {domain && (
@@ -1110,7 +1184,7 @@ function App() {
                   )}
                 </div>
 
-                <div className="flex space-x-6">
+                <div className="flex flex-col md:flex-row gap-4 sm:gap-6">
                   <div className="flex-1 bg-white border border-gray-200 rounded-lg shadow-sm">
                     <div className="px-4 py-3 border-b border-gray-200">
                       <span className="text-sm font-bold text-gray-800">
@@ -1135,7 +1209,7 @@ function App() {
                                 href={n.link}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="block text-sm font-medium text-gray-800 hover:text-blue-600 cursor-pointer mt-1 transition-colors"
+                                className="block text-xs sm:text-sm font-medium text-gray-800 hover:text-blue-600 cursor-pointer mt-1 transition-colors"
                               >
                                 {n.title}
                               </a>
@@ -1149,7 +1223,7 @@ function App() {
                       )}
                     </div>
                   </div>
-                  <div className="w-1/3 bg-white border border-gray-200 rounded-lg shadow-sm">
+                  <div className="w-full md:w-1/3 bg-white border border-gray-200 rounded-lg shadow-sm">
                     <div className="px-4 py-3 border-b border-gray-200">
                       <span className="text-sm font-bold text-gray-800">
                         Eventos próximos
@@ -1183,12 +1257,12 @@ function App() {
             {/* PESTAÑA: FINANZAS */}
             {activeSidebarTab === "Finanzas" && (
               <div>
-                <div className="flex border-b border-gray-200 mb-5 space-x-6 px-2">
+                <div className="flex border-b border-gray-200 mb-5 space-x-4 sm:space-x-6 px-1 sm:px-2 overflow-x-auto whitespace-nowrap">
                   {contentTabs.map((tab) => (
                     <button
                       key={tab}
                       onClick={() => setActiveContentTab(tab)}
-                      className={`pb-2.5 text-sm transition-colors relative ${
+                      className={`pb-2.5 text-xs sm:text-sm transition-colors relative shrink-0 ${
                         activeContentTab === tab
                           ? "text-orange-500 font-semibold cursor-default"
                           : "text-gray-500 hover:text-gray-800 font-medium cursor-pointer"
@@ -1219,7 +1293,7 @@ function App() {
                 )}
 
                 <div className="bg-white rounded-lg border border-gray-200 shadow-sm min-h-100 flex flex-col overflow-hidden">
-                  <div className="flex justify-between items-center px-4 py-3 border-b border-gray-200 bg-gray-50">
+                  <div className="flex flex-wrap justify-between items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-gray-200 bg-gray-50">
                     <div className="flex space-x-2">
                       <div className="flex border border-gray-300 rounded overflow-hidden">
                         <button
@@ -1236,7 +1310,7 @@ function App() {
                         </button>
                       </div>
                     </div>
-                    <div className="flex space-x-2 text-gray-400 text-xs italic items-center px-2">
+                    <div className="hidden sm:flex space-x-2 text-gray-400 text-xs italic items-center px-2">
                       Cifras en millones (salvo métricas por acción)
                     </div>
                     <div className="flex space-x-2">
@@ -1270,16 +1344,16 @@ function App() {
                       </div>
                     ) : currentTabData.length > 0 ? (
                       <div className="w-full overflow-x-auto">
-                        <table className="w-full text-[13px] text-left whitespace-nowrap">
+                        <table className="w-full text-xs sm:text-[13px] text-left whitespace-nowrap">
                           <thead>
                             <tr className="bg-[#333333] text-white">
-                              <th className="py-2.5 px-4 font-bold sticky left-0 bg-[#333333] z-10 w-72">
+                              <th className="py-2.5 px-3 sm:px-4 font-bold sticky left-0 bg-[#333333] z-10 w-44 sm:w-72 max-w-44 sm:max-w-none">
                                 {activeContentTab} | Vektor
                               </th>
                               {availableYears.map((year) => (
                                 <th
                                   key={year}
-                                  className="py-2.5 px-4 font-bold text-right"
+                                  className="py-2.5 px-3 sm:px-4 font-bold text-right"
                                 >
                                   {year}
                                 </th>
@@ -1297,7 +1371,7 @@ function App() {
                                   >
                                     <td
                                       colSpan={availableYears.length + 1}
-                                      className="py-3 px-4 font-bold text-gray-900 sticky left-0 shadow-[1px_0_0_0_#f3f4f6]"
+                                      className="py-2.5 sm:py-3 px-3 sm:px-4 font-bold text-gray-900 sticky left-0 shadow-[1px_0_0_0_#f3f4f6]"
                                     >
                                       {row.Métrica}
                                     </td>
@@ -1333,8 +1407,8 @@ function App() {
                                 >
                                   <td
                                     className={`
-                                    py-2.5 px-4 sticky left-0 bg-white group-hover:bg-gray-50 z-10 shadow-[1px_0_0_0_#f3f4f6]
-                                    ${row.is_sub ? "pl-8 text-gray-600 italic" : ""}
+                                    py-2 sm:py-2.5 px-3 sm:px-4 sticky left-0 bg-white group-hover:bg-gray-50 z-10 shadow-[1px_0_0_0_#f3f4f6] max-w-44 sm:max-w-none
+                                    ${row.is_sub ? "pl-5 sm:pl-8 text-gray-600 italic" : ""}
                                     ${isMainMetric && !row.is_sub ? "font-bold text-gray-900" : "text-gray-700"}
                                   `}
                                   >
@@ -1369,7 +1443,7 @@ function App() {
                                       <td
                                         key={year}
                                         className={`
-                                          py-2.5 px-4 text-right
+                                          py-2 sm:py-2.5 px-3 sm:px-4 text-right
                                           ${isNegative ? "text-[#d93025]" : "text-gray-800"}
                                           ${isMainMetric && !row.is_sub ? "font-bold" : ""}
                                           ${row.is_sub ? "italic" : ""}
@@ -1483,6 +1557,77 @@ function App() {
           </div>
         </div>
 
+        {/* BARRA INFERIOR DE ACCESO RÁPIDO MOBILE (< 768px) */}
+        <nav className="md:hidden fixed bottom-0 inset-x-0 h-14 bg-[#252526] border-t border-gray-700 z-40 grid grid-cols-5 items-center text-[10px]">
+          <button
+            type="button"
+            onClick={() => setActiveSidebarTab("Inicio")}
+            className={`flex flex-col items-center justify-center py-1 cursor-pointer ${
+              activeSidebarTab === "Inicio" ? "text-orange-500 font-semibold" : "text-gray-400"
+            }`}
+          >
+            <Home className="w-4 h-4 mb-0.5" />
+            <span>Inicio</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSidebarTab("Carteras")}
+            className={`flex flex-col items-center justify-center py-1 cursor-pointer ${
+              activeSidebarTab === "Carteras" ? "text-orange-500 font-semibold" : "text-gray-400"
+            }`}
+          >
+            <Briefcase className="w-4 h-4 mb-0.5" />
+            <span>Carteras</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              isClient
+                ? setActiveSidebarTab("Comparador")
+                : handleOpenTablero("lists")
+            }
+            className={`flex flex-col items-center justify-center py-1 cursor-pointer ${
+              (isClient ? activeSidebarTab === "Comparador" : activeSidebarTab === "Tablero")
+                ? "text-orange-500 font-semibold"
+                : "text-gray-400"
+            }`}
+          >
+            {isClient ? (
+              <>
+                <Scale className="w-4 h-4 mb-0.5" />
+                <span>Comparar</span>
+              </>
+            ) : (
+              <>
+                <Bookmark className="w-4 h-4 mb-0.5" />
+                <span>Tablero</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleOpenCompanyTab("Resumen")}
+            className={`flex flex-col items-center justify-center py-1 cursor-pointer ${
+              isCompanyContextTab ? "text-orange-500 font-semibold" : "text-gray-400"
+            }`}
+          >
+            <BarChart3 className="w-4 h-4 mb-0.5" />
+            <span className="truncate max-w-14">{currentTicker}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className="flex flex-col items-center justify-center py-1 text-gray-400 hover:text-white cursor-pointer"
+          >
+            <MoreHorizontal className="w-4 h-4 mb-0.5" />
+            <span>Más</span>
+          </button>
+        </nav>
+
         {/* MODAL AGREGAR AL TABLERO DESDE CABECERA DE EMPRESA */}
         {showAddToBoardModal && isAdvisorOrAdmin && (
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
@@ -1509,7 +1654,7 @@ function App() {
 
               <form
                 onSubmit={handleConfirmAddToBoard}
-                className="p-5 space-y-4"
+                className="p-5 space-y-4 max-h-[82vh] overflow-y-auto"
               >
                 <div>
                   <label className="block font-semibold text-gray-700 mb-1">
@@ -1661,7 +1806,7 @@ function App() {
           </div>
         )}
 
-        {/* MODALES DE GESTIÓN DE USUARIOS Y CONTRASEÑA (ETAPA 11) */}
+        {/* MODALES DE GESTIÓN DE USUARIOS Y CONTRASEÑA */}
         <UserManagementModal
           isOpen={showUserMgmtModal}
           onClose={() => setShowUserMgmtModal(false)}
