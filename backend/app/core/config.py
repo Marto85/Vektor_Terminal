@@ -12,7 +12,9 @@ SEC_USER_AGENT = os.getenv(
 # URL de base de datos: SQLite local por defecto; PostgreSQL en producción
 _RAW_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./financial_data.db").strip()
 if _RAW_DATABASE_URL.startswith("postgres://"):
-    _RAW_DATABASE_URL = _RAW_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    _RAW_DATABASE_URL = _RAW_DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+elif _RAW_DATABASE_URL.startswith("postgresql://"):
+    _RAW_DATABASE_URL = _RAW_DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 DATABASE_URL = _RAW_DATABASE_URL
 
 # Seguridad y JWT
