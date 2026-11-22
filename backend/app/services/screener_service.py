@@ -6,24 +6,37 @@ from app.core.yf_client import get_cached_market_snapshot, CF_LTM_SCHEMA_VERSION
 
 # Universo institucional curado (~68 emisores líderes globales y ADRs LatAm)
 SCREENER_UNIVERSE: list[str] = [
-    # Mega Cap Tech & Software
-    "MSFT", "AAPL", "GOOGL", "META", "AMZN", "NVDA", "AVGO", "ORCL", "CRM", "ADBE", "NOW", "INTU",
-    # Semiconductores & Hardware
-    "AMD", "QCOM", "TXN", "INTC", "TSM", "ASML",
-    # Consumo & Retail
-    "WMT", "COST", "HD", "MCD", "NKE", "KO", "PEP", "PG", "PM",
-    # Salud & Farma
-    "LLY", "JNJ", "UNH", "ABBV", "MRK", "PFE", "TMO",
-    # Financieras, Pagos & Fintech
-    "JPM", "BAC", "WFC", "GS", "MS", "V", "MA", "AXP", "PYPL", "BLK",
-    # Energía, Industriales & Materiales
-    "XOM", "CVX", "COP", "CAT", "GE", "UNP", "LMT", "LIN",
-    # Telecom & Media
+    # Mega Cap Tech, IA Frontier, Software & Ciberseguridad (28)
+    "MSFT", "AAPL", "GOOGL", "META", "AMZN", "NVDA", "AVGO", "ORCL", "CRM", "ADBE",
+    "NOW", "INTU", "ANT", "PLTR", "PANW", "CRWD", "ZS", "FTNT", "DDOG", "NET",
+    "SNOW", "MDB", "WDAY", "TEAM", "HUBS", "APP", "SHOP", "GLOB",
+    # Semiconductores, Equipos & Infraestructura IA (17)
+    "AMD", "QCOM", "TXN", "INTC", "TSM", "ASML", "MU", "AMAT", "LRCX", "KLAC",
+    "ARM", "SNPS", "CDNS", "MRVL", "ANET", "VRT", "SMCI",
+    # Consumo, Retail, Lujo & Plataformas (24)
+    "TSLA", "WMT", "COST", "HD", "LOW", "TGT", "MCD", "SBUX", "CMG", "NKE",
+    "LULU", "RACE", "KO", "PEP", "PG", "PM", "UBER", "DASH", "ABNB", "BKNG",
+    "MAR", "HLT", "SPOT", "RBLX",
+    # Salud, Farma & Dispositivos Médicos (12)
+    "LLY", "JNJ", "UNH", "ABBV", "MRK", "PFE", "TMO", "ISRG", "VRTX", "REGN",
+    "AMGN", "SYK",
+    # Financieras, Mercados, Pagos & Fintech (16)
+    "BRK-B", "JPM", "BAC", "WFC", "GS", "MS", "SCHW", "BLK", "SPGI", "ICE",
+    "V", "MA", "AXP", "PYPL", "COIN", "NU",
+    # Energía, Nuclear, Utilities, Industriales & Materiales (22)
+    "XOM", "CVX", "COP", "OXY", "SLB", "CEG", "VST", "GEV", "OKLO", "SMR",
+    "CCJ", "CAT", "DE", "GE", "UNP", "LMT", "RTX", "BA", "LIN", "FCX",
+    "SCCO", "MP",
+    # Espacio, Satélites & Computación Cuántica (5)
+    "RKLB", "ASTS", "IRDM", "IONQ", "RGTI",
+    # Telecom & Media (4)
     "NFLX", "DIS", "VZ", "T",
-    # LatAm & Emergentes (ADRs / NYSE / NASDAQ)
-    "MELI", "NU", "STNE", "PAGS", "XP", "ITUB", "PBR", "VALE", "YPF", "GGAL", "VIST", "BABA",
+    # Argentina ADRs (NYSE / NASDAQ) (15)
+    "MELI", "YPF", "VIST", "GGAL", "BMA", "BBAR", "SUPV", "PAM", "TGS", "CEPU",
+    "EDN", "IRS", "CRESY", "LOMA", "TEO",
+    # LatAm & Emergentes (7)
+    "STNE", "PAGS", "XP", "ITUB", "PBR", "VALE", "BABA",
 ]
-
 
 def _extract_screener_row(ticker_upper: str, snap: dict[str, Any]) -> dict[str, Any] | None:
     info: dict[str, Any] = snap.get("info") or {}
