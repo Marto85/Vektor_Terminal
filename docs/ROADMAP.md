@@ -21,12 +21,29 @@ Documento vivo de arquitectura y evolución funcional de **VektorTerminal**.
   - **Alerta Automática de Nuevos Filings SEC:** detección deduplicada de nuevos reportes `10-K`, `10-Q`, `20-F` y `6-K` en EDGAR (últimos 30 días) para los emisores en Watchlist con notificación directa en la campana de alertas.
   - **Auditoría de Portafolios con TWR y Dividendos:** incorporación de rendimiento ponderado por tiempo (**TWR — *Time-Weighted Return***) encadenado por sub-períodos de flujos externos y registro de dividendos/movimientos de caja en el módulo de Carteras & CRM.
 - [x] **Etapa 15 — Adaptación Responsive y Versión Mobile (PWA):**
-  - **Navegación Mobile:** menú lateral desplegable (*drawer*) con cierre táctil y barra inferior fija de acceso rápido en pantallas chicas (`< 768px`), además de cabecera de empresa y pestañas desplazables horizontalmente sin alterar el layout de escritorio.
+  - **Navegación Mobile y Anclaje de Viewport:** contenedor anclado en móvil (`fixed inset-0 md:static md:h-dvh`), soporte `safe-area-inset-bottom`, menú lateral desplegable (*drawer*) con cierre táctil, barra inferior fija de acceso rápido en pantallas chicas (`< 768px`) y grillas adaptativas de 2 columnas en `HomeOverview`.
   - **Tablas Financieras Responsivas:** scroll horizontal fluido con primera columna fija (`sticky left-0`) y ancho optimizado en dispositivos móviles.
-  - **Progressive Web App (PWA):** configuración de `manifest.webmanifest`, ícono vectorial instalable y *service worker* (`sw.js`) registrado en producción (`import.meta.env.PROD`) para instalar la terminal en iOS, Android y escritorio.
-- [x] **Etapa 16 — Preparación para Producción y Despliegue (Render + Vercel):**
-  - **Persistencia en PostgreSQL y Backend Ready (`render.yaml`):** normalización automática de `postgres://` a `postgresql://` (`psycopg2-binary`), endpoint `/health` y blueprint de Render preparado para Neon/Supabase sin afectar SQLite en desarrollo local.
-  - **Optimización de Bundle Frontend (`vite.config.js` + `App.jsx` + `vercel.json`):** carga diferida (`React.lazy` + `Suspense`) en módulos secundarios, particionado de dependencias con `manualChunks` y configuración de rewrites SPA/API y cabeceras de caché para Service Worker en Vercel.
+  - **Progressive Web App (PWA):** configuración de `manifest.webmanifest`, ícono vectorial instalable y *service worker* (`sw.js`) con estrategia *Network-First* y activación inmediata (`skipWaiting`) para instalar la terminal en iOS, Android y escritorio.
+- [x] **Etapa 16 — Despliegue en Producción (Neon PostgreSQL + Render + Vercel):**
+  - **Persistencia en Neon y Backend en Render (`render.yaml` + `main.py`):** normalización explícita del driver a `postgresql+psycopg2://` (`psycopg2-binary`), endpoint de salud `/health` activo en `[https://vektor-terminal.onrender.com/health](https://vektor-terminal.onrender.com/health)` y migraciones automáticas idempotentes sin afectar SQLite local.
+  - **Frontend en Vercel (`vite.config.js` + `App.jsx` + `vercel.json`):** carga diferida (`React.lazy` + `Suspense`), particionado de chunks (`manualChunks`), rewrites SPA/API apuntando al backend en Render y cabeceras `no-cache` para actualización automática del Service Worker.
+
+---
+
+## Backlog Operativo Post-Despliegue (Producción)
+
+- [ ] **Poblado inicial del Screener en Neon:** ejecutar sincronización por lotes en producción para poblar la tabla de emisores cacheados y activar el *Radar Fundamental* en la pantalla de inicio.
+- [ ] **Endurecimiento de seguridad en Render:** restringir `ALLOWED_ORIGINS` y `FRONTEND_APP_URL` exclusivamente al dominio definitivo de Vercel (eliminando `localhost`) y rotar la contraseña inicial de `superadmin`.
+- [ ] **Mitigación de *Cold Starts* en Render Free:** configurar un monitor HTTP externo gratuito (cada 10–14 minutos de lunes a viernes en horario operativo) apuntando a `[https://vektor-terminal.onrender.com/health](https://vektor-terminal.onrender.com/health)`.
+- [ ] **Credenciales OAuth 2.0 en nube:** registrar callbacks de producción en Google Cloud Console y GitHub Developer Settings (`/api/v1/auth/oauth/google/callback` y `.../github/callback`) y cargar `CLIENT_ID` / `CLIENT_SECRET` en Render.
+
+---
+
+## Próximas Etapas Funcionales (Candidatas Etapa 17+)
+
+- [ ] **Etapa 17A — Evaluación Automática de Alertas en Segundo Plano:** endpoint protegido por token invocable mediante cron externo para evaluar reglas de Watchlist y filings SEC periódicamente sin requerir sesión activa, con opción de notificación por correo electrónico.
+- [ ] **Etapa 17B — Módulo Mercado Argentino (CEDEARs, BYMA y FX Implícito):** incorporación de ratios de conversión de CEDEARs, valuación simultánea en ARS y USD implícito (MEP/CCL) y seguimiento de activos locales junto a ADRs.
+- [ ] **Etapa 17C — Renta Fija y Curva de Rendimientos:** análisis de bonos soberanos y corporativos (TIR, *Duration* modificada, paridad y calendario de cupones) integrado al módulo de Carteras & CRM.
 
 ---
 

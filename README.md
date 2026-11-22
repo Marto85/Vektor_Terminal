@@ -1,6 +1,13 @@
 # VektorTerminal — Terminal Financiera
 
-Plataforma web full-stack *responsive* (instalable como **PWA**) de análisis fundamental, análisis técnico interactivo, valoración intrínseca, seguimiento macroeconómico, screening cuantitativo y gestión multi-cliente de carteras de inversión, construida sobre datos oficiales de la SEC (EDGAR), FRED y Yahoo Finance con persistencia en SQLite (local) y PostgreSQL (producción).
+Plataforma web full-stack *responsive* (instalable como **PWA** en Android, iOS y escritorio) de análisis fundamental, análisis técnico interactivo, valoración intrínseca, seguimiento macroeconómico, screening cuantitativo y gestión multi-cliente de carteras de inversión, construida sobre datos oficiales de la SEC (EDGAR), FRED y Yahoo Finance con persistencia en SQLite (local) y PostgreSQL en Neon (producción).
+
+## Arquitectura en Producción
+
+- **Frontend:** Vercel (`Root Directory: frontend`, proxy `/api/:path*` hacia Render mediante `frontend/vercel.json`).
+- **Backend:** Render (`[https://vektor-terminal.onrender.com](https://vektor-terminal.onrender.com)`, chequeo de salud en `/health`).
+- **Base de Datos:** PostgreSQL gestionada en Neon (`DATABASE_URL` normalizada automáticamente a `postgresql+psycopg2://`).
+- **Acceso Móvil (PWA):** Se accede desde la misma URL de producción en Vercel y puede instalarse localmente como aplicación independiente en Android e iOS (ver sección 3 del *Manual de Usuario*).
 
 ## Ejecución Local (Git Bash)
 
@@ -8,7 +15,7 @@ Plataforma web full-stack *responsive* (instalable como **PWA**) de análisis fu
 ```bash
 cd backend && source venv/Scripts/activate && uvicorn app.main:app --reload
 ```
-El servidor queda disponible en `http://127.0.0.1:8000` (documentación interactiva en `/docs` y chequeo de salud en `/health`).
+El servidor queda disponible en `[http://127.0.0.1:8000](http://127.0.0.1:8000)` (documentación interactiva en `/docs` y chequeo de salud en `/health`).
 
 2. **Iniciar Frontend (React + Vite) en una segunda terminal:**
 ```bash
@@ -38,10 +45,10 @@ backend/venv/Scripts/pytest -v && npm --prefix frontend test -- --run && npm --p
   - **Watchlists, Alertas SEC y Tesis de Inversión:** Listas de seguimiento con objetivos de precio, alertas de métricas fundamentales y **detección automática de nuevos filings SEC (`10-K`, `10-Q`, `20-F`, `6-K`)**, más generación de One-Pager Ejecutivo con extracción dimensional XBRL por *streaming* (`StatementBusinessSegmentsAxis`, `ProductOrServiceAxis`, `StatementGeographicalAxis`) y edición persistente (`CompanySegmentsCache`).
   - **Propiedad Institucional e Insiders (`13F` / `Form 4`):** Extracción, normalización y caché (TTL 12h) de tenedores institucionales (`13F`), fondos mutuos y transacciones de directivos/ejecutivos (`Form 4`).
   - **Exportación Masiva e Informes Ejecutivos:** Generación de libros Excel `.xlsx` multi-solapa (`openpyxl`) con normalización contable anual o trimestral (7 hojas: *Resumen & Múltiplos*, *Resultados*, *Balance*, *Flujo de Efectivo*, *Ratios*, *Valoración* y *Propiedad e Insiders*) e informes ejecutivos `.pdf` vectoriales (`fpdf2`).
-  - **Persistencia Dual (SQLite / PostgreSQL) y Despliegue Render:** SQLAlchemy con actualización automática de esquema al iniciar (`run_schema_migrations`), normalización automática de URLs `postgres://` a `postgresql://` (`psycopg2-binary`), endpoint `/health` y manifiesto `render.yaml` listo para producción.
+  - **Persistencia Dual (SQLite / PostgreSQL) y Despliegue Render:** SQLAlchemy con actualización automática de esquema al iniciar (`run_schema_migrations`), normalización automática de URLs `postgres://` y `postgresql://` al dialecto explícito `postgresql+psycopg2://` (`psycopg2-binary`), endpoint `/health` y manifiesto `render.yaml` desplegado en Render.
 - **Frontend:** React + Vite + Tailwind CSS + PWA (`frontend/src` y `frontend/public`)
-  - Optimización de bundle para producción con *code-splitting* (`React.lazy` + `Suspense`) y división de chunks (`manualChunks` en `vite.config.js`), más configuración de rewrites SPA y proxy `/api` en `frontend/vercel.json`.
-  - Diseño adaptativo escritorio/móvil con menú *drawer* y barra inferior de acceso rápido en pantallas chicas (`< 768px`), manifiesto web (`manifest.webmanifest`) y Service Worker (`sw.js`) para instalación nativa en iOS, Android y escritorio.
+  - Optimización de bundle para producción con *code-splitting* (`React.lazy` + `Suspense`) y división de chunks (`manualChunks` en `vite.config.js`), más configuración de rewrites SPA, proxy `/api` y cabeceras `no-cache` para el Service Worker en `frontend/vercel.json`.
+  - Diseño adaptativo escritorio/móvil con anclaje de viewport (`fixed inset-0 md:static md:h-dvh`), soporte `safe-area-inset-bottom`, menú *drawer* y barra inferior de acceso rápido en pantallas chicas (`< 768px`), manifiesto web (`manifest.webmanifest`) y Service Worker (`sw.js`) con estrategia *Network-First* para instalación nativa en iOS, Android y escritorio.
   - Pantalla de acceso unificada (`Ingresar`, `Crear cuenta`, `Recuperar acceso` y OAuth 2.0 con Google/GitHub), gestión de roles en interfaz, gráfico interactivo OHLCV (`TradingView Lightweight Charts`) con indicadores técnicos y 4 enfoques automáticos de análisis técnico validados por volumen, gráficos analíticos (`Recharts`), tablas financieras con encabezados y primera columna fijos (`sticky`), glosario lateral interactivo, descarga directa de libros Excel (`.xlsx`), informes ejecutivos (`.pdf`), exportación a CSV y vista optimizada para impresión (`print:`).
 
 ## Estructura Principal del Proyecto
@@ -56,7 +63,7 @@ Terminal Financiera/
 │   │   │   ├── auth_routes.py             # Autenticación (/login, /register, /forgot-password, /reset-password, /oauth/*, /admin/users)
 │   │   │   └── portfolio_routes.py        # Gestión de clientes, carteras, operaciones, cálculo PPP y TWR
 │   │   ├── core/
-│   │   │   ├── config.py                  # Configuración centralizada, normalización DATABASE_URL, secretos JWT, OAuth y SMTP/Resend
+│   │   │   ├── config.py                  # Configuración centralizada, normalización DATABASE_URL (psycopg2), secretos JWT, OAuth y SMTP/Resend
 │   │   │   ├── sec_client.py              # Cliente SEC EDGAR con rate-limiting (XBRL CompanyFacts y submissions recientes)
 │   │   │   ├── security.py                # Hashing bcrypt, emisión/verificación JWT y dependencias RBAC
 │   │   │   └── yf_client.py               # Caché de mercado (TTL 4h), normalización FX y cálculo FCF LTM
@@ -88,7 +95,7 @@ Terminal Financiera/
     ├── index.html                         # Metadatos viewport, theme-color y enlace a manifest.webmanifest
     ├── public/
     │   ├── manifest.webmanifest           # Manifiesto PWA instalable (standalone, íconos y colores)
-    │   ├── sw.js                          # Service Worker para caché de shell y fallback offline
+    │   ├── sw.js                          # Service Worker Network-First para actualización inmediata y fallback offline
     │   └── vektor-favicon.svg
     └── src/
         ├── api/client.js                  # Cliente Axios con interceptor JWT y manejo de sesión expirada
@@ -103,6 +110,7 @@ Terminal Financiera/
         │   │   ├── LoginScreen.jsx        # Ingreso (usuario/email), registro, recuperación y OAuth Google/GitHub
         │   │   ├── ChangePasswordModal.jsx# Cambio de contraseña obligatorio u opcional
         │   │   └── UserManagementModal.jsx# Administración de usuarios y roles (superadmin)
+        │   ├── HomeOverview.jsx           # Portal inicial responsive con buscador, accesos rápidos, pulso de mercado, radar y noticias
         │   ├── PortfoliosCRMTab.jsx       # Gestión de clientes, carteras y operaciones con PPP y TWR
         │   ├── MarketOverviewTab.jsx      # Panorama de mercado e índices
         │   ├── MacroLabTab.jsx            # Laboratorio macroeconómico y tasas
