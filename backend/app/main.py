@@ -29,3 +29,8 @@ app.include_router(router, prefix="/api/v1")
 @app.get("/")
 def read_root():
     return {"status": "online", "message": "API de Terminal Financiera operando."}
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
