@@ -40,7 +40,7 @@ function MiniSparkline({ points = [], isPositive = true }) {
   const gradId = `spark-${isPositive ? "pos" : "neg"}-${points.length}`;
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-28 h-9 overflow-visible">
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-16 sm:w-28 h-7 sm:h-9 shrink-0 overflow-visible">
       <defs>
         <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={strokeColor} stopOpacity="0.22" />
@@ -152,16 +152,16 @@ export default function HomeOverview({
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* BLOQUE 1: HERO DE BIENVENIDA + BUSCADOR PROTAGONISTA + ACCESOS RÁPIDOS */}
-      <section className="bg-white border border-gray-200 rounded-xl shadow-sm p-6 md:p-7">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-          <div className="space-y-2 max-w-xl">
+      <section className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 sm:p-6 md:p-7">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 sm:gap-6">
+          <div className="space-y-1.5 sm:space-y-2 max-w-xl">
             <div className="flex items-center gap-3">
               <BrandLogo size="lg" showSubtitle />
             </div>
-            <p className="text-xs text-gray-500 capitalize pt-1">{todayFormatted}</p>
-            <h2 className="text-xl font-bold text-gray-900 tracking-tight">
+            <p className="text-[11px] sm:text-xs text-gray-500 capitalize pt-0.5 sm:pt-1">{todayFormatted}</p>
+            <h2 className="text-base sm:text-xl font-bold text-gray-900 tracking-tight leading-snug">
               Investigación fundamental, valoración DCF y screening cuantitativo
             </h2>
             <p className="text-xs text-gray-600 leading-relaxed">
@@ -235,11 +235,11 @@ export default function HomeOverview({
         </div>
 
         {/* 4 Tarjetas de Flujos de Trabajo */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-6 pt-5 border-t border-gray-100">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 mt-4 sm:mt-6 pt-4 sm:pt-5 border-t border-gray-100">
           <button
             type="button"
             onClick={() => onNavigateTab("Screener")}
-            className="text-left p-3.5 rounded-lg border border-gray-200 hover:border-orange-300 hover:bg-orange-50/40 transition-all group cursor-pointer"
+            className="text-left p-2.5 sm:p-3.5 rounded-lg border border-gray-200 hover:border-orange-300 hover:bg-orange-50/40 transition-all group cursor-pointer"
           >
             <div className="flex items-center justify-between mb-1.5">
               <span className="p-1.5 rounded-md bg-orange-100 text-orange-600">
@@ -258,7 +258,7 @@ export default function HomeOverview({
           <button
             type="button"
             onClick={() => onNavigateTab("Comparador")}
-            className="text-left p-3.5 rounded-lg border border-gray-200 hover:border-orange-300 hover:bg-orange-50/40 transition-all group cursor-pointer"
+            className="text-left p-2.5 sm:p-3.5 rounded-lg border border-gray-200 hover:border-orange-300 hover:bg-orange-50/40 transition-all group cursor-pointer"
           >
             <div className="flex items-center justify-between mb-1.5">
               <span className="p-1.5 rounded-md bg-blue-50 text-blue-600">
@@ -275,7 +275,7 @@ export default function HomeOverview({
           <button
             type="button"
             onClick={() => onOpenScreenerPreset("value_contrarian")}
-            className="text-left p-3.5 rounded-lg border border-gray-200 hover:border-orange-300 hover:bg-orange-50/40 transition-all group cursor-pointer"
+            className="text-left p-2.5 sm:p-3.5 rounded-lg border border-gray-200 hover:border-orange-300 hover:bg-orange-50/40 transition-all group cursor-pointer"
           >
             <div className="flex items-center justify-between mb-1.5">
               <span className="p-1.5 rounded-md bg-emerald-50 text-emerald-600">
@@ -292,7 +292,7 @@ export default function HomeOverview({
           <button
             type="button"
             onClick={() => onOpenScreenerPreset("quality_compounders")}
-            className="text-left p-3.5 rounded-lg border border-gray-200 hover:border-orange-300 hover:bg-orange-50/40 transition-all group cursor-pointer"
+            className="text-left p-2.5 sm:p-3.5 rounded-lg border border-gray-200 hover:border-orange-300 hover:bg-orange-50/40 transition-all group cursor-pointer"
           >
             <div className="flex items-center justify-between mb-1.5">
               <span className="p-1.5 rounded-md bg-amber-50 text-amber-600">
@@ -321,7 +321,7 @@ export default function HomeOverview({
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
           {(overview?.benchmarks || [
             { symbol: "SPY", name: "S&P 500 ETF", subtitle: "Large Cap EE. UU.", unit: "US$", price: 0, change: 0, change_pct: 0, sparkline: [] },
             { symbol: "QQQ", name: "Nasdaq 100 ETF", subtitle: "Tecnología & Crecimiento", unit: "US$", price: 0, change: 0, change_pct: 0, sparkline: [] },
@@ -334,15 +334,15 @@ export default function HomeOverview({
                 key={bm.symbol}
                 onClick={() => onSelectTicker(bm.symbol)}
                 title={`Abrir gráfico histórico de ${bm.symbol}`}
-                className="bg-white border border-gray-200 rounded-xl p-4 shadow-2xs hover:border-orange-300 transition-colors cursor-pointer flex items-center justify-between"
+                className="bg-white border border-gray-200 rounded-xl p-3 sm:p-4 shadow-2xs hover:border-orange-300 transition-colors cursor-pointer flex items-center justify-between gap-1.5"
               >
-                <div>
+                <div className="min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold text-gray-900">{bm.name}</span>
-                    <span className="text-[10px] font-semibold text-gray-400">{bm.symbol}</span>
+                    <span className="text-xs font-bold text-gray-900 truncate">{bm.name}</span>
+                    <span className="text-[10px] font-semibold text-gray-400 shrink-0">{bm.symbol}</span>
                   </div>
-                  <p className="text-[11px] text-gray-500 mb-2">{bm.subtitle}</p>
-                  <p className="text-lg font-bold text-gray-900 tabular-nums leading-none">
+                  <p className="text-[11px] text-gray-500 mb-2 truncate">{bm.subtitle}</p>
+                  <p className="text-base sm:text-lg font-bold text-gray-900 tabular-nums leading-none">
                     {bm.price > 0
                       ? bm.unit === "%"
                         ? `${fmtNum(bm.price, 2)}%`
@@ -372,10 +372,10 @@ export default function HomeOverview({
       </section>
 
       {/* BLOQUE 3 Y 4: RADAR DE OPORTUNIDADES (IZQ) + NOTICIAS DE MERCADO (DER) */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
         {/* Radar Fundamental */}
         <div className="lg:col-span-6 bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+          <div className="px-4 sm:px-5 py-3.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-orange-500" />
               <h3 className="text-sm font-bold text-gray-900">Radar Fundamental</h3>
@@ -430,7 +430,7 @@ export default function HomeOverview({
                 <div
                   key={item.ticker}
                   onClick={() => onSelectTicker(item.ticker)}
-                  className="px-5 py-3 hover:bg-orange-50/50 transition-colors cursor-pointer flex items-center justify-between gap-3"
+                  className="px-4 sm:px-5 py-3 hover:bg-orange-50/50 transition-colors cursor-pointer flex items-center justify-between gap-3"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -474,7 +474,7 @@ export default function HomeOverview({
 
         {/* Noticias de Mercado */}
         <div className="lg:col-span-6 bg-white border border-gray-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+          <div className="px-4 sm:px-5 py-3.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <Newspaper className="w-4 h-4 text-orange-500" />
               <h3 className="text-sm font-bold text-gray-900">Titulares de Mercado</h3>
@@ -519,7 +519,7 @@ export default function HomeOverview({
                     })
                   : "";
                 return (
-                  <div key={idx} className="px-5 py-3 hover:bg-gray-50 transition-colors">
+                  <div key={idx} className="px-4 sm:px-5 py-3 hover:bg-gray-50 transition-colors">
                     <div className="flex items-center justify-between gap-2 text-[10px] font-bold uppercase text-gray-400 mb-1">
                       <div className="flex items-center gap-2">
                         <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">

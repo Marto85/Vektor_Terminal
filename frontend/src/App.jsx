@@ -682,7 +682,7 @@ function App() {
   );
 
   return (
-    <div className="flex h-dvh bg-[#1e1e1e] font-sans text-gray-200 overflow-hidden">
+    <div className="fixed inset-0 md:static md:h-dvh flex bg-[#1e1e1e] font-sans text-gray-200 overflow-hidden overscroll-none">
       {/* SIDEBAR ESCRITORIO (oculto en mobile < 768px) */}
       <aside className="hidden md:flex w-56 bg-[#252526] border-r border-gray-700 flex-col shrink-0">
         <button
@@ -1102,9 +1102,9 @@ function App() {
           </div>
         )}
 
-        {/* ÁREA DE CONTENIDO CONDICIONAL (con espacio inferior en mobile para la bottom bar) */}
-        <div className="flex-1 overflow-auto pb-16 md:pb-0">
-          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
+        {/* ÁREA DE CONTENIDO CONDICIONAL (con espacio inferior adaptativo en mobile) */}
+        <div className="flex-1 overflow-y-auto overscroll-y-contain pb-[calc(3.75rem+env(safe-area-inset-bottom))] md:pb-0">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-6">
             {/* VISTA PORTAL INICIAL */}
             {activeSidebarTab === "Inicio" && (
               <HomeOverview
