@@ -682,7 +682,7 @@ function App() {
   );
 
   return (
-    <div className="flex h-screen bg-[#1e1e1e] font-sans text-gray-200 overflow-hidden">
+    <div className="flex h-dvh bg-[#1e1e1e] font-sans text-gray-200 overflow-hidden">
       {/* SIDEBAR ESCRITORIO (oculto en mobile < 768px) */}
       <aside className="hidden md:flex w-56 bg-[#252526] border-r border-gray-700 flex-col shrink-0">
         <button
@@ -1588,7 +1588,7 @@ function App() {
         </div>
 
         {/* BARRA INFERIOR DE ACCESO RÁPIDO MOBILE (< 768px) */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 h-14 bg-[#252526] border-t border-gray-700 z-40 grid grid-cols-5 items-center text-[10px]">
+        <nav className="md:hidden fixed bottom-0 inset-x-0 min-h-14 pb-[env(safe-area-inset-bottom)] bg-[#252526] border-t border-gray-700 z-40 grid grid-cols-5 items-center text-[10px]">
           <button
             type="button"
             onClick={() => setActiveSidebarTab("Inicio")}
