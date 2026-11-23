@@ -10,6 +10,7 @@ import {
   Mail,
   ShieldCheck,
   User,
+  UserCheck,
   UserPlus,
 } from "lucide-react";
 import apiClient from "../../api/client";
@@ -81,6 +82,7 @@ export default function LoginScreen() {
   const [regUsername, setRegUsername] = useState("");
   const [regFullName, setRegFullName] = useState("");
   const [regEmail, setRegEmail] = useState("");
+  const [regAdvisorId, setRegAdvisorId] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [regConfirmPassword, setRegConfirmPassword] = useState("");
 
@@ -92,8 +94,9 @@ export default function LoginScreen() {
     pendingResetToken ? "reset" : "request"
   );
 
-  // Proveedores OAuth disponibles en backend
+  // Proveedores OAuth y ejecutivos disponibles en backend
   const [providers, setProviders] = useState({ google: false, github: false });
+  const [advisors, setAdvisors] = useState([]);
 
   // Feedback
   const [submitting, setSubmitting] = useState(false);
@@ -116,6 +119,18 @@ export default function LoginScreen() {
         })
         .catch(() => {});
     }
+
+    const advReq = apiClient?.get?.("/auth/advisors");
+    if (advReq && typeof advReq.then === "function") {
+      advReq
+        .then((res) => {
+          if (active && Array.isArray(res?.data?.advisors)) {
+            setAdvisors(res.data.advisors);
+          }
+        })
+        .catch(() => {});
+    }
+
     return () => {
       active = false;
     };
@@ -159,7 +174,7 @@ export default function LoginScreen() {
       !regEmail.trim() ||
       !regPassword
     ) {
-      setErrorMsg("Completá todos los campos para crear tu cuenta.");
+      setErrorMsg("Completá todos los campos obligatorios para crear tu cuenta.");
       return;
     }
     if (regPassword.length < 8) {
@@ -177,6 +192,7 @@ export default function LoginScreen() {
         full_name: regFullName.trim(),
         email: regEmail.trim(),
         password: regPassword,
+        advisor_id: regAdvisorId ? Number(regAdvisorId) : null,
       });
     } catch (err) {
       setErrorMsg(
@@ -448,6 +464,34 @@ export default function LoginScreen() {
                   className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
                 />
               </div>
+            </div>
+
+            <div>
+              <label
+                htmlFor="reg-advisor"
+                className="block text-xs font-medium text-slate-300 mb-1"
+              >
+                Ejecutivo a cargo (opcional)
+              </label>
+              <div className="relative">
+                <UserCheck className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <select
+                  id="reg-advisor"
+                  value={regAdvisorId}
+                  onChange={(e) => setRegAdvisorId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">Sin ejecutivo (cuenta independiente)</option>
+                  {advisors.map((adv) => (
+                    <option key={adv.id} value={adv.id}>
+                      {adv.full_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Si lo dejás en blanco, tu cartera será privada y solo visible para vos.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

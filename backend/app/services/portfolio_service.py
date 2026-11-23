@@ -1,6 +1,9 @@
 from datetime import datetime
+import re
+import secrets
 from typing import Optional
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 import yfinance as yf
 
@@ -12,16 +15,20 @@ VALID_HORIZONS = ("corto_plazo", "mediano_plazo", "largo_plazo")
 
 
 def _assert_can_access_client(actor: User, target_client: User) -> None:
+    """
+    Aislamiento estricto de carteras:
+    - Cada usuario puede acceder a su propia cartera.
+    - Un ejecutivo (advisor o superadmin) SOLO puede acceder a carteras
+      donde figura expresamente como `advisor_id`.
+    """
+    if actor.id == target_client.id:
+        return
     if target_client.role != "client":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El usuario seleccionado no tiene rol de cliente.",
         )
-    if actor.role == "superadmin":
-        return
-    if actor.role == "advisor" and target_client.advisor_id == actor.id:
-        return
-    if actor.role == "client" and target_client.id == actor.id:
+    if actor.role in ("advisor", "superadmin") and target_client.advisor_id == actor.id:
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -30,11 +37,7 @@ def _assert_can_access_client(actor: User, target_client: User) -> None:
 
 
 def _assert_can_edit_client(actor: User, target_client: User) -> None:
-    if actor.role == "client":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Los clientes tienen acceso de solo lectura sobre su cartera.",
-        )
+    """Tanto el titular de la cartera como su ejecutivo asignado pueden operar sobre ella."""
     _assert_can_access_client(actor, target_client)
 
 
@@ -56,11 +59,14 @@ def get_or_create_client_profile(db: Session, client_id: int) -> ClientProfile:
 
 
 def serialize_client_profile(user: User, profile: ClientProfile) -> dict:
+    is_managed_only = (user.auth_provider or "") == "managed"
+    display_email = "" if (is_managed_only and user.email.endswith("@cartera.local")) else user.email
     return {
         "client_id": user.id,
         "full_name": user.full_name,
-        "email": user.email,
+        "email": display_email,
         "is_active": bool(user.is_active),
+        "is_managed_only": is_managed_only,
         "advisor_id": user.advisor_id,
         "advisor_name": user.advisor.full_name if user.advisor else None,
         "risk_profile": profile.risk_profile,
@@ -91,7 +97,7 @@ def serialize_transaction(tx: PortfolioTransaction) -> dict:
 
 
 def fetch_live_quotes(tickers: list[str]) -> dict[str, dict]:
-    """Obtiene precio actual y nombre corto para una lista de tickers."""
+    """Obtiene precio actual y variación diaria para una lista de tickers."""
     quotes: dict[str, dict] = {}
     unique = sorted({t.strip().upper() for t in tickers if t and t.strip()})
     for sym in unique:
@@ -142,7 +148,6 @@ def _compute_twr_metrics(
             "days_invested": 0,
         }
 
-    # Agrupar transacciones por fecha
     by_date: dict[str, list[PortfolioTransaction]] = {}
     for tx in ordered_txs:
         d = (tx.tx_date or "").strip()
@@ -160,7 +165,6 @@ def _compute_twr_metrics(
         day_txs = by_date[d]
         external_flow_today = 0.0
 
-        # Primero calculamos el flujo externo del día y actualizamos precios de referencia
         for tx in day_txs:
             ttype = (tx.tx_type or "").upper()
             sym = (tx.ticker or "").strip().upper()
@@ -175,7 +179,6 @@ def _compute_twr_metrics(
             elif sym and price > 0.0:
                 last_known_price[sym] = price
 
-        # Valuación de la cartera antes del flujo externo del día
         holdings_val_before = sum(
             qty_by_sym.get(s, 0.0) * last_known_price.get(s, 0.0)
             for s in qty_by_sym
@@ -188,7 +191,6 @@ def _compute_twr_metrics(
                 subperiod_returns.append(r_sub)
             v_start = max(0.0, equity_before_flow + external_flow_today)
 
-        # Aplicar todas las transacciones del día al estado de cartera
         for tx in day_txs:
             ttype = (tx.tx_type or "").upper()
             sym = (tx.ticker or "").strip().upper()
@@ -212,7 +214,6 @@ def _compute_twr_metrics(
             elif ttype == "DIVIDEND":
                 cash += qty * price - comm
 
-        # Si el cliente arrancó comprando sin depósito previo explícito, tomar capital inicial invertido
         if v_start is None:
             holdings_val_after = sum(
                 qty_by_sym.get(s, 0.0) * last_known_price.get(s, 0.0)
@@ -222,7 +223,6 @@ def _compute_twr_metrics(
             if initial_eq > 1e-6:
                 v_start = initial_eq
 
-    # Cerrar el sub-período final con la valuación actual de mercado (ending_total_equity)
     if v_start is not None and v_start > 1e-6:
         r_final = (ending_total_equity - v_start) / v_start
         subperiod_returns.append(r_final)
@@ -260,10 +260,13 @@ def compute_portfolio_positions(
 ) -> dict:
     """
     Motor contable de Precio Promedio Ponderado (PPP) + Time-Weighted Return (TWR).
-    Ordena cronológicamente por (tx_date, id) y calcula tenencias, PPP,
-    P&L realizado, P&L no realizado, dividendos, caja neta y TWR.
+    Ordena cronológicamente por (tx_date, id), ubicando operaciones nuevas aún sin ID
+    al final de su fecha para validar correctamente compras y ventas en el mismo día.
     """
-    ordered = sorted(transactions, key=lambda t: (t.tx_date or "", t.id or 0))
+    ordered = sorted(
+        transactions,
+        key=lambda t: (t.tx_date or "", t.id if t.id is not None else float("inf")),
+    )
     ledger: dict[str, dict] = {}
     cash_balance = 0.0
     total_dividends = 0.0
@@ -432,14 +435,11 @@ def compute_portfolio_positions(
 
 
 def list_accessible_clients(db: Session, actor: User) -> list[dict]:
-    if actor.role == "superadmin":
-        clients = (
-            db.query(User)
-            .filter(User.role == "client")
-            .order_by(User.full_name.asc())
-            .all()
-        )
-    elif actor.role == "advisor":
+    """
+    Devuelve únicamente los clientes bajo la gestión directa del ejecutivo (`advisor_id == actor.id`),
+    o el propio usuario si es `client`. Nunca expone clientes independientes sin ejecutivo asignado.
+    """
+    if actor.role in ("superadmin", "advisor"):
         clients = (
             db.query(User)
             .filter(User.role == "client", User.advisor_id == actor.id)
@@ -454,6 +454,91 @@ def list_accessible_clients(db: Session, actor: User) -> list[dict]:
         prof = get_or_create_client_profile(db, int(c.id))
         result.append(serialize_client_profile(c, prof))
     return result
+
+
+def create_managed_client(
+    db: Session,
+    actor: User,
+    full_name: str,
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    risk_profile: str = "moderado",
+    investment_horizon: str = "largo_plazo",
+    target_currency: str = "USD",
+    notes: Optional[str] = None,
+) -> dict:
+    """
+    Permite a un ejecutivo (advisor/superadmin) crear una cartera de seguimiento
+    para un cliente propio aunque no esté registrado en la plataforma.
+    """
+    if actor.role not in ("superadmin", "advisor"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo asesores o administradores pueden dar de alta carteras de clientes.",
+        )
+
+    clean_name = (full_name or "").strip()
+    if len(clean_name) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ingresá el nombre completo del cliente.",
+        )
+
+    if risk_profile not in VALID_RISK_PROFILES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Perfil de riesgo inválido. Opciones: {', '.join(VALID_RISK_PROFILES)}.",
+        )
+    if investment_horizon not in VALID_HORIZONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Horizonte inválido. Opciones: {', '.join(VALID_HORIZONS)}.",
+        )
+
+    slug = re.sub(r"[^a-z0-9]", "", clean_name.lower())[:16] or "cliente"
+    rand_hex = secrets.token_hex(3)
+
+    clean_email = (email or "").strip().lower()
+    if clean_email:
+        if db.query(User).filter(func.lower(User.email) == clean_email).first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya existe una cuenta registrada con ese correo electrónico.",
+            )
+    else:
+        clean_email = f"cli.{slug}.{rand_hex}@cartera.local"
+
+    candidate_username = f"cli_{slug}_{rand_hex}"[:32]
+    while db.query(User).filter(func.lower(User.username) == candidate_username).first():
+        candidate_username = f"cli_{slug}_{secrets.token_hex(3)}"[:32]
+
+    managed_user = User(
+        username=candidate_username,
+        email=clean_email,
+        full_name=clean_name,
+        hashed_password=None,
+        auth_provider="managed",
+        role="client",
+        is_active=True,
+        must_change_password=False,
+        advisor_id=int(actor.id),
+    )
+    db.add(managed_user)
+    db.flush()
+
+    prof = ClientProfile(
+        user_id=int(managed_user.id),
+        risk_profile=risk_profile,
+        investment_horizon=investment_horizon,
+        target_currency=(target_currency or "USD").strip().upper()[:10],
+        phone=(phone or "").strip() or None,
+        notes=(notes or "").strip() or None,
+    )
+    db.add(prof)
+    db.commit()
+    db.refresh(managed_user)
+    db.refresh(prof)
+    return serialize_client_profile(managed_user, prof)
 
 
 def get_client_portfolio_detail(
@@ -481,7 +566,7 @@ def get_client_portfolio_detail(
 
     return {
         "client": serialize_client_profile(target, prof),
-        "can_edit": actor.role in ("superadmin", "advisor"),
+        "can_edit": True,
         "summary": computed["summary"],
         "holdings": computed["holdings"],
         "transactions": [serialize_transaction(t) for t in txs],

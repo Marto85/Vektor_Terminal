@@ -69,6 +69,27 @@ def serialize_user(user: User) -> dict:
     }
 
 
+def list_public_advisors(db: Session) -> list[dict]:
+    """Devuelve ejecutivos activos (advisor/superadmin) seleccionables durante el registro."""
+    advisors = (
+        db.query(User)
+        .filter(
+            User.role.in_(("superadmin", "advisor")),
+            User.is_active == True,  # noqa: E712
+        )
+        .order_by(User.full_name.asc())
+        .all()
+    )
+    return [
+        {
+            "id": int(a.id),
+            "full_name": str(a.full_name),
+            "role": str(a.role),
+        }
+        for a in advisors
+    ]
+
+
 def ensure_default_superadmin() -> None:
     db = SessionLocal()
     try:
@@ -116,6 +137,11 @@ def authenticate_user(db: Session, identifier: str, password: str) -> User:
             detail="Usuario/correo o contraseña incorrectos.",
         )
     if not user.hashed_password:
+        if user.auth_provider == "managed":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Esta cuenta corresponde a una cartera administrada sin acceso habilitado.",
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Esta cuenta se registró con {user.auth_provider.capitalize()}. Ingresá con ese botón o usá 'Recuperar acceso' para crear una contraseña local.",
@@ -139,6 +165,7 @@ def register_public_user(
     email: str,
     full_name: str,
     password: str,
+    advisor_id: Optional[int] = None,
 ) -> User:
     clean_username = normalize_username(username)
     clean_email = email.strip().lower()
@@ -161,6 +188,24 @@ def register_public_user(
             detail="Ya existe una cuenta registrada con ese correo electrónico.",
         )
 
+    resolved_advisor_id: Optional[int] = None
+    if advisor_id is not None:
+        advisor = (
+            db.query(User)
+            .filter(
+                User.id == advisor_id,
+                User.role.in_(("advisor", "superadmin")),
+                User.is_active == True,  # noqa: E712
+            )
+            .first()
+        )
+        if not advisor:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El ejecutivo seleccionado no existe o no está disponible.",
+            )
+        resolved_advisor_id = int(advisor.id)
+
     user = User(
         username=clean_username,
         email=clean_email,
@@ -170,6 +215,7 @@ def register_public_user(
         role="client",
         is_active=True,
         must_change_password=False,
+        advisor_id=resolved_advisor_id,
     )
     db.add(user)
     db.commit()

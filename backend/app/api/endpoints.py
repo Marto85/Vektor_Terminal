@@ -8,7 +8,8 @@ import yfinance as yf
 from sqlalchemy.orm import Session
 import requests
 
-from app.models.database import SessionLocal
+from app.core.security import get_current_user
+from app.models.database import SessionLocal, User
 from app.core.yf_client import get_company_profile, get_cached_market_snapshot
 from app.services.company_service import get_raw_financials
 from app.services.financial_parser import extract_annual_metrics, extract_quarterly_metrics
@@ -87,58 +88,103 @@ def get_macro_lab(db: Session = Depends(get_db)):
 
 
 @router.get("/watchlists")
-def list_watchlists(db: Session = Depends(get_db)):
+def list_watchlists(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        return get_all_watchlists_payload(db)
+        return get_all_watchlists_payload(
+            db,
+            user_id=int(current_user.id),
+            claim_legacy=(current_user.role == "superadmin"),
+        )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error cargando watchlists: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error cargando listas de seguimiento: {str(e)}")
 
 
 @router.post("/watchlists")
-def post_watchlist(body: WatchlistNamePayload, db: Session = Depends(get_db)):
+def post_watchlist(
+    body: WatchlistNamePayload,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        return create_watchlist(db, body.name)
+        return create_watchlist(db, user_id=int(current_user.id), name=body.name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creando watchlist: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creando lista de seguimiento: {str(e)}")
 
 
 @router.put("/watchlists/{watchlist_id}")
-def put_watchlist(watchlist_id: int, body: WatchlistNamePayload, db: Session = Depends(get_db)):
+def put_watchlist(
+    watchlist_id: int,
+    body: WatchlistNamePayload,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        return rename_watchlist(db, watchlist_id, body.name)
+        return rename_watchlist(
+            db,
+            user_id=int(current_user.id),
+            watchlist_id=watchlist_id,
+            new_name=body.name,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error renombrando watchlist: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error renombrando lista: {str(e)}")
 
 
 @router.delete("/watchlists/{watchlist_id}")
-def remove_watchlist(watchlist_id: int, db: Session = Depends(get_db)):
+def remove_watchlist(
+    watchlist_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        return delete_watchlist(db, watchlist_id)
+        return delete_watchlist(
+            db,
+            user_id=int(current_user.id),
+            watchlist_id=watchlist_id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error eliminando watchlist: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error eliminando lista: {str(e)}")
 
 
 @router.put("/watchlists/{watchlist_id}/reorder")
-def put_watchlist_reorder(watchlist_id: int, body: WatchlistReorderPayload, db: Session = Depends(get_db)):
+def put_watchlist_reorder(
+    watchlist_id: int,
+    body: WatchlistReorderPayload,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        return reorder_watchlist_items(db, watchlist_id, body.tickers)
+        return reorder_watchlist_items(
+            db,
+            user_id=int(current_user.id),
+            watchlist_id=watchlist_id,
+            ordered_tickers=body.tickers,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reordenando watchlist: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error reordenando lista: {str(e)}")
 
 
 @router.post("/watchlists/{watchlist_id}/items")
-def post_watchlist_item(watchlist_id: int, body: WatchlistItemPayload, db: Session = Depends(get_db)):
+def post_watchlist_item(
+    watchlist_id: int,
+    body: WatchlistItemPayload,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
         return upsert_watchlist_item(
             db=db,
+            user_id=int(current_user.id),
             watchlist_id=watchlist_id,
             ticker=body.ticker,
             buy_target_price=body.buy_target_price,
@@ -149,37 +195,63 @@ def post_watchlist_item(watchlist_id: int, body: WatchlistItemPayload, db: Sessi
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error guardando empresa en watchlist: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error guardando empresa en lista: {str(e)}")
 
 
 @router.delete("/watchlists/{watchlist_id}/items/{ticker}")
-def delete_watchlist_item(watchlist_id: int, ticker: str, db: Session = Depends(get_db)):
+def delete_watchlist_item(
+    watchlist_id: int,
+    ticker: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        return remove_watchlist_item(db, watchlist_id, ticker)
+        return remove_watchlist_item(
+            db,
+            user_id=int(current_user.id),
+            watchlist_id=watchlist_id,
+            ticker=ticker,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error quitando empresa de watchlist: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error quitando empresa de lista: {str(e)}")
 
 
 @router.post("/notifications/read-all")
-def post_notifications_read_all(db: Session = Depends(get_db)):
+def post_notifications_read_all(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        return mark_notifications_read(db)
+        return mark_notifications_read(db, user_id=int(current_user.id))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error marcando notificaciones como leídas: {str(e)}")
 
 
 @router.post("/notifications/{notification_id}/read")
-def post_notification_read(notification_id: int, db: Session = Depends(get_db)):
+def post_notification_read(
+    notification_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        return mark_notifications_read(db, notification_id=notification_id)
+        return mark_notifications_read(
+            db,
+            user_id=int(current_user.id),
+            notification_id=notification_id,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error marcando notificación como leída: {str(e)}")
 
 
 @router.delete("/notifications")
-def delete_all_notifications(db: Session = Depends(get_db)):
+def delete_all_notifications(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     try:
-        return clear_all_notifications(db)
+        return clear_all_notifications(db, user_id=int(current_user.id))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error limpiando historial de notificaciones: {str(e)}")
 

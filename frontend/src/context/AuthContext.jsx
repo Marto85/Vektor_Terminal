@@ -105,13 +105,14 @@ export function AuthProvider({ children }) {
     return loggedUser;
   }, []);
 
-  const registerPublic = useCallback(
-    async ({ username, email, full_name, password }) => {
+ const registerPublic = useCallback(
+    async ({ username, email, full_name, password, advisor_id = null }) => {
       const res = await apiClient.post("/auth/register", {
         username,
         email,
         full_name,
         password,
+        advisor_id,
       });
       const { access_token, user: createdUser } = res.data;
       setStoredToken(access_token);

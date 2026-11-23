@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Briefcase,
   UserCheck,
+  UserPlus,
   TrendingUp,
   TrendingDown,
   PlusCircle,
@@ -15,6 +16,7 @@ import {
   History,
   ExternalLink,
   Activity,
+  X,
 } from "lucide-react";
 import apiClient from "../api/client";
 import { useAuth } from "../context/authStore";
@@ -59,7 +61,18 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
 
-  // Estado editable de ficha CRM
+  // Modal crear cartera manual de cliente
+  const [showNewClientModal, setShowNewClientModal] = useState(false);
+  const [newClientName, setNewClientName] = useState("");
+  const [newClientEmail, setNewClientEmail] = useState("");
+  const [newClientPhone, setNewClientPhone] = useState("");
+  const [newClientRisk, setNewClientRisk] = useState("moderado");
+  const [newClientHorizon, setNewClientHorizon] = useState("largo_plazo");
+  const [newClientCurrency, setNewClientCurrency] = useState("USD");
+  const [newClientNotes, setNewClientNotes] = useState("");
+  const [creatingClient, setCreatingClient] = useState(false);
+
+  // Estado editable de ficha patrimonial
   const [riskProfile, setRiskProfile] = useState("moderado");
   const [horizon, setHorizon] = useState("largo_plazo");
   const [targetCurrency, setTargetCurrency] = useState("USD");
@@ -144,6 +157,9 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
             const firstId = String(list[0].client_id);
             setSelectedClientId(firstId);
             fetchPortfolioById(firstId);
+          } else {
+            setSelectedClientId("");
+            setPortfolio(null);
           }
         }
       } catch (err) {
@@ -163,6 +179,10 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
     };
   }, [isClient, fetchPortfolioById, syncProfileForm]);
 
+  const activeClientId = isClient
+    ? String(portfolio?.client?.client_id || "")
+    : selectedClientId;
+
   const handleSelectClient = (newId) => {
     setSelectedClientId(newId);
     setFeedback("");
@@ -170,14 +190,62 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
     fetchPortfolioById(newId);
   };
 
+  const handleCreateManagedClient = async (e) => {
+    e.preventDefault();
+    if (!newClientName.trim()) {
+      setError("Ingresá el nombre completo del cliente.");
+      return;
+    }
+    setCreatingClient(true);
+    setError("");
+    setFeedback("");
+    try {
+      const res = await apiClient.post("/portfolios/clients", {
+        full_name: newClientName.trim(),
+        email: newClientEmail.trim() || null,
+        phone: newClientPhone.trim() || null,
+        risk_profile: newClientRisk,
+        investment_horizon: newClientHorizon,
+        target_currency: newClientCurrency,
+        notes: newClientNotes.trim() || null,
+      });
+      const created = res.data?.client;
+      if (created) {
+        setClients((prev) =>
+          [...prev, created].sort((a, b) =>
+            (a.full_name || "").localeCompare(b.full_name || "")
+          )
+        );
+        const newId = String(created.client_id);
+        setSelectedClientId(newId);
+        await fetchPortfolioById(newId);
+      }
+      setNewClientName("");
+      setNewClientEmail("");
+      setNewClientPhone("");
+      setNewClientRisk("moderado");
+      setNewClientHorizon("largo_plazo");
+      setNewClientCurrency("USD");
+      setNewClientNotes("");
+      setShowNewClientModal(false);
+      setFeedback("Cartera de cliente creada. Ya podés registrar operaciones.");
+    } catch (err) {
+      setError(
+        err?.response?.data?.detail || "No se pudo crear la cartera del cliente."
+      );
+    } finally {
+      setCreatingClient(false);
+    }
+  };
+
   const handleSaveProfile = async (e) => {
     e.preventDefault();
-    if (!selectedClientId) return;
+    if (!activeClientId) return;
     setSavingProfile(true);
     setError("");
     setFeedback("");
     try {
-      const res = await apiClient.patch(`/portfolios/${selectedClientId}/profile`, {
+      const res = await apiClient.patch(`/portfolios/${activeClientId}/profile`, {
         risk_profile: riskProfile,
         investment_horizon: horizon,
         target_currency: targetCurrency,
@@ -187,16 +255,22 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
       const updatedClient = res.data?.client;
       if (updatedClient) {
         setPortfolio((prev) => (prev ? { ...prev, client: updatedClient } : prev));
-        setClients((prev) =>
-          prev.map((c) =>
-            String(c.client_id) === String(selectedClientId) ? updatedClient : c
-          )
-        );
+        if (!isClient) {
+          setClients((prev) =>
+            prev.map((c) =>
+              String(c.client_id) === String(activeClientId) ? updatedClient : c
+            )
+          );
+        }
       }
-      setFeedback("Ficha CRM del cliente actualizada.");
+      setFeedback(
+        isClient
+          ? "Perfil patrimonial actualizado."
+          : "Ficha CRM del cliente actualizada."
+      );
     } catch (err) {
       setError(
-        err?.response?.data?.detail || "No se pudo actualizar el perfil del cliente."
+        err?.response?.data?.detail || "No se pudo actualizar el perfil."
       );
     } finally {
       setSavingProfile(false);
@@ -205,7 +279,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
 
   const handleAddTransaction = async (e) => {
     e.preventDefault();
-    if (!selectedClientId) return;
+    if (!activeClientId) return;
     setSubmittingTx(true);
     setError("");
     setFeedback("");
@@ -213,7 +287,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
     const needsTicker = txType === "BUY" || txType === "SELL" || txType === "DIVIDEND";
     try {
       const res = await apiClient.post(
-        `/portfolios/${selectedClientId}/transactions`,
+        `/portfolios/${activeClientId}/transactions`,
         {
           tx_type: txType,
           ticker: needsTicker ? ticker.trim().toUpperCase() : null,
@@ -242,7 +316,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
   };
 
   const handleDeleteTransaction = async (txId) => {
-    if (!selectedClientId) return;
+    if (!activeClientId) return;
     if (!window.confirm("¿Eliminar esta operación y recalcular tenencias, PPP y TWR?")) {
       return;
     }
@@ -250,7 +324,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
     setFeedback("");
     try {
       const res = await apiClient.delete(
-        `/portfolios/${selectedClientId}/transactions/${txId}`
+        `/portfolios/${activeClientId}/transactions/${txId}`
       );
       setPortfolio(res.data);
       setFeedback("Operación eliminada y cartera recalculada.");
@@ -264,7 +338,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
   const summary = portfolio?.summary;
   const holdings = portfolio?.holdings || [];
   const transactions = portfolio?.transactions || [];
-  const canEdit = Boolean(portfolio?.can_edit && isAdvisorOrAdmin);
+  const canEdit = Boolean(portfolio?.can_edit);
   const currency = portfolio?.client?.target_currency || "USD";
   const requiresTicker =
     txType === "BUY" || txType === "SELL" || txType === "DIVIDEND";
@@ -272,7 +346,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
 
   return (
     <div className="space-y-6 text-gray-800">
-      {/* CABECERA + SELECTOR DE CLIENTE (SI ES ASESOR/ADMIN) */}
+      {/* CABECERA + SELECTOR DE CLIENTE + ALTA MANUAL (SI ES ASESOR/ADMIN) */}
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-start gap-3">
           <div className="w-10 h-10 rounded-lg bg-orange-500/10 border border-orange-200 flex items-center justify-center text-orange-600 shrink-0">
@@ -286,34 +360,47 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">
               {isClient
-                ? "Posiciones consolidadas, Precio Promedio Ponderado (PPP) y rendimiento TWR."
-                : "Administrá el perfil patrimonial de tus clientes, registrá operaciones y monitoreá PPP y TWR."}
+                ? "Administrá tu perfil patrimonial, registrá operaciones y monitoreá PPP y TWR."
+                : "Administrá las carteras de tus clientes asignados o creá carteras manuales de seguimiento."}
             </p>
           </div>
         </div>
 
         {isAdvisorOrAdmin && (
-          <div className="flex items-center gap-2 min-w-64">
-            <UserCheck className="w-4 h-4 text-gray-400 shrink-0" />
+          <div className="flex flex-wrap items-center gap-2">
             {loadingClients ? (
               <span className="text-xs text-gray-500">Cargando clientes...</span>
-            ) : clients.length === 0 ? (
-              <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg">
-                No hay clientes asignados aún. Crealos desde "Usuarios y Roles".
-              </span>
             ) : (
-              <select
-                value={selectedClientId}
-                onChange={(e) => handleSelectClient(e.target.value)}
-                className="w-full px-3 py-2 text-xs font-semibold bg-gray-50 text-gray-900 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
-              >
-                {clients.map((c) => (
-                  <option key={c.client_id} value={c.client_id}>
-                    {c.full_name} ({c.email})
-                  </option>
-                ))}
-              </select>
+              clients.length > 0 && (
+                <div className="flex items-center gap-2 min-w-60">
+                  <UserCheck className="w-4 h-4 text-gray-400 shrink-0" />
+                  <select
+                    value={selectedClientId}
+                    onChange={(e) => handleSelectClient(e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-semibold bg-gray-50 text-gray-900 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
+                  >
+                    {clients.map((c) => (
+                      <option key={c.client_id} value={c.client_id}>
+                        {c.full_name}
+                        {c.email ? ` (${c.email})` : " (Cartera manual)"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )
             )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setError("");
+                setShowNewClientModal(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#ff6600] hover:bg-[#e55a00] text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer shrink-0"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              Nueva cartera
+            </button>
           </div>
         )}
       </div>
@@ -332,7 +419,27 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
         </div>
       )}
 
-      {loadingPortfolio ? (
+      {isAdvisorOrAdmin && !loadingClients && clients.length === 0 ? (
+        <div className="bg-white border border-gray-200 rounded-xl p-12 text-center space-y-3">
+          <div className="w-12 h-12 rounded-full bg-orange-50 border border-orange-200 flex items-center justify-center text-orange-500 mx-auto">
+            <Briefcase className="w-6 h-6" />
+          </div>
+          <h2 className="text-sm font-bold text-gray-900">
+            Todavía no tenés carteras bajo tu gestión
+          </h2>
+          <p className="text-xs text-gray-500 max-w-md mx-auto">
+            Solo vas a ver clientes registrados que te hayan elegido como ejecutivo a cargo, o carteras manuales que cargues acá para seguimiento.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowNewClientModal(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#ff6600] hover:bg-[#e55a00] text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+          >
+            <UserPlus className="w-4 h-4" />
+            Crear primera cartera manual
+          </button>
+        </div>
+      ) : loadingPortfolio ? (
         <div className="bg-white border border-gray-200 rounded-xl p-16 flex flex-col items-center justify-center text-orange-500">
           <Loader2 className="w-8 h-8 animate-spin mb-2" />
           <p className="text-xs font-medium text-gray-600">
@@ -452,24 +559,28 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
               </div>
             </div>
 
-            {/* FICHA CRM DEL CLIENTE (EDITABLE PARA ASESOR/ADMIN, LECTURA PARA CLIENTE) */}
+            {/* FICHA PATRIMONIAL (EDITABLE POR TITULAR Y EJECUTIVO ASIGNADO) */}
             <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <h2 className="text-xs font-bold uppercase tracking-wider text-gray-700">
                   Ficha Patrimonial & Perfil del Inversor —{" "}
                   <span className="text-orange-600">{portfolio.client?.full_name}</span>
                 </h2>
-                {portfolio.client?.advisor_name && (
+                {portfolio.client?.advisor_name ? (
                   <span className="text-[11px] text-gray-500">
-                    Asesor asignado:{" "}
+                    Ejecutivo a cargo:{" "}
                     <strong className="text-gray-700">
                       {portfolio.client.advisor_name}
                     </strong>
                   </span>
+                ) : (
+                  <span className="text-[11px] text-gray-400">
+                    Cuenta independiente (privada)
+                  </span>
                 )}
               </div>
 
-              {canEdit ? (
+              {canEdit && (
                 <form
                   onSubmit={handleSaveProfile}
                   className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end"
@@ -547,7 +658,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
                     <button
                       type="submit"
                       disabled={savingProfile}
-                      title="Guardar ficha CRM"
+                      title="Guardar perfil"
                       className="px-3 py-2 bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
                     >
                       <Save className="w-3.5 h-3.5" />
@@ -555,33 +666,6 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
                     </button>
                   </div>
                 </form>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-                  <div>
-                    <span className="text-gray-400 block">Perfil de Riesgo</span>
-                    <span className="font-semibold text-gray-900 capitalize">
-                      {portfolio.client?.risk_profile}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 block">Horizonte</span>
-                    <span className="font-semibold text-gray-900 capitalize">
-                      {(portfolio.client?.investment_horizon || "").replace("_", " ")}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 block">Moneda Base</span>
-                    <span className="font-semibold text-gray-900">
-                      {portfolio.client?.target_currency}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 block">Notas del Asesor</span>
-                    <span className="text-gray-700">
-                      {portfolio.client?.notes || "Sin observaciones"}
-                    </span>
-                  </div>
-                </div>
               )}
             </div>
 
@@ -678,7 +762,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
               </div>
             </div>
 
-            {/* REGISTRO DE OPERACIÓN (SOLO ASESOR / SUPERADMIN) */}
+            {/* REGISTRO DE OPERACIÓN (TITULAR O EJECUTIVO ASIGNADO) */}
             {canEdit && (
               <form
                 onSubmit={handleAddTransaction}
@@ -801,7 +885,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
                 <div className="flex justify-end">
                   <button
                     type="submit"
-                    disabled={submittingTx || !selectedClientId}
+                    disabled={submittingTx || !activeClientId}
                     className="px-4 py-2 bg-[#ff6600] hover:bg-[#e55a00] text-white text-xs font-semibold rounded-lg disabled:opacity-60 cursor-pointer"
                   >
                     {submittingTx ? "Registrando..." : "Cargar operación"}
@@ -900,6 +984,148 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
             </div>
           </>
         )
+      )}
+
+      {/* MODAL CREAR CARTERA MANUAL DE CLIENTE */}
+      {showNewClientModal && isAdvisorOrAdmin && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-2xl w-full max-w-md overflow-hidden text-xs">
+            <div className="px-5 py-3.5 bg-[#252526] text-white flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold">Nueva Cartera de Cliente</h4>
+                <p className="text-[11px] text-gray-400">
+                  Para seguimiento manual (no requiere cuenta registrada)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNewClientModal(false)}
+                className="text-gray-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateManagedClient} className="p-5 space-y-3.5">
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">
+                  Nombre completo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newClientName}
+                  onChange={(e) => setNewClientName(e.target.value)}
+                  placeholder="Ej: Juan Pérez"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:border-orange-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Email (opcional)
+                  </label>
+                  <input
+                    type="email"
+                    value={newClientEmail}
+                    onChange={(e) => setNewClientEmail(e.target.value)}
+                    placeholder="cliente@correo.com"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Teléfono (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={newClientPhone}
+                    onChange={(e) => setNewClientPhone(e.target.value)}
+                    placeholder="+54 9 ..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:border-orange-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Riesgo
+                  </label>
+                  <select
+                    value={newClientRisk}
+                    onChange={(e) => setNewClientRisk(e.target.value)}
+                    className="w-full px-2 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:border-orange-500"
+                  >
+                    <option value="conservador">Conservador</option>
+                    <option value="moderado">Moderado</option>
+                    <option value="agresivo">Agresivo</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Horizonte
+                  </label>
+                  <select
+                    value={newClientHorizon}
+                    onChange={(e) => setNewClientHorizon(e.target.value)}
+                    className="w-full px-2 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:border-orange-500"
+                  >
+                    <option value="corto_plazo">Corto</option>
+                    <option value="mediano_plazo">Mediano</option>
+                    <option value="largo_plazo">Largo</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Moneda
+                  </label>
+                  <select
+                    value={newClientCurrency}
+                    onChange={(e) => setNewClientCurrency(e.target.value)}
+                    className="w-full px-2 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:border-orange-500"
+                  >
+                    <option value="USD">USD</option>
+                    <option value="ARS">ARS</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">
+                  Notas (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={newClientNotes}
+                  onChange={(e) => setNewClientNotes(e.target.value)}
+                  placeholder="Objetivos, perfil, comentarios..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-900 focus:outline-none focus:border-orange-500"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-gray-200 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewClientModal(false)}
+                  className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingClient}
+                  className="px-4 py-1.5 rounded-lg bg-[#ff6600] hover:bg-[#e55a00] text-white font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  {creatingClient ? "Creando..." : "Crear cartera"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

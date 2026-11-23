@@ -7,6 +7,7 @@ from app.core.security import get_current_user, get_db
 from app.models.database import User
 from app.services.portfolio_service import (
     add_portfolio_transaction,
+    create_managed_client,
     delete_portfolio_transaction,
     get_client_portfolio_detail,
     list_accessible_clients,
@@ -14,6 +15,16 @@ from app.services.portfolio_service import (
 )
 
 portfolio_router = APIRouter(prefix="/portfolios", tags=["CRM y Carteras"])
+
+
+class CreateManagedClientRequest(BaseModel):
+    full_name: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    risk_profile: str = "moderado"
+    investment_horizon: str = "largo_plazo"
+    target_currency: str = "USD"
+    notes: Optional[str] = None
 
 
 class UpdateClientProfileRequest(BaseModel):
@@ -41,6 +52,26 @@ def get_clients(
     db: Session = Depends(get_db),
 ):
     return {"clients": list_accessible_clients(db, current_user)}
+
+
+@portfolio_router.post("/clients")
+def post_managed_client(
+    payload: CreateManagedClientRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    created = create_managed_client(
+        db=db,
+        actor=current_user,
+        full_name=payload.full_name,
+        email=payload.email,
+        phone=payload.phone,
+        risk_profile=payload.risk_profile,
+        investment_horizon=payload.investment_horizon,
+        target_currency=payload.target_currency,
+        notes=payload.notes,
+    )
+    return {"status": "created", "client": created}
 
 
 @portfolio_router.get("/me")

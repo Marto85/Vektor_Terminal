@@ -24,6 +24,7 @@ from app.services.auth_service import (
     confirm_password_reset,
     create_user_by_admin,
     handle_oauth_callback,
+    list_public_advisors,
     register_public_user,
     request_password_recovery,
     serialize_user,
@@ -60,6 +61,7 @@ class RegisterRequest(BaseModel):
     email: VektorEmail
     full_name: str
     password: str
+    advisor_id: Optional[int] = None
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -103,6 +105,11 @@ def get_enabled_auth_providers():
     }
 
 
+@auth_router.get("/auth/advisors")
+def get_public_advisors(db: Session = Depends(get_db)):
+    return {"advisors": list_public_advisors(db)}
+
+
 @auth_router.post("/auth/login")
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     ident = (payload.identifier or payload.email or "").strip()
@@ -127,6 +134,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         email=str(payload.email),
         full_name=payload.full_name,
         password=payload.password,
+        advisor_id=payload.advisor_id,
     )
     token = create_access_token(
         user_id=int(user.id),

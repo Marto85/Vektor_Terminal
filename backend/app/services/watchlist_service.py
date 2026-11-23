@@ -44,11 +44,37 @@ def _format_arg_timestamp(dt: datetime | None) -> str:
     return aware.strftime("%d/%m/%Y %H:%M")
 
 
-def _ensure_default_watchlist(db: Session) -> Watchlist:
-    first = db.query(Watchlist).order_by(Watchlist.id.asc()).first()
+def _get_user_watchlist_ids(db: Session, user_id: int) -> list[int]:
+    rows = (
+        db.query(Watchlist.id)
+        .filter(Watchlist.user_id == user_id)
+        .all()
+    )
+    return [int(r[0]) for r in rows]
+
+
+def _ensure_default_watchlist(
+    db: Session,
+    user_id: int,
+    claim_legacy: bool = False,
+) -> Watchlist:
+    if claim_legacy:
+        orphan_wls = db.query(Watchlist).filter(Watchlist.user_id.is_(None)).all()
+        if orphan_wls:
+            for wl in orphan_wls:
+                setattr(wl, "user_id", user_id)
+            db.commit()
+
+    first = (
+        db.query(Watchlist)
+        .filter(Watchlist.user_id == user_id)
+        .order_by(Watchlist.id.asc())
+        .first()
+    )
     if first:
         return first
-    default_wl = Watchlist(name="Principal")
+
+    default_wl = Watchlist(user_id=user_id, name="Principal")
     db.add(default_wl)
     db.commit()
     db.refresh(default_wl)
@@ -81,11 +107,16 @@ def _extract_ticker_snapshot(ticker: str, db: Session) -> dict[str, Any]:
 
     company_name = cached_name if cached_name else sym
 
-    sm = md.get("summary_metrics") or {}
-    val = sm.get("valuation") or {}
-    eff = sm.get("efficiency") or {}
-    cap = sm.get("capital") or {}
-    grw = sm.get("growth") or {}
+    raw_sm = md.get("summary_metrics")
+    sm: dict[str, Any] = raw_sm if isinstance(raw_sm, dict) else {}
+    raw_val = sm.get("valuation")
+    raw_eff = sm.get("efficiency")
+    raw_cap = sm.get("capital")
+    raw_grw = sm.get("growth")
+    val: dict[str, Any] = raw_val if isinstance(raw_val, dict) else {}
+    eff: dict[str, Any] = raw_eff if isinstance(raw_eff, dict) else {}
+    cap: dict[str, Any] = raw_cap if isinstance(raw_cap, dict) else {}
+    grw: dict[str, Any] = raw_grw if isinstance(raw_grw, dict) else {}
 
     price = md.get("price")
     target_price = val.get("target_price")
@@ -165,7 +196,7 @@ def _check_recent_sec_filings_for_ticker(
         if not f_date or not acc_num or f_date < cutoff_date:
             continue
 
-        fp = f"sec_filing:{sym}:{acc_num}"
+        fp = f"{watchlist_id}:sec_filing:{sym}:{acc_num}"
         alerts_out.append({
             "fingerprint": fp,
             "watchlist_id": watchlist_id,
@@ -186,7 +217,7 @@ def _evaluate_and_persist_alerts(
     watchlist_name: str,
     item: WatchlistItem,
     snap: dict[str, Any],
-    sec_filings_cache: dict[str, list[dict[str, Any]]],
+    sec_filings_cache: dict[tuple[int, str], list[dict[str, Any]]],
 ) -> list[dict[str, Any]]:
     triggered: list[dict[str, Any]] = []
     price = snap.get("price")
@@ -255,11 +286,12 @@ def _evaluate_and_persist_alerts(
                 "detail": f"{m_label}: {current_val:.2f} {op} {threshold:.2f}",
             })
 
-    if sym not in sec_filings_cache:
-        sec_filings_cache[sym] = _check_recent_sec_filings_for_ticker(
+    cache_key = (watchlist_id, sym)
+    if cache_key not in sec_filings_cache:
+        sec_filings_cache[cache_key] = _check_recent_sec_filings_for_ticker(
             db, watchlist_id, watchlist_name, sym, comp_name
         )
-    triggered.extend(sec_filings_cache[sym])
+    triggered.extend(sec_filings_cache[cache_key])
 
     for al in triggered:
         already_emitted = (
@@ -285,17 +317,28 @@ def _evaluate_and_persist_alerts(
     return triggered
 
 
-def get_all_watchlists_payload(db: Session) -> dict[str, Any]:
-    _ensure_default_watchlist(db)
-    watchlists = db.query(Watchlist).order_by(Watchlist.id.asc()).all()
+def get_all_watchlists_payload(
+    db: Session,
+    user_id: int,
+    claim_legacy: bool = False,
+) -> dict[str, Any]:
+    _ensure_default_watchlist(db, user_id=user_id, claim_legacy=claim_legacy)
+    watchlists = (
+        db.query(Watchlist)
+        .filter(Watchlist.user_id == user_id)
+        .order_by(Watchlist.id.asc())
+        .all()
+    )
 
     snapshots_cache: dict[str, dict[str, Any]] = {}
-    sec_filings_cache: dict[str, list[dict[str, Any]]] = {}
+    sec_filings_cache: dict[tuple[int, str], list[dict[str, Any]]] = {}
     all_triggered_alerts: list[dict[str, Any]] = []
     watchlists_out: list[dict[str, Any]] = []
+    user_wl_ids: list[int] = []
 
     for wl in watchlists:
         wl_id = int(getattr(wl, "id"))
+        user_wl_ids.append(wl_id)
         wl_name = str(getattr(wl, "name"))
         items = (
             db.query(WatchlistItem)
@@ -355,9 +398,12 @@ def get_all_watchlists_payload(db: Session) -> dict[str, Any]:
 
     notif_rows = (
         db.query(AlertNotification)
+        .filter(AlertNotification.watchlist_id.in_(user_wl_ids))
         .order_by(AlertNotification.triggered_at.desc(), AlertNotification.id.desc())
         .limit(60)
         .all()
+        if user_wl_ids
+        else []
     )
     notifications_out = [
         {
@@ -387,67 +433,98 @@ def get_all_watchlists_payload(db: Session) -> dict[str, Any]:
     }
 
 
-def create_watchlist(db: Session, name: str) -> dict[str, Any]:
+def create_watchlist(db: Session, user_id: int, name: str) -> dict[str, Any]:
     clean_name = (name or "").strip()
     if not clean_name:
-        raise ValueError("El nombre de la watchlist no puede estar vacío.")
+        raise ValueError("El nombre de la lista no puede estar vacío.")
     if len(clean_name) > 60:
-        raise ValueError("El nombre de la watchlist no puede superar los 60 caracteres.")
+        raise ValueError("El nombre de la lista no puede superar los 60 caracteres.")
 
-    total = db.query(Watchlist).count()
+    total = db.query(Watchlist).filter(Watchlist.user_id == user_id).count()
     if total >= MAX_WATCHLISTS:
-        raise ValueError(f"Alcanzaste el límite máximo de {MAX_WATCHLISTS} watchlists distintas.")
+        raise ValueError(f"Alcanzaste el límite máximo de {MAX_WATCHLISTS} listas distintas.")
 
-    exists = db.query(Watchlist).filter(Watchlist.name.ilike(clean_name)).first()
+    exists = (
+        db.query(Watchlist)
+        .filter(Watchlist.user_id == user_id, Watchlist.name.ilike(clean_name))
+        .first()
+    )
     if exists:
-        raise ValueError(f"Ya existe una watchlist llamada '{exists.name}'.")
+        raise ValueError(f"Ya existe una lista llamada '{exists.name}'.")
 
-    wl = Watchlist(name=clean_name)
+    wl = Watchlist(user_id=user_id, name=clean_name)
     db.add(wl)
     db.commit()
-    return get_all_watchlists_payload(db)
+    return get_all_watchlists_payload(db, user_id=user_id)
 
 
-def rename_watchlist(db: Session, watchlist_id: int, new_name: str) -> dict[str, Any]:
+def rename_watchlist(
+    db: Session,
+    user_id: int,
+    watchlist_id: int,
+    new_name: str,
+) -> dict[str, Any]:
     clean_name = (new_name or "").strip()
     if not clean_name:
         raise ValueError("El nombre no puede estar vacío.")
-    wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id).first()
+    wl = (
+        db.query(Watchlist)
+        .filter(Watchlist.id == watchlist_id, Watchlist.user_id == user_id)
+        .first()
+    )
     if not wl:
-        raise ValueError("Watchlist no encontrada.")
+        raise ValueError("Lista no encontrada.")
 
     dup = (
         db.query(Watchlist)
-        .filter(Watchlist.id != watchlist_id, Watchlist.name.ilike(clean_name))
+        .filter(
+            Watchlist.user_id == user_id,
+            Watchlist.id != watchlist_id,
+            Watchlist.name.ilike(clean_name),
+        )
         .first()
     )
     if dup:
-        raise ValueError(f"Ya existe otra watchlist llamada '{dup.name}'.")
+        raise ValueError(f"Ya existe otra lista llamada '{dup.name}'.")
 
     setattr(wl, "name", clean_name[:60])
     db.commit()
-    return get_all_watchlists_payload(db)
+    return get_all_watchlists_payload(db, user_id=user_id)
 
 
-def delete_watchlist(db: Session, watchlist_id: int) -> dict[str, Any]:
-    total = db.query(Watchlist).count()
+def delete_watchlist(db: Session, user_id: int, watchlist_id: int) -> dict[str, Any]:
+    total = db.query(Watchlist).filter(Watchlist.user_id == user_id).count()
     if total <= 1:
-        raise ValueError("Debe existir al menos 1 watchlist activa en tu tablero.")
+        raise ValueError("Debe existir al menos 1 lista activa.")
 
-    wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id).first()
+    wl = (
+        db.query(Watchlist)
+        .filter(Watchlist.id == watchlist_id, Watchlist.user_id == user_id)
+        .first()
+    )
     if not wl:
-        raise ValueError("Watchlist no encontrada.")
+        raise ValueError("Lista no encontrada.")
 
+    db.query(AlertNotification).filter(AlertNotification.watchlist_id == watchlist_id).delete()
     db.query(WatchlistItem).filter(WatchlistItem.watchlist_id == watchlist_id).delete()
     db.delete(wl)
     db.commit()
-    return get_all_watchlists_payload(db)
+    return get_all_watchlists_payload(db, user_id=user_id)
 
 
-def reorder_watchlist_items(db: Session, watchlist_id: int, ordered_tickers: list[str]) -> dict[str, Any]:
-    wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id).first()
+def reorder_watchlist_items(
+    db: Session,
+    user_id: int,
+    watchlist_id: int,
+    ordered_tickers: list[str],
+) -> dict[str, Any]:
+    wl = (
+        db.query(Watchlist)
+        .filter(Watchlist.id == watchlist_id, Watchlist.user_id == user_id)
+        .first()
+    )
     if not wl:
-        raise ValueError("Watchlist no encontrada.")
+        raise ValueError("Lista no encontrada.")
 
     items = (
         db.query(WatchlistItem)
@@ -471,11 +548,12 @@ def reorder_watchlist_items(db: Session, watchlist_id: int, ordered_tickers: lis
             pos += 1
 
     db.commit()
-    return get_all_watchlists_payload(db)
+    return get_all_watchlists_payload(db, user_id=user_id)
 
 
 def upsert_watchlist_item(
     db: Session,
+    user_id: int,
     watchlist_id: int,
     ticker: str,
     buy_target_price: float | None = None,
@@ -483,9 +561,13 @@ def upsert_watchlist_item(
     thesis_note: str | None = None,
     alerts: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    wl = db.query(Watchlist).filter(Watchlist.id == watchlist_id).first()
+    wl = (
+        db.query(Watchlist)
+        .filter(Watchlist.id == watchlist_id, Watchlist.user_id == user_id)
+        .first()
+    )
     if not wl:
-        raise ValueError("La watchlist seleccionada no existe.")
+        raise ValueError("La lista seleccionada no existe.")
 
     sym = (ticker or "").upper().strip()
     if not sym:
@@ -540,10 +622,23 @@ def upsert_watchlist_item(
         db.add(item)
 
     db.commit()
-    return get_all_watchlists_payload(db)
+    return get_all_watchlists_payload(db, user_id=user_id)
 
 
-def remove_watchlist_item(db: Session, watchlist_id: int, ticker: str) -> dict[str, Any]:
+def remove_watchlist_item(
+    db: Session,
+    user_id: int,
+    watchlist_id: int,
+    ticker: str,
+) -> dict[str, Any]:
+    wl = (
+        db.query(Watchlist)
+        .filter(Watchlist.id == watchlist_id, Watchlist.user_id == user_id)
+        .first()
+    )
+    if not wl:
+        raise ValueError("Lista no encontrada.")
+
     sym = (ticker or "").upper().strip()
     row = (
         db.query(WatchlistItem)
@@ -553,20 +648,33 @@ def remove_watchlist_item(db: Session, watchlist_id: int, ticker: str) -> dict[s
     if row:
         db.delete(row)
         db.commit()
-    return get_all_watchlists_payload(db)
+    return get_all_watchlists_payload(db, user_id=user_id)
 
 
-def mark_notifications_read(db: Session, notification_id: int | None = None) -> dict[str, Any]:
-    q = db.query(AlertNotification).filter(AlertNotification.is_read.is_(False))
-    if notification_id is not None:
-        q = q.filter(AlertNotification.id == notification_id)
-    for row in q.all():
-        setattr(row, "is_read", True)
-    db.commit()
-    return get_all_watchlists_payload(db)
+def mark_notifications_read(
+    db: Session,
+    user_id: int,
+    notification_id: int | None = None,
+) -> dict[str, Any]:
+    user_wl_ids = _get_user_watchlist_ids(db, user_id)
+    if user_wl_ids:
+        q = db.query(AlertNotification).filter(
+            AlertNotification.watchlist_id.in_(user_wl_ids),
+            AlertNotification.is_read.is_(False),
+        )
+        if notification_id is not None:
+            q = q.filter(AlertNotification.id == notification_id)
+        for row in q.all():
+            setattr(row, "is_read", True)
+        db.commit()
+    return get_all_watchlists_payload(db, user_id=user_id)
 
 
-def clear_all_notifications(db: Session) -> dict[str, Any]:
-    db.query(AlertNotification).delete()
-    db.commit()
-    return get_all_watchlists_payload(db)
+def clear_all_notifications(db: Session, user_id: int) -> dict[str, Any]:
+    user_wl_ids = _get_user_watchlist_ids(db, user_id)
+    if user_wl_ids:
+        db.query(AlertNotification).filter(
+            AlertNotification.watchlist_id.in_(user_wl_ids)
+        ).delete(synchronize_session=False)
+        db.commit()
+    return get_all_watchlists_payload(db, user_id=user_id)
