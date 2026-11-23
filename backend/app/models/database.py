@@ -38,7 +38,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     hashed_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    auth_provider: Mapped[str] = mapped_column(String(20), nullable=False, default="local")  # local | google | github
+    auth_provider: Mapped[str] = mapped_column(String(20), nullable=False, default="local")  # local | google | github | managed
     oauth_sub: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="client", index=True)  # superadmin | advisor | client
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
@@ -177,6 +177,7 @@ class AlertNotification(Base):
     is_read = Column(Boolean, default=False, nullable=False)
     triggered_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
+
 class ClientProfile(Base):
     __tablename__ = "client_profiles"
 
@@ -231,7 +232,7 @@ class PortfolioTransaction(Base):
 
 
 def run_lightweight_migrations():
-    """Agrega columnas nuevas de forma compatible con SQLite y PostgreSQL."""
+    """Agrega columnas nuevas y ajusta nulabilidad de forma compatible con SQLite y PostgreSQL."""
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
 
@@ -252,6 +253,15 @@ def run_lightweight_migrations():
                     text("ALTER TABLE watchlists ADD COLUMN user_id INTEGER NULL")
                 )
 
+        if not is_sqlite and inspector.has_table("users"):
+            user_cols = {c["name"]: c for c in inspector.get_columns("users")}
+            hp_col = user_cols.get("hashed_password")
+            if hp_col and hp_col.get("nullable") is False:
+                conn.execute(
+                    text("ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL")
+                )
+
+
 class PasswordResetToken(Base):
     __tablename__ = "password_reset_tokens"
 
@@ -267,8 +277,6 @@ class PasswordResetToken(Base):
 
 def run_schema_migrations() -> None:
     """Agrega columnas nuevas a tablas existentes de forma idempotente (SQLite/PostgreSQL)."""
-    from sqlalchemy import inspect, text
-
     inspector = inspect(engine)
     if "users" not in inspector.get_table_names():
         return
