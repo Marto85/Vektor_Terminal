@@ -234,7 +234,7 @@ def _extract_ltm_cashflow_metrics(
 def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any]:
     """
     Obtiene datos de mercado (precio, cambio, acciones, deuda neta, fx_rate, cf_ltm, noticias e info)
-    desde SQLite si tienen menos de 4 horas; caso contrario consulta Yahoo Finance y persiste.
+    desde base de datos si tienen menos de 4 horas y precio válido; caso contrario consulta Yahoo Finance.
     """
     ticker_upper = ticker_symbol.upper()
     now = datetime.utcnow()
@@ -251,11 +251,20 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         if isinstance(updated_at, datetime) and isinstance(cached_payload, dict):
             cf_block = cached_payload.get("cf_ltm")
             has_valid_cf = isinstance(cf_block, dict) and cf_block.get("schema_version") == CF_LTM_SCHEMA_VERSION
-            if (now - updated_at) < MARKET_CACHE_TTL and "fx_rate" in cached_payload and has_valid_cf:
+            cached_price = float(cached_payload.get("price") or 0.0)
+            if (
+                cached_price > 0
+                and (now - updated_at) < MARKET_CACHE_TTL
+                and "fx_rate" in cached_payload
+                and has_valid_cf
+            ):
                 return cached_payload
 
     ticker = yf.Ticker(ticker_upper)
-    info: dict[str, Any] = ticker.info or {}
+    try:
+        info: dict[str, Any] = ticker.info or {}
+    except Exception:
+        info = {}
 
     price = float(
         info.get("currentPrice")
@@ -264,6 +273,26 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         or 0.0
     )
     prev_close = float(info.get("previousClose") or price)
+
+    # Fallback a fast_info e historial diario si Yahoo bloquea .info en servidor
+    if price <= 0.0:
+        try:
+            fi = ticker.fast_info
+            price = float(getattr(fi, "last_price", 0.0) or 0.0)
+            prev_close = float(getattr(fi, "previous_close", 0.0) or price)
+        except Exception:
+            pass
+
+    if price <= 0.0:
+        try:
+            hist_5d = ticker.history(period="5d", interval="1d", auto_adjust=False)
+            if hist_5d is not None and not hist_5d.empty and "Close" in hist_5d.columns:
+                closes = hist_5d["Close"].dropna()
+                if len(closes) >= 1:
+                    price = float(closes.iloc[-1])
+                    prev_close = float(closes.iloc[-2]) if len(closes) >= 2 else price
+        except Exception:
+            pass
 
     change = price - prev_close if prev_close > 0 else 0.0
     change_pct = (change / prev_close) * 100 if prev_close > 0 else 0.0
@@ -276,16 +305,58 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
     net_debt_mm = (float(total_debt_raw) - float(total_cash_raw)) / 1_000_000.0
     cf_ltm = _extract_ltm_cashflow_metrics(ticker, info, fx_rate)
 
-    raw_news = ticker.news
+    try:
+        raw_news = ticker.news or []
+    except Exception:
+        raw_news = []
     news_list: list[dict[str, Any]] = []
     if raw_news:
-        for n in raw_news[:4]:
-            news_list.append({
-                "title": n.get("title", ""),
-                "publisher": n.get("publisher", ""),
-                "link": n.get("link", ""),
-                "providerPublishTime": n.get("providerPublishTime", 0),
-            })
+        for n in raw_news[:6]:
+            if not isinstance(n, dict):
+                continue
+            raw_content = n.get("content")
+            content: dict[str, Any] = raw_content if isinstance(raw_content, dict) else n
+            title = str(content.get("title") or n.get("title") or "").strip()
+
+            raw_provider = content.get("provider")
+            provider_obj: dict[str, Any] = raw_provider if isinstance(raw_provider, dict) else {}
+            publisher = str(
+                provider_obj.get("displayName")
+                or content.get("publisher")
+                or n.get("publisher")
+                or ""
+            ).strip()
+
+            raw_canon = content.get("canonicalUrl")
+            canon: dict[str, Any] = raw_canon if isinstance(raw_canon, dict) else {}
+            raw_click = content.get("clickThroughUrl")
+            click: dict[str, Any] = raw_click if isinstance(raw_click, dict) else {}
+            link = str(
+                canon.get("url")
+                or click.get("url")
+                or content.get("link")
+                or n.get("link")
+                or ""
+            ).strip()
+
+            pub_ts = int(n.get("providerPublishTime") or content.get("providerPublishTime") or 0)
+            if pub_ts <= 0:
+                pub_iso = content.get("pubDate") or content.get("displayTime")
+                if isinstance(pub_iso, str) and pub_iso:
+                    try:
+                        pub_ts = int(datetime.fromisoformat(pub_iso.replace("Z", "+00:00")).timestamp())
+                    except Exception:
+                        pub_ts = 0
+
+            if title and pub_ts > 0:
+                news_list.append({
+                    "title": title,
+                    "publisher": publisher,
+                    "link": link,
+                    "providerPublishTime": pub_ts,
+                })
+            if len(news_list) >= 4:
+                break
 
     snapshot: dict[str, Any] = {
         "price": price,
@@ -299,29 +370,31 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         "cf_ltm": cf_ltm,
     }
 
-    if cached_row is not None:
-        db.query(CompanyMarketCache).filter(
-            CompanyMarketCache.ticker == ticker_upper
-        ).update({
-            "market_data": snapshot,
-            "last_updated": now,
-        })
-    else:
-        db.add(
-            CompanyMarketCache(
-                ticker=ticker_upper,
-                market_data=snapshot,
-                last_updated=now,
+    # Evitar persistir snapshots fallidos con precio 0
+    if price > 0.0:
+        if cached_row is not None:
+            db.query(CompanyMarketCache).filter(
+                CompanyMarketCache.ticker == ticker_upper
+            ).update({
+                "market_data": snapshot,
+                "last_updated": now,
+            })
+        else:
+            db.add(
+                CompanyMarketCache(
+                    ticker=ticker_upper,
+                    market_data=snapshot,
+                    last_updated=now,
+                )
             )
-        )
+        db.commit()
 
-    db.commit()
     return snapshot
 
 
 def get_cached_estimates_and_guidance(ticker_symbol: str, db: Session) -> dict[str, Any]:
     """
-    Obtiene y persiste en SQLite (`CompanyEstimatesCache`, TTL 24h):
+    Obtiene y persiste en base de datos (`CompanyEstimatesCache`, TTL 24h):
     - Consenso de ingresos (`revenue_estimate`), BPA (`earnings_estimate`) y crecimiento (`growth_estimates`).
     - Clasificación sectorial (`sector`, `industry`, `sic`) para enrutamiento de modelos.
     - Últimos formularios SEC 8-K con Ítem 2.02 (comunicados de resultados y guidance).
@@ -426,7 +499,7 @@ def _build_summary_metrics(
 ) -> dict[str, Any]:
     """
     Construye las 4 secciones del panel derecho estilo TIKR en 2 columnas
-    a partir del diccionario `info` ya cacheado en SQLite, convirtiendo magnitudes
+    a partir del diccionario `info` ya cacheado, convirtiendo magnitudes
     contables a la moneda de cotización (USD) si `fx_rate != 1.0`.
     """
     shares_mm = _to_mm(info.get("sharesOutstanding"), 1.0)
@@ -578,7 +651,7 @@ def _build_summary_metrics(
 def get_company_profile(ticker_symbol: str, db: Session) -> dict:
     """
     Datos de mercado (precio, noticias, estructura de capital): Se leen desde CompanyMarketCache (TTL 4h).
-    Datos estáticos (descripción, web): Se leen de SQLite o se traducen y guardan.
+    Datos estáticos (descripción, web): Se leen de base de datos o se traducen y guardan.
     """
     ticker_upper = ticker_symbol.upper()
 
@@ -592,16 +665,23 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
 
     profile_db = db.query(CompanyProfile).filter(CompanyProfile.ticker == ticker_upper).first()
 
-    desc_str = str(profile_db.description) if profile_db else ""
+    desc_str = str(profile_db.description or "").strip() if profile_db else ""
 
-    if profile_db and not desc_str.startswith("(Sin traducir)"):
+    if profile_db and desc_str and not desc_str.startswith("(Sin traducir)"):
         name = str(profile_db.name)
         website = str(profile_db.website)
         translated_desc = desc_str
     else:
-        name = info.get("longName", info.get("shortName", ticker_upper))
-        website = info.get("website", "")
-        raw_description = info.get("longBusinessSummary", "")
+        sec_name = ""
+        company_row = db.query(CompanyData).filter(CompanyData.ticker == ticker_upper).first()
+        if company_row is not None and isinstance(company_row.raw_facts, dict):
+            sec_name = str(company_row.raw_facts.get("entityName") or "").strip()
+
+        name = info.get("longName") or info.get("shortName") or sec_name or ticker_upper
+        website = info.get("website") or (str(profile_db.website) if profile_db else "")
+        raw_description = str(info.get("longBusinessSummary") or "").strip()
+        if not raw_description and desc_str.startswith("(Sin traducir)"):
+            raw_description = desc_str.removeprefix("(Sin traducir)").strip()
 
         translated_desc = raw_description
         if raw_description:
@@ -614,24 +694,25 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
                 )
             except Exception as e:
                 print(f"ERROR EN TRADUCCION para {ticker_upper}: {e}")
-                translated_desc = f"(Sin traducir) {raw_description}"
+                translated_desc = raw_description
 
-        if profile_db:
-            db.query(CompanyProfile).filter(CompanyProfile.ticker == ticker_upper).update({
-                "name": name,
-                "website": website,
-                "description": translated_desc
-            })
-        else:
-            new_profile = CompanyProfile(
-                ticker=ticker_upper,
-                name=name,
-                website=website,
-                description=translated_desc
-            )
-            db.add(new_profile)
+        if translated_desc or name != ticker_upper:
+            if profile_db:
+                db.query(CompanyProfile).filter(CompanyProfile.ticker == ticker_upper).update({
+                    "name": name,
+                    "website": website,
+                    "description": translated_desc
+                })
+            else:
+                new_profile = CompanyProfile(
+                    ticker=ticker_upper,
+                    name=name,
+                    website=website,
+                    description=translated_desc
+                )
+                db.add(new_profile)
 
-        db.commit()
+            db.commit()
 
     return {
         "name": name,

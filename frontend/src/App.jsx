@@ -118,6 +118,7 @@ function App() {
 
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
+  const mainScrollRef = useRef(null);
 
   // Estado Multi-Watchlist y Notificaciones
   const [watchlistData, setWatchlistData] = useState(null);
@@ -272,6 +273,7 @@ function App() {
     if (switchToSummary) {
       setActiveSidebarTab("Resumen");
     }
+    mainScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
 
     try {
       const [finResponse, profResponse] = await Promise.all([
@@ -1103,7 +1105,10 @@ function App() {
         )}
 
         {/* ÁREA DE CONTENIDO CONDICIONAL (con espacio inferior adaptativo en mobile) */}
-        <div className="flex-1 overflow-y-auto overscroll-y-contain pb-[calc(3.75rem+env(safe-area-inset-bottom))] md:pb-0">
+        <div
+          ref={mainScrollRef}
+          className="flex-1 overflow-y-auto overscroll-y-contain pb-[calc(3.75rem+env(safe-area-inset-bottom))] md:pb-0"
+        >
           <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-6">
             {/* VISTA PORTAL INICIAL */}
             {activeSidebarTab === "Inicio" && (
