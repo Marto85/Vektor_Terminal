@@ -1189,7 +1189,10 @@ function App() {
                     Acerca de la empresa
                   </h3>
                   <p className="text-xs sm:text-sm text-gray-600 leading-relaxed mb-3">
-                    {profileData?.description || "Buscando descripción..."}
+                    {isLoading && !profileData?.description
+                      ? "Buscando descripción..."
+                      : profileData?.description ||
+                        "Perfil corporativo en proceso de sincronización."}
                   </p>
                   {domain && (
                     <a

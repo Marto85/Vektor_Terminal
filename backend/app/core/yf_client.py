@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta
 import json
 import math
+import re
 from typing import Any
 import urllib.request
 import pandas as pd
 import yfinance as yf
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
 from sqlalchemy.orm import Session
 from app.models.database import (
     CompanyData,
@@ -48,6 +49,148 @@ def _to_pct(val: Any, decimals: int = 1) -> float | None:
         return None if (math.isnan(f) or math.isinf(f)) else round(f * 100.0, decimals)
     except (TypeError, ValueError):
         return None
+
+
+def _looks_english(text: str) -> bool:
+    """
+    Detecta si una descripción corporativa guardada sigue redactada en inglés
+    para reintentar su traducción al español automáticamente.
+    """
+    sample = f" {text.lower()} "
+    en_markers = (
+        " engages in ",
+        " operates through ",
+        " provides ",
+        " develops ",
+        " manufactures ",
+        " founded in ",
+        " headquartered in ",
+        " the company ",
+        " its products ",
+        " united states",
+    )
+    es_markers = (
+        " se dedica ",
+        " opera a través ",
+        " proporciona ",
+        " ofrece ",
+        " fundada en ",
+        " con sede en ",
+        " la empresa ",
+        " la compañía ",
+        " estados unidos",
+    )
+    en_hits = sum(1 for m in en_markers if m in sample)
+    es_hits = sum(1 for m in es_markers if m in sample)
+    return en_hits >= 2 and es_hits == 0
+
+
+def _translate_to_spanish(raw_text: str, ticker_upper: str) -> tuple[str, bool]:
+    """
+    Traduce al español usando GoogleTranslator como primario y MyMemoryTranslator
+    (en fragmentos <= 450 caracteres) como respaldo transparente.
+    Devuelve `(texto_resultante, traduccion_exitosa)`.
+    """
+    clean_text = raw_text.strip()
+    if not clean_text:
+        return "", False
+
+    text_to_translate = clean_text[:4900] + "..." if len(clean_text) > 4900 else clean_text
+
+    # 1. Intento primario: GoogleTranslator
+    try:
+        translated = GoogleTranslator(source="en", target="es").translate(text_to_translate)
+        if isinstance(translated, str) and translated.strip() and not _looks_english(translated):
+            return translated.strip(), True
+    except Exception as e:
+        print(f"FALLBACK TRADUCCION (Google -> MyMemory) para {ticker_upper}: {e}")
+
+    # 2. Respaldo: MyMemoryTranslator dividido por oraciones <= 450 chars
+    try:
+        sentences = re.split(r"(?<=[.!?])\s+", text_to_translate)
+        chunks: list[str] = []
+        current_chunk = ""
+        for sent in sentences:
+            if len(sent) > 450:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+                for i in range(0, len(sent), 450):
+                    chunks.append(sent[i : i + 450].strip())
+            elif len(current_chunk) + len(sent) + 1 <= 450:
+                current_chunk = f"{current_chunk} {sent}".strip()
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = sent.strip()
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+
+        translator_mm = MyMemoryTranslator(source="en-US", target="es-ES")
+        translated_parts: list[str] = []
+        for ch in chunks:
+            part = translator_mm.translate(ch)
+            if isinstance(part, str) and part.strip():
+                translated_parts.append(part.strip())
+
+        combined = " ".join(translated_parts).strip()
+        if combined and not _looks_english(combined):
+            return combined, True
+    except Exception as e:
+        print(f"ERROR EN TRADUCCION RESPALDO para {ticker_upper}: {e}")
+
+    return clean_text, False
+
+
+def _parse_yf_news(raw_news: list[Any]) -> list[dict[str, Any]]:
+    news_list: list[dict[str, Any]] = []
+    for n in raw_news[:6]:
+        if not isinstance(n, dict):
+            continue
+        raw_content = n.get("content")
+        content: dict[str, Any] = raw_content if isinstance(raw_content, dict) else n
+        title = str(content.get("title") or n.get("title") or "").strip()
+
+        raw_provider = content.get("provider")
+        provider_obj: dict[str, Any] = raw_provider if isinstance(raw_provider, dict) else {}
+        publisher = str(
+            provider_obj.get("displayName")
+            or content.get("publisher")
+            or n.get("publisher")
+            or ""
+        ).strip()
+
+        raw_canon = content.get("canonicalUrl")
+        canon: dict[str, Any] = raw_canon if isinstance(raw_canon, dict) else {}
+        raw_click = content.get("clickThroughUrl")
+        click: dict[str, Any] = raw_click if isinstance(raw_click, dict) else {}
+        link = str(
+            canon.get("url")
+            or click.get("url")
+            or content.get("link")
+            or n.get("link")
+            or ""
+        ).strip()
+
+        pub_ts = int(n.get("providerPublishTime") or content.get("providerPublishTime") or 0)
+        if pub_ts <= 0:
+            pub_iso = content.get("pubDate") or content.get("displayTime")
+            if isinstance(pub_iso, str) and pub_iso:
+                try:
+                    pub_ts = int(datetime.fromisoformat(pub_iso.replace("Z", "+00:00")).timestamp())
+                except Exception:
+                    pub_ts = 0
+
+        if title and pub_ts > 0:
+            news_list.append({
+                "title": title,
+                "publisher": publisher,
+                "link": link,
+                "providerPublishTime": pub_ts,
+            })
+        if len(news_list) >= 4:
+            break
+    return news_list
 
 
 def _resolve_fx_rate_to_trade_currency(info: dict[str, Any]) -> float:
@@ -235,6 +378,7 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
     """
     Obtiene datos de mercado (precio, cambio, acciones, deuda neta, fx_rate, cf_ltm, noticias e info)
     desde base de datos si tienen menos de 4 horas y precio válido; caso contrario consulta Yahoo Finance.
+    Si un snapshot válido en caché tiene `info` vacío por un bloqueo previo, intenta rehidratarlo.
     """
     ticker_upper = ticker_symbol.upper()
     now = datetime.utcnow()
@@ -252,8 +396,11 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
             cf_block = cached_payload.get("cf_ltm")
             has_valid_cf = isinstance(cf_block, dict) and cf_block.get("schema_version") == CF_LTM_SCHEMA_VERSION
             cached_price = float(cached_payload.get("price") or 0.0)
+            cached_info = cached_payload.get("info")
+            has_info = isinstance(cached_info, dict) and len(cached_info) > 0
             if (
                 cached_price > 0
+                and has_info
                 and (now - updated_at) < MARKET_CACHE_TTL
                 and "fx_rate" in cached_payload
                 and has_valid_cf
@@ -294,6 +441,11 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         except Exception:
             pass
 
+    # Si este intento falló por completo pero existe un snapshot previo con precio > 0, conservarlo
+    if price <= 0.0 and cached_row is not None and isinstance(cached_row.market_data, dict):
+        if float(cached_row.market_data.get("price") or 0.0) > 0.0:
+            return cached_row.market_data
+
     change = price - prev_close if prev_close > 0 else 0.0
     change_pct = (change / prev_close) * 100 if prev_close > 0 else 0.0
 
@@ -309,54 +461,7 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         raw_news = ticker.news or []
     except Exception:
         raw_news = []
-    news_list: list[dict[str, Any]] = []
-    if raw_news:
-        for n in raw_news[:6]:
-            if not isinstance(n, dict):
-                continue
-            raw_content = n.get("content")
-            content: dict[str, Any] = raw_content if isinstance(raw_content, dict) else n
-            title = str(content.get("title") or n.get("title") or "").strip()
-
-            raw_provider = content.get("provider")
-            provider_obj: dict[str, Any] = raw_provider if isinstance(raw_provider, dict) else {}
-            publisher = str(
-                provider_obj.get("displayName")
-                or content.get("publisher")
-                or n.get("publisher")
-                or ""
-            ).strip()
-
-            raw_canon = content.get("canonicalUrl")
-            canon: dict[str, Any] = raw_canon if isinstance(raw_canon, dict) else {}
-            raw_click = content.get("clickThroughUrl")
-            click: dict[str, Any] = raw_click if isinstance(raw_click, dict) else {}
-            link = str(
-                canon.get("url")
-                or click.get("url")
-                or content.get("link")
-                or n.get("link")
-                or ""
-            ).strip()
-
-            pub_ts = int(n.get("providerPublishTime") or content.get("providerPublishTime") or 0)
-            if pub_ts <= 0:
-                pub_iso = content.get("pubDate") or content.get("displayTime")
-                if isinstance(pub_iso, str) and pub_iso:
-                    try:
-                        pub_ts = int(datetime.fromisoformat(pub_iso.replace("Z", "+00:00")).timestamp())
-                    except Exception:
-                        pub_ts = 0
-
-            if title and pub_ts > 0:
-                news_list.append({
-                    "title": title,
-                    "publisher": publisher,
-                    "link": link,
-                    "providerPublishTime": pub_ts,
-                })
-            if len(news_list) >= 4:
-                break
+    news_list = _parse_yf_news(raw_news)
 
     snapshot: dict[str, Any] = {
         "price": price,
@@ -651,7 +756,8 @@ def _build_summary_metrics(
 def get_company_profile(ticker_symbol: str, db: Session) -> dict:
     """
     Datos de mercado (precio, noticias, estructura de capital): Se leen desde CompanyMarketCache (TTL 4h).
-    Datos estáticos (descripción, web): Se leen de base de datos o se traducen y guardan.
+    Datos estáticos (descripción, web): Se leen de base de datos o se traducen (Google + respaldo MyMemory).
+    Si Yahoo bloquea `.info`, sintetiza una reseña institucional desde SEC EDGAR sin bloquear futuras recargas.
     """
     ticker_upper = ticker_symbol.upper()
 
@@ -661,58 +767,77 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
     change_pct = snapshot["change_pct"]
     fx_rate = float(snapshot.get("fx_rate") or 1.0)
     news_list = snapshot["news"]
-    info = snapshot.get("info", {})
+    raw_info = snapshot.get("info")
+    info: dict[str, Any] = raw_info if isinstance(raw_info, dict) else {}
 
     profile_db = db.query(CompanyProfile).filter(CompanyProfile.ticker == ticker_upper).first()
-
     desc_str = str(profile_db.description or "").strip() if profile_db else ""
+    needs_translation = bool(desc_str) and (desc_str.startswith("(Sin traducir)") or _looks_english(desc_str))
 
-    if profile_db and desc_str and not desc_str.startswith("(Sin traducir)"):
+    if profile_db and desc_str and not needs_translation:
         name = str(profile_db.name)
         website = str(profile_db.website)
         translated_desc = desc_str
     else:
-        sec_name = ""
-        company_row = db.query(CompanyData).filter(CompanyData.ticker == ticker_upper).first()
-        if company_row is not None and isinstance(company_row.raw_facts, dict):
-            sec_name = str(company_row.raw_facts.get("entityName") or "").strip()
+        # Si info llegó vacío en el snapshot, hacer un intento directo por si el bloqueo fue transitorio
+        if not info:
+            try:
+                fresh_info = yf.Ticker(ticker_upper).info or {}
+                if isinstance(fresh_info, dict) and fresh_info:
+                    info = fresh_info
+            except Exception:
+                pass
 
-        name = info.get("longName") or info.get("shortName") or sec_name or ticker_upper
+        sec_name = ""
+        sec_sic_desc = ""
+        sec_sic_code = ""
+        sec_cik = ""
+        company_row = db.query(CompanyData).filter(CompanyData.ticker == ticker_upper).first()
+        if company_row is not None:
+            if company_row.cik is not None:
+                sec_cik = str(company_row.cik).strip().zfill(10)
+            if isinstance(company_row.raw_facts, dict):
+                sec_name = str(company_row.raw_facts.get("entityName") or "").strip()
+                sec_sic_desc = str(company_row.raw_facts.get("sicDescription") or "").strip()
+                if company_row.raw_facts.get("sic") is not None:
+                    sec_sic_code = str(company_row.raw_facts.get("sic")).strip()
+
+        name = info.get("longName") or info.get("shortName") or sec_name or (str(profile_db.name) if profile_db else ticker_upper)
         website = info.get("website") or (str(profile_db.website) if profile_db else "")
         raw_description = str(info.get("longBusinessSummary") or "").strip()
-        if not raw_description and desc_str.startswith("(Sin traducir)"):
+        if not raw_description and desc_str:
             raw_description = desc_str.removeprefix("(Sin traducir)").strip()
 
-        translated_desc = raw_description
-        if raw_description:
-            try:
-                if len(raw_description) > 4900:
-                    raw_description = raw_description[:4900] + "..."
+        translated_desc = ""
+        has_real_yahoo_desc = bool(raw_description)
 
-                translated_desc = GoogleTranslator(source="en", target="es").translate(
-                    raw_description
-                )
-            except Exception as e:
-                print(f"ERROR EN TRADUCCION para {ticker_upper}: {e}")
-                translated_desc = raw_description
-
-        if translated_desc or name != ticker_upper:
+        if has_real_yahoo_desc:
+            translated_desc, _ = _translate_to_spanish(raw_description, ticker_upper)
             if profile_db:
                 db.query(CompanyProfile).filter(CompanyProfile.ticker == ticker_upper).update({
                     "name": name,
                     "website": website,
-                    "description": translated_desc
+                    "description": translated_desc,
                 })
             else:
-                new_profile = CompanyProfile(
-                    ticker=ticker_upper,
-                    name=name,
-                    website=website,
-                    description=translated_desc
+                db.add(
+                    CompanyProfile(
+                        ticker=ticker_upper,
+                        name=name,
+                        website=website,
+                        description=translated_desc,
+                    )
                 )
-                db.add(new_profile)
-
             db.commit()
+        else:
+            # Respaldo institucional transitorio desde SEC EDGAR (no se congela en CompanyProfile)
+            if sec_name or sec_sic_desc:
+                sector_part = f" en el sector {sec_sic_desc}" if sec_sic_desc else ""
+                sic_part = f" (código SIC {sec_sic_code})" if sec_sic_code else ""
+                cik_part = f" · Registro SEC CIK {sec_cik}" if sec_cik else ""
+                translated_desc = (
+                    f"{name} ({ticker_upper}) es un emisor público registrado ante la SEC{sector_part}{sic_part}.{cik_part}"
+                )
 
     return {
         "name": name,
