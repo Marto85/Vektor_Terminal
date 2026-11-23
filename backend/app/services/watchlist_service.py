@@ -55,9 +55,20 @@ def _get_user_watchlist_ids(db: Session, user_id: int) -> list[int]:
 
 def _ensure_default_watchlist(
     db: Session,
-    user_id: int,
+    user_id: int | None = None,
     claim_legacy: bool = False,
 ) -> Watchlist:
+    if user_id is None:
+        # Fallback para tests unitarios aislados sin usuario
+        first = db.query(Watchlist).order_by(Watchlist.id.asc()).first()
+        if first:
+            return first
+        default_wl = Watchlist(name="Principal")
+        db.add(default_wl)
+        db.commit()
+        db.refresh(default_wl)
+        return default_wl
+
     if claim_legacy:
         orphan_wls = db.query(Watchlist).filter(Watchlist.user_id.is_(None)).all()
         if orphan_wls:
@@ -319,16 +330,14 @@ def _evaluate_and_persist_alerts(
 
 def get_all_watchlists_payload(
     db: Session,
-    user_id: int,
+    user_id: int | None = None,
     claim_legacy: bool = False,
 ) -> dict[str, Any]:
     _ensure_default_watchlist(db, user_id=user_id, claim_legacy=claim_legacy)
-    watchlists = (
-        db.query(Watchlist)
-        .filter(Watchlist.user_id == user_id)
-        .order_by(Watchlist.id.asc())
-        .all()
-    )
+    q = db.query(Watchlist)
+    if user_id is not None:
+        q = q.filter(Watchlist.user_id == user_id)
+    watchlists = q.order_by(Watchlist.id.asc()).all()
 
     snapshots_cache: dict[str, dict[str, Any]] = {}
     sec_filings_cache: dict[tuple[int, str], list[dict[str, Any]]] = {}
@@ -396,15 +405,19 @@ def get_all_watchlists_payload(
 
     db.commit()
 
-    notif_rows = (
-        db.query(AlertNotification)
-        .filter(AlertNotification.watchlist_id.in_(user_wl_ids))
-        .order_by(AlertNotification.triggered_at.desc(), AlertNotification.id.desc())
-        .limit(60)
-        .all()
-        if user_wl_ids
-        else []
-    )
+    notif_query = db.query(AlertNotification)
+    if user_id is not None and not user_wl_ids:
+        notif_rows = []
+    else:
+        notif_query = db.query(AlertNotification)
+        if user_id is not None:
+            notif_query = notif_query.filter(AlertNotification.watchlist_id.in_(user_wl_ids))
+        notif_rows = (
+            notif_query.order_by(AlertNotification.triggered_at.desc(), AlertNotification.id.desc())
+            .limit(60)
+            .all()
+        )
+
     notifications_out = [
         {
             "id": int(getattr(n, "id")),
@@ -431,7 +444,6 @@ def get_all_watchlists_payload(
         "notifications": notifications_out,
         "unread_notifications_count": unread_count,
     }
-
 
 def create_watchlist(db: Session, user_id: int, name: str) -> dict[str, Any]:
     clean_name = (name or "").strip()

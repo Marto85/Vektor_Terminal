@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 from app.main import app
 from app.api import endpoints
+from app.services.auth_service import ensure_default_superadmin
+from app.core.config import VEKTOR_ADMIN_EMAIL, VEKTOR_ADMIN_PASSWORD
 
 
 def test_root_healthcheck():
@@ -22,28 +24,35 @@ def test_watchlist_crud_lifecycle(db_session):
     client = TestClient(app)
 
     try:
+        ensure_default_superadmin()
+        adm = client.post(
+            "/api/v1/auth/login",
+            json={"email": VEKTOR_ADMIN_EMAIL, "password": VEKTOR_ADMIN_PASSWORD},
+        )
+        headers = {"Authorization": f"Bearer {adm.json()['access_token']}"}
+
         # 1. Crear dos listas (regla de negocio: siempre debe quedar al menos 1 watchlist activa)
-        res_first = client.post("/api/v1/watchlists", json={"name": "Principal"})
+        res_first = client.post("/api/v1/watchlists", json={"name": "Principal"}, headers=headers)
         assert res_first.status_code == 200
 
-        res_create = client.post("/api/v1/watchlists", json={"name": "Tech Quality"})
+        res_create = client.post("/api/v1/watchlists", json={"name": "Tech Quality"}, headers=headers)
         assert res_create.status_code == 200
         payload = res_create.json()
         wl = next(w for w in payload["watchlists"] if w["name"] == "Tech Quality")
         wl_id = wl["id"]
 
         # 2. Renombrar lista
-        res_rename = client.put(f"/api/v1/watchlists/{wl_id}", json={"name": "Core Compounders"})
+        res_rename = client.put(f"/api/v1/watchlists/{wl_id}", json={"name": "Core Compounders"}, headers=headers)
         assert res_rename.status_code == 200
         assert any(w["name"] == "Core Compounders" for w in res_rename.json()["watchlists"])
 
         # 3. Eliminar segunda lista (permitido porque queda "Principal")
-        res_del = client.delete(f"/api/v1/watchlists/{wl_id}")
+        res_del = client.delete(f"/api/v1/watchlists/{wl_id}", headers=headers)
         assert res_del.status_code == 200
 
         # 4. Intentar eliminar la última watchlist restante debe devolver 400
         remaining_id = res_del.json()["watchlists"][0]["id"]
-        res_del_last = client.delete(f"/api/v1/watchlists/{remaining_id}")
+        res_del_last = client.delete(f"/api/v1/watchlists/{remaining_id}", headers=headers)
         assert res_del_last.status_code == 400
     finally:
         app.dependency_overrides.clear()

@@ -163,7 +163,7 @@ def test_roiic_handles_negative_incremental_capital_gracefully():
 
 def test_sec_filing_alert_detection_and_deduplication():
     db = _make_in_memory_db()
-    wl = Watchlist(name="Seguimiento SEC")
+    wl = Watchlist(user_id=1, name="Seguimiento SEC")
     db.add(wl)
     db.commit()
     db.refresh(wl)
@@ -199,9 +199,9 @@ def test_sec_filing_alert_detection_and_deduplication():
     ]
 
     with patch("app.services.watchlist_service.get_recent_sec_filings", return_value=mock_filings):
-        payload_1 = get_all_watchlists_payload(db)
+        payload_1 = get_all_watchlists_payload(db, user_id=1)
         # Segunda ejecución para confirmar que no duplica notificaciones
-        payload_2 = get_all_watchlists_payload(db)
+        payload_2 = get_all_watchlists_payload(db, user_id=1)
 
     sec_notifs = [n for n in payload_2["notifications"] if n["alert_type"] == "sec_filing"]
     assert len(sec_notifs) == 1
@@ -218,8 +218,8 @@ def test_portfolio_twr_isolates_external_cashflows():
     2) Día 10: AAPL sube a US$ 120 (+20% en tramo 1). Cliente deposita US$ 30.000 adicionales
        y compra 250 acciones a US$ 120 (total 350 acciones).
     3) Día 20: AAPL cae 10% hasta US$ 108.
-       - Patrimonio final = 350 * 108 = US$ 37.800 (pérdida nominal frente a US$ 40.000 aportados).
-       - TWR real = (1 + 0.20) * (1 - 0.10) - 1 = 1.08 - 1 = +8.00%.
+- Patrimonio final = 350 * 108 = US$ 37.800 (pérdida nominal frente a US$ 40.000 aportados).
+- TWR real = (1 + 0.20) * (1 - 0.10) - 1 = 1.08 - 1 = +8.00%.
     """
     txs = [
         PortfolioTransaction(id=1, client_id=1, tx_type="DEPOSIT", ticker=None, tx_date="2026-01-01", quantity=10000.0, unit_price=1.0, commission=0.0),

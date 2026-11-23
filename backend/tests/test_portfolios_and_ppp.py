@@ -167,7 +167,7 @@ def test_ppp_calculation_and_portfolio_rbac(mock_quotes):
         )
         assert bad_sell.status_code == 400
 
-        # 8. Cliente puede leer /portfolios/me pero recibe 403 al intentar cargar operaciones
+        # 8. Cliente puede leer y autogestionar su cartera; superadmin ajeno recibe 403
         cli_login = client.post(
             "/api/v1/auth/login",
             json={"email": "cliente.crm@vektor.local", "password": "Password123!"},
@@ -176,7 +176,7 @@ def test_ppp_calculation_and_portfolio_rbac(mock_quotes):
 
         my_port = client.get("/api/v1/portfolios/me", headers=cli_headers)
         assert my_port.status_code == 200
-        assert my_port.json()["can_edit"] is False
+        assert my_port.json()["can_edit"] is True
         assert my_port.json()["holdings"][0]["ppp"] == 411.0
 
         cli_write = client.post(
@@ -190,6 +190,9 @@ def test_ppp_calculation_and_portfolio_rbac(mock_quotes):
                 "unit_price": 200.0,
             },
         )
-        assert cli_write.status_code == 403
+        assert cli_write.status_code == 200
+
+        adm_read = client.get(f"/api/v1/portfolios/{client_id}", headers=adm_headers)
+        assert adm_read.status_code == 403
     finally:
         _cleanup()
