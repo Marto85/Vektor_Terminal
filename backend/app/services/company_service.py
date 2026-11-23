@@ -3,8 +3,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 import pandas as pd
 import yfinance as yf
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
-from app.models.database import CompanyData
+from app.models.database import CompanyData, is_sqlite
 from app.core.sec_client import get_cik_from_ticker, get_company_facts
 
 # Caché de 7 días para no sobrecargar las APIs
@@ -77,7 +79,7 @@ def _extract_yf_statements_fallback(ticker_upper: str) -> dict[str, Any]:
     """
     Descarga los estados anuales y trimestrales normalizados desde yfinance
     y los serializa por categoría/métrica/período en millones (salvo BPA)
-    para almacenarlos dentro de CompanyData en SQLite.
+    para almacenarlos dentro de CompanyData en Neon/SQLite.
     """
     tk = yf.Ticker(ticker_upper)
 
@@ -86,7 +88,6 @@ def _extract_yf_statements_fallback(ticker_upper: str) -> dict[str, Any]:
         if not dfs:
             return {}
 
-        # {metrica: {periodo: valor}}
         out: dict[str, dict[str, float]] = {}
 
         for _cat, metrics_map in YF_ANNUAL_MAP.items():
@@ -153,7 +154,7 @@ def _extract_yf_statements_fallback(ticker_upper: str) -> dict[str, Any]:
 def get_raw_financials(ticker: str, db: Session, is_quarterly: bool = False) -> dict:
     """
     Obtiene los datos financieros crudos (SEC CompanyFacts + respaldo normalizado de yfinance)
-    priorizando SQLite local con TTL de 7 días.
+    priorizando la base de datos con TTL de 7 días y upsert atómico contra concurrencia.
     """
     ticker_upper = ticker.upper()
     db_company = db.query(CompanyData).filter(CompanyData.ticker == ticker_upper).first()
@@ -179,23 +180,29 @@ def get_raw_financials(ticker: str, db: Session, is_quarterly: bool = False) -> 
     except Exception:
         fetched_raw_facts = {}
 
-    # Adjuntamos el respaldo normalizado de yfinance dentro del mismo JSON cacheado en SQLite
     fetched_raw_facts["_yf_fallback"] = _extract_yf_statements_fallback(ticker_upper)
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
-    
-    if db_company:
-        db.query(CompanyData).filter(CompanyData.ticker == ticker_upper).update({
-            "cik": cik or getattr(db_company, "cik", None),
-            "raw_facts": fetched_raw_facts,
-            "last_updated": now_utc
-        })
-    else:
-        new_company = CompanyData(
+    final_cik = cik or (getattr(db_company, "cik", None) if db_company else None)
+
+    try:
+        insert_fn = sqlite_insert if is_sqlite else pg_insert
+        stmt = insert_fn(CompanyData).values(
             ticker=ticker_upper,
-            cik=cik,
-            raw_facts=fetched_raw_facts
+            cik=final_cik,
+            raw_facts=fetched_raw_facts,
+            last_updated=now_utc,
         )
-        db.add(new_company)
-    
-    db.commit()
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["ticker"],
+            set_={
+                "cik": final_cik,
+                "raw_facts": fetched_raw_facts,
+                "last_updated": now_utc,
+            },
+        )
+        db.execute(stmt)
+        db.commit()
+    except Exception:
+        db.rollback()
+
     return fetched_raw_facts

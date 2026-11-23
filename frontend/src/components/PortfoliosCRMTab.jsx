@@ -111,13 +111,13 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
         syncProfileForm(res.data?.client);
       } catch (err) {
         setError(
-          err?.response?.data?.detail || "No se pudo cargar la cartera del cliente."
+          err?.response?.data?.detail || "No se pudo cargar la cartera del cliente.",
         );
       } finally {
         setLoadingPortfolio(false);
       }
     },
-    [syncProfileForm]
+    [syncProfileForm],
   );
 
   // Carga inicial según rol
@@ -137,7 +137,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
         } catch (err) {
           if (!cancelled) {
             setError(
-              err?.response?.data?.detail || "No se pudo cargar tu cartera."
+              err?.response?.data?.detail || "No se pudo cargar tu cartera.",
             );
           }
         } finally {
@@ -165,7 +165,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
       } catch (err) {
         if (!cancelled) {
           setError(
-            err?.response?.data?.detail || "Error al obtener la lista de clientes."
+            err?.response?.data?.detail || "Error al obtener la lista de clientes.",
           );
         }
       } finally {
@@ -188,6 +188,35 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
     setFeedback("");
     setError("");
     fetchPortfolioById(newId);
+  };
+
+  const handleTxTypeChange = (nextType) => {
+    setTxType(nextType);
+    const cleanSym = ticker.trim().toUpperCase();
+    const matchedHolding = (portfolio?.holdings || []).find(
+      (h) => h.ticker === cleanSym,
+    );
+    if (nextType === "SELL" && matchedHolding?.current_price) {
+      setUnitPrice(String(matchedHolding.current_price));
+    } else if (nextType === "DEPOSIT" || nextType === "WITHDRAWAL") {
+      setTicker("");
+      setUnitPrice("1");
+    } else {
+      setUnitPrice("");
+    }
+  };
+
+  const handleTickerInputChange = (rawVal) => {
+    const upper = rawVal.toUpperCase();
+    setTicker(upper);
+    if (txType === "SELL") {
+      const matchedHolding = (portfolio?.holdings || []).find(
+        (h) => h.ticker === upper.trim(),
+      );
+      if (matchedHolding?.current_price) {
+        setUnitPrice(String(matchedHolding.current_price));
+      }
+    }
   };
 
   const handleCreateManagedClient = async (e) => {
@@ -213,8 +242,8 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
       if (created) {
         setClients((prev) =>
           [...prev, created].sort((a, b) =>
-            (a.full_name || "").localeCompare(b.full_name || "")
-          )
+            (a.full_name || "").localeCompare(b.full_name || ""),
+          ),
         );
         const newId = String(created.client_id);
         setSelectedClientId(newId);
@@ -231,7 +260,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
       setFeedback("Cartera de cliente creada. Ya podés registrar operaciones.");
     } catch (err) {
       setError(
-        err?.response?.data?.detail || "No se pudo crear la cartera del cliente."
+        err?.response?.data?.detail || "No se pudo crear la cartera del cliente.",
       );
     } finally {
       setCreatingClient(false);
@@ -258,19 +287,19 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
         if (!isClient) {
           setClients((prev) =>
             prev.map((c) =>
-              String(c.client_id) === String(activeClientId) ? updatedClient : c
-            )
+              String(c.client_id) === String(activeClientId) ? updatedClient : c,
+            ),
           );
         }
       }
       setFeedback(
         isClient
           ? "Perfil patrimonial actualizado."
-          : "Ficha CRM del cliente actualizada."
+          : "Ficha CRM del cliente actualizada.",
       );
     } catch (err) {
       setError(
-        err?.response?.data?.detail || "No se pudo actualizar el perfil."
+        err?.response?.data?.detail || "No se pudo actualizar el perfil.",
       );
     } finally {
       setSavingProfile(false);
@@ -297,7 +326,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
           commission: commission !== "" ? Number(commission) : 0,
           currency: txCurrency,
           notes: txNotes.trim() || null,
-        }
+        },
       );
       setPortfolio(res.data);
       setTicker("");
@@ -308,7 +337,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
       setFeedback("Operación registrada, PPP y TWR recalculados.");
     } catch (err) {
       setError(
-        err?.response?.data?.detail || "Error al registrar la operación."
+        err?.response?.data?.detail || "Error al registrar la operación.",
       );
     } finally {
       setSubmittingTx(false);
@@ -324,13 +353,13 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
     setFeedback("");
     try {
       const res = await apiClient.delete(
-        `/portfolios/${activeClientId}/transactions/${txId}`
+        `/portfolios/${activeClientId}/transactions/${txId}`,
       );
       setPortfolio(res.data);
       setFeedback("Operación eliminada y cartera recalculada.");
     } catch (err) {
       setError(
-        err?.response?.data?.detail || "No se pudo eliminar la operación."
+        err?.response?.data?.detail || "No se pudo eliminar la operación.",
       );
     }
   };
@@ -536,7 +565,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
                   {formatCurrency(
                     (summary?.total_realized_pnl || 0) +
                       (summary?.total_dividends || 0),
-                    currency
+                    currency,
                   )}
                 </p>
                 <p className="text-[11px] text-gray-500 mt-1">
@@ -782,7 +811,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
                     </label>
                     <select
                       value={txType}
-                      onChange={(e) => setTxType(e.target.value)}
+                      onChange={(e) => handleTxTypeChange(e.target.value)}
                       className="w-full px-2.5 py-2 text-xs bg-gray-50 text-gray-900 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
                     >
                       <option value="BUY">Compra (BUY)</option>
@@ -800,7 +829,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
                     <input
                       type="text"
                       value={ticker}
-                      onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                      onChange={(e) => handleTickerInputChange(e.target.value)}
                       disabled={!requiresTicker}
                       required={requiresTicker}
                       placeholder={requiresTicker ? "Ej: MSFT" : "N/A"}

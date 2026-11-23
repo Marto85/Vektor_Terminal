@@ -266,6 +266,9 @@ export default function MacroLabTab() {
   const handleApplyPreset = (preset) => {
     setActivePreset(preset);
     setActiveMetrics([...preset.metrics]);
+    if (preset.metrics.length > 0) {
+      setMetricToAdd(preset.metrics[0]);
+    }
     setScaleMode(preset.scaleMode);
     setTimeRange(preset.range);
     setShowMeanLine(preset.metrics.length === 1);
@@ -553,10 +556,10 @@ export default function MacroLabTab() {
                 1. Diferencia entre "Métrica (12M / 3Y / 5Y / 10Y)" y "Rango del Gráfico"
               </p>
               <p>
-                • <strong>Métrica (ej. Retorno Móvil / Rolling 10Y):</strong> Indica <em>qué calcula cada punto</em>. En un retorno Rolling 10Y, cada fecha muestra el rendimiento anual compuesto (CAGR) que obtuvo alguien que compró 10 años antes y vendió en esa fecha.
+                - <strong>Métrica (ej. Retorno Móvil / Rolling 10Y):</strong> Indica <em>qué calcula cada punto</em>. En un retorno Rolling 10Y, cada fecha muestra el rendimiento anual compuesto (CAGR) que obtuvo alguien que compró 10 años antes y vendió en esa fecha.
               </p>
               <p>
-                • <strong>Rango de fechas en pantalla (YTD, 1Y, 5Y, 20Y, MAX):</strong> Controla únicamente <em>cuántos años de historia se muestran en el eje horizontal (X)</em>.
+                - <strong>Rango de fechas en pantalla (YTD, 1Y, 5Y, 20Y, MAX):</strong> Controla únicamente <em>cuántos años de historia se muestran en el eje horizontal (X)</em>.
               </p>
             </div>
             <div className="space-y-1.5">
@@ -564,13 +567,13 @@ export default function MacroLabTab() {
                 2. Cómo elegir la Escala del Eje Vertical (Y)
               </p>
               <p>
-                • <strong>Base 100:</strong> Iguala todas las series a 100 en la primera fecha visible para comparar <em>rendimientos acumulados</em> (solo válido para precios, índices o ratios positivos; deshabilitado en porcentajes).
+                - <strong>Base 100:</strong> Iguala todas las series a 100 en la primera fecha visible para comparar <em>rendimientos acumulados</em> (solo válido para precios, índices o ratios positivos; deshabilitado en porcentajes).
               </p>
               <p>
-                • <strong>Valor Directo:</strong> Grafica el número real exacto (obligatorio para porcentajes %, tasas o spreads).
+                - <strong>Valor Directo:</strong> Grafica el número real exacto (obligatorio para porcentajes %, tasas o spreads).
               </p>
               <p>
-                • <strong>Eje Dual:</strong> Usa el eje izquierdo para la 1ª serie y el derecho para las siguientes cuando comparás variables con unidades distintas (ej. S&P 500 en puntos vs. Tasa 10Y en %).
+                - <strong>Eje Dual:</strong> Usa el eje izquierdo para la 1ª serie y el derecho para las siguientes cuando comparás variables con unidades distintas (ej. S&P 500 en puntos vs. Tasa 10Y en %).
               </p>
             </div>
           </div>

@@ -10,19 +10,37 @@ import xml.etree.ElementTree as ET
 import pandas as pd
 import yfinance as yf
 from deep_translator import GoogleTranslator, MyMemoryTranslator
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 from app.models.database import (
     CompanyData,
     CompanyProfile,
     CompanyMarketCache,
     CompanyEstimatesCache,
+    is_sqlite,
 )
 
 MARKET_CACHE_TTL = timedelta(hours=4)
 ESTIMATES_CACHE_TTL = timedelta(hours=24)
-CF_LTM_SCHEMA_VERSION = 4
+CF_LTM_SCHEMA_VERSION = 5
 SEC_HEADERS = {"User-Agent": "MiTerminalFinanciera/1.0 (contacto@miterminal.local)"}
 WEB_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; VektorTerminal/1.0)"}
+
+
+def _upsert_by_ticker(db: Session, model: Any, ticker_upper: str, values: dict[str, Any]) -> None:
+    """
+    Ejecuta INSERT ... ON CONFLICT (ticker) DO UPDATE compatible con PostgreSQL (Neon) y SQLite,
+    eliminando errores `UniqueViolation` por peticiones concurrentes.
+    """
+    insert_fn = sqlite_insert if is_sqlite else pg_insert
+    stmt = insert_fn(model).values(ticker=ticker_upper, **values)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["ticker"],
+        set_=values,
+    )
+    db.execute(stmt)
+    db.commit()
 
 
 def _to_mm(val: Any, fx_rate: float = 1.0) -> float | None:
@@ -271,7 +289,6 @@ def _fetch_google_news_rss(
             source_el = item.find("source")
             publisher = (source_el.text or "").strip() if source_el is not None else "Google News"
 
-            # Google News suele anexar " - Nombre del Medio" al final del título
             if " - " in raw_title:
                 parts = raw_title.rsplit(" - ", 1)
                 raw_title = parts[0].strip()
@@ -304,27 +321,58 @@ def _fetch_google_news_rss(
     return collected
 
 
-def _resolve_fx_rate_to_trade_currency(info: dict[str, Any]) -> float:
+def _lookup_fx_multiplier(from_curr: str, to_curr: str = "USD") -> float:
     """
-    Si `financialCurrency` (moneda de los estados contables, ej. BRL, ARS) difiere de
-    `currency` (moneda de cotización, ej. USD), devuelve el tipo de cambio multiplicador
-    actualizado desde Yahoo Finance (`{FIN}{TRADE}=X`) para convertir magnitudes contables
-    a la moneda de cotización.
+    Consulta el tipo de cambio spot `{FROM}{TO}=X` (ej. ARSUSD=X, BRLUSD=X)
+    con respaldo inverso `1 / {TO}{FROM}=X` y historial de 5 días.
     """
-    trade_curr = str(info.get("currency") or "USD").upper()
-    fin_curr = str(info.get("financialCurrency") or trade_curr).upper()
-    if not fin_curr or fin_curr == trade_curr:
+    src = (from_curr or "USD").strip().upper()
+    dst = (to_curr or "USD").strip().upper()
+    if not src or not dst or src == dst:
         return 1.0
 
+    # 1. Par directo (ej. ARSUSD=X)
     try:
-        fx_tk = yf.Ticker(f"{fin_curr}{trade_curr}=X")
-        fx_info = fx_tk.fast_info
-        rate = float(getattr(fx_info, "last_price", 0.0) or 0.0)
+        tk_dir = yf.Ticker(f"{src}{dst}=X")
+        rate = float(getattr(tk_dir.fast_info, "last_price", 0.0) or 0.0)
         if rate > 0:
             return rate
+        hist = tk_dir.history(period="5d", interval="1d")
+        if hist is not None and not hist.empty and "Close" in hist.columns:
+            closes = hist["Close"].dropna()
+            if len(closes) >= 1 and float(closes.iloc[-1]) > 0:
+                return float(closes.iloc[-1])
     except Exception:
         pass
+
+    # 2. Par inverso (ej. USDARS=X -> 1 / rate)
+    try:
+        tk_inv = yf.Ticker(f"{dst}{src}=X")
+        inv_rate = float(getattr(tk_inv.fast_info, "last_price", 0.0) or 0.0)
+        if inv_rate > 0:
+            return 1.0 / inv_rate
+        hist_inv = tk_inv.history(period="5d", interval="1d")
+        if hist_inv is not None and not hist_inv.empty and "Close" in hist_inv.columns:
+            closes_inv = hist_inv["Close"].dropna()
+            if len(closes_inv) >= 1 and float(closes_inv.iloc[-1]) > 0:
+                return 1.0 / float(closes_inv.iloc[-1])
+    except Exception:
+        pass
+
     return 1.0
+
+
+def _resolve_fx_rate_to_trade_currency(info: dict[str, Any], sec_currency: str = "USD") -> float:
+    """
+    Si `financialCurrency` (Yahoo) o `sec_currency` (moneda detectada en SEC XBRL, ej. ARS, BRL)
+    difiere de `currency` (moneda de cotización, ej. USD), devuelve el multiplicador actualizado
+    para convertir magnitudes contables a la moneda de cotización.
+    """
+    trade_curr = str(info.get("currency") or "USD").upper()
+    fin_curr = str(info.get("financialCurrency") or sec_currency or trade_curr).upper()
+    if not fin_curr or fin_curr == trade_curr:
+        return 1.0
+    return _lookup_fx_multiplier(fin_curr, trade_curr)
 
 
 def _df_to_clean_dict(df: Any) -> dict[str, dict[str, Any]]:
@@ -497,20 +545,24 @@ def _extract_1y_market_fallbacks(ticker_obj: yf.Ticker) -> dict[str, float | Non
 
 def _extract_sec_fundamental_fallbacks(ticker_upper: str, db: Session) -> dict[str, Any]:
     """
-    Calcula métricas contables LTM/FY desde SEC EDGAR (`CompanyData` + `financial_parser`)
-    para poblar Estructura de Capital, Eficiencia, Crecimiento y Múltiplos cuando `.info` falla.
+    Calcula métricas contables LTM/FY desde SEC EDGAR (`CompanyData` + `financial_parser`),
+    detectando automáticamente la moneda original del reporte (`ARS`, `BRL`, `USD`, etc.) y
+    convirtiendo todas las cifras monetarias a `USD` para que sean comparables con la cotización.
     """
     try:
         from app.services.company_service import get_raw_financials
-        from app.services.financial_parser import extract_annual_metrics
+        from app.services.financial_parser import extract_annual_metrics, detect_reporting_currency
 
         raw_data = get_raw_financials(ticker_upper, db)
         rows = extract_annual_metrics(raw_data)
+        reporting_currency = detect_reporting_currency(raw_data)
     except Exception:
         return {}
 
     if not rows:
         return {}
+
+    sec_fx_to_usd = _lookup_fx_multiplier(reporting_currency, "USD")
 
     year_keys = sorted(
         k
@@ -520,15 +572,28 @@ def _extract_sec_fundamental_fallbacks(ticker_upper: str, db: Session) -> dict[s
     if not year_keys:
         return {}
 
-    latest_yr = year_keys[-1]
-    prev_yr = year_keys[-2] if len(year_keys) >= 2 else None
-
     by_metric: dict[str, dict[str, Any]] = {}
     for r in rows:
         if not r.get("is_header"):
             by_metric[str(r.get("Métrica") or "").strip()] = r
 
-    def _val(metric_name: str, yr: str | None) -> float | None:
+    # Seleccionar el último año fiscal con datos reales (evita columnas vacías del año en curso)
+    active_years = [
+        y
+        for y in year_keys
+        if any(
+            isinstance(by_metric.get(m, {}).get(y), (int, float))
+            and float(by_metric[m][y]) != 0.0
+            for m in ("Ingresos Totales", "Total activo", "Beneficio Neto", "Patrimonio neto")
+        )
+    ]
+    if not active_years:
+        return {}
+
+    latest_yr = active_years[-1]
+    prev_yr = active_years[-2] if len(active_years) >= 2 else None
+
+    def _val_raw(metric_name: str, yr: str | None) -> float | None:
         if not yr:
             return None
         row = by_metric.get(metric_name)
@@ -539,45 +604,51 @@ def _extract_sec_fundamental_fallbacks(ticker_upper: str, db: Session) -> dict[s
             return float(v)
         return None
 
-    rev_curr = _val("Ingresos Totales", latest_yr)
-    rev_prev = _val("Ingresos Totales", prev_yr)
-    gp_curr = _val("Beneficio Bruto", latest_yr)
-    ebit_curr = _val("Beneficio Operativo", latest_yr)
-    da_curr = _val("Depreciación y Amortización", latest_yr)
-    ebt_curr = _val("Beneficio antes de Impuestos", latest_yr)
-    tax_curr = _val("Gasto por Impuesto a las Ganancias", latest_yr)
-    ni_curr = _val("Beneficio Neto", latest_yr)
-    ni_prev = _val("Beneficio Neto", prev_yr)
+    def _val_usd(metric_name: str, yr: str | None) -> float | None:
+        raw_v = _val_raw(metric_name, yr)
+        return raw_v * sec_fx_to_usd if raw_v is not None else None
 
-    shares_mm = _val("Acciones en Circulación (Diluidas)", latest_yr) or _val(
-        "Acciones en Circulación (Básicas)", latest_yr
-    )
-    cash_mm = (_val("Efectivo y equivalentes", latest_yr) or 0.0) + (
-        _val("Inversiones a corto plazo", latest_yr) or 0.0
-    )
-    has_cash = (
-        _val("Efectivo y equivalentes", latest_yr) is not None
-        or _val("Inversiones a corto plazo", latest_yr) is not None
-    )
-    debt_mm = (_val("Deuda a corto plazo", latest_yr) or 0.0) + (
-        _val("Deuda a largo plazo", latest_yr) or 0.0
-    )
-    has_debt = (
-        _val("Deuda a corto plazo", latest_yr) is not None
-        or _val("Deuda a largo plazo", latest_yr) is not None
-    )
+    rev_curr = _val_usd("Ingresos Totales", latest_yr)
+    rev_prev = _val_usd("Ingresos Totales", prev_yr)
+    gp_curr = _val_usd("Beneficio Bruto", latest_yr)
+    ebit_curr = _val_usd("Beneficio Operativo", latest_yr)
+    da_curr = _val_usd("Depreciación y Amortización", latest_yr)
+    ebt_curr = _val_usd("Beneficio antes de Impuestos", latest_yr)
+    tax_curr = _val_usd("Gasto por Impuesto a las Ganancias", latest_yr)
+    ni_curr = _val_usd("Beneficio Neto", latest_yr)
+    ni_prev = _val_usd("Beneficio Neto", prev_yr)
 
-    equity_mm = _val("Patrimonio neto", latest_yr)
-    assets_mm = _val("Total activo", latest_yr)
-    ocf_mm = _val("Efectivo de Operaciones (CFO)", latest_yr)
-    capex_raw = _val("Gastos de capital (CapEx)", latest_yr)
+    # Las acciones en circulación NO se multiplican por FX (son cantidad de títulos)
+    shares_mm = None
+    for sy in reversed(active_years):
+        s_cand = _val_raw("Acciones en Circulación (Diluidas)", sy) or _val_raw(
+            "Acciones en Circulación (Básicas)", sy
+        )
+        if s_cand is not None and s_cand > 0:
+            shares_mm = s_cand
+            break
+
+    cash_raw_val = _val_usd("Efectivo y equivalentes", latest_yr)
+    st_inv_val = _val_usd("Inversiones a corto plazo", latest_yr)
+    has_cash = (cash_raw_val is not None and cash_raw_val != 0.0) or (st_inv_val is not None and st_inv_val != 0.0)
+    cash_mm = (cash_raw_val or 0.0) + (st_inv_val or 0.0)
+
+    st_debt_val = _val_usd("Deuda a corto plazo", latest_yr)
+    lt_debt_val = _val_usd("Deuda a largo plazo", latest_yr)
+    has_debt = (st_debt_val is not None and st_debt_val != 0.0) or (lt_debt_val is not None and lt_debt_val != 0.0)
+    debt_mm = (st_debt_val or 0.0) + (lt_debt_val or 0.0)
+
+    equity_mm = _val_usd("Patrimonio neto", latest_yr)
+    assets_mm = _val_usd("Total activo", latest_yr)
+    ocf_mm = _val_usd("Efectivo de Operaciones (CFO)", latest_yr)
+    capex_raw = _val_usd("Gastos de capital (CapEx)", latest_yr)
     capex_mm = abs(capex_raw) if capex_raw is not None else None
-    fcf_mm = _val("Flujo de caja libre (FCF)", latest_yr)
-    if fcf_mm is None and ocf_mm is not None and capex_mm is not None:
+    fcf_mm = _val_usd("Flujo de caja libre (FCF)", latest_yr)
+    if (fcf_mm is None or fcf_mm == 0.0) and ocf_mm is not None and capex_mm is not None:
         fcf_mm = round(ocf_mm - capex_mm, 2)
 
-    div_raw = _val("Pago de dividendos", latest_yr)
-    div_paid_mm = abs(div_raw) if div_raw is not None else None
+    div_raw = _val_usd("Pago de dividendos", latest_yr)
+    div_paid_mm = abs(div_raw) if (div_raw is not None and div_raw != 0.0) else None
 
     ebitda_mm: float | None = None
     if ebit_curr is not None and da_curr is not None:
@@ -586,11 +657,11 @@ def _extract_sec_fundamental_fallbacks(ticker_upper: str, db: Session) -> dict[s
         ebitda_mm = round(ebit_curr, 2)
 
     rev_growth_pct: float | None = None
-    if rev_curr is not None and rev_prev is not None and abs(rev_prev) > 0:
+    if rev_curr is not None and rev_prev is not None and abs(rev_prev) > 0 and rev_curr != 0.0:
         rev_growth_pct = round(((rev_curr - rev_prev) / abs(rev_prev)) * 100.0, 1)
 
     ni_growth_pct: float | None = None
-    if ni_curr is not None and ni_prev is not None and abs(ni_prev) > 0:
+    if ni_curr is not None and ni_prev is not None and abs(ni_prev) > 0 and ni_curr != 0.0:
         ni_growth_pct = round(((ni_curr - ni_prev) / abs(ni_prev)) * 100.0, 1)
 
     eff_tax = 0.21
@@ -606,26 +677,29 @@ def _extract_sec_fundamental_fallbacks(ticker_upper: str, db: Session) -> dict[s
 
     return {
         "fiscal_year": latest_yr,
+        "reporting_currency": reporting_currency,
+        "sec_fx_to_usd": sec_fx_to_usd,
         "entity_name": entity_name,
         "sic_description": sic_desc,
         "shares_out_mm": round(shares_mm, 2) if shares_mm is not None else None,
         "total_cash_mm": round(cash_mm, 2) if has_cash else None,
         "total_debt_mm": round(debt_mm, 2) if has_debt else None,
-        "revenue_mm": round(rev_curr, 2) if rev_curr is not None else None,
-        "gross_profit_mm": round(gp_curr, 2) if gp_curr is not None else None,
-        "ebit_mm": round(ebit_curr, 2) if ebit_curr is not None else None,
-        "ebitda_mm": ebitda_mm,
-        "net_income_mm": round(ni_curr, 2) if ni_curr is not None else None,
-        "book_equity_mm": round(equity_mm, 2) if equity_mm is not None else None,
-        "total_assets_mm": round(assets_mm, 2) if assets_mm is not None else None,
-        "ocf_ltm_mm": round(ocf_mm, 2) if ocf_mm is not None else None,
+        "revenue_mm": round(rev_curr, 2) if (rev_curr is not None and rev_curr != 0.0) else None,
+        "gross_profit_mm": round(gp_curr, 2) if (gp_curr is not None and gp_curr != 0.0) else None,
+        "ebit_mm": round(ebit_curr, 2) if (ebit_curr is not None and ebit_curr != 0.0) else None,
+        "ebitda_mm": ebitda_mm if (ebitda_mm is not None and ebitda_mm != 0.0) else None,
+        "net_income_mm": round(ni_curr, 2) if (ni_curr is not None and ni_curr != 0.0) else None,
+        "book_equity_mm": round(equity_mm, 2) if (equity_mm is not None and equity_mm != 0.0) else None,
+        "total_assets_mm": round(assets_mm, 2) if (assets_mm is not None and assets_mm != 0.0) else None,
+        "ocf_ltm_mm": round(ocf_mm, 2) if (ocf_mm is not None and ocf_mm != 0.0) else None,
         "capex_ltm_mm": round(capex_mm, 2) if capex_mm is not None else None,
-        "fcf_ltm_mm": round(fcf_mm, 2) if fcf_mm is not None else None,
+        "fcf_ltm_mm": round(fcf_mm, 2) if (fcf_mm is not None and fcf_mm != 0.0) else None,
         "dividends_paid_mm": round(div_paid_mm, 2) if div_paid_mm is not None else None,
         "revenue_growth_yoy_pct": rev_growth_pct,
         "earnings_growth_yoy_pct": ni_growth_pct,
         "effective_tax_rate": round(eff_tax, 4),
     }
+
 
 def _extract_ltm_cashflow_metrics(
     ticker_obj: yf.Ticker, info: dict[str, Any], fx_rate: float
@@ -709,7 +783,7 @@ def _extract_ltm_cashflow_metrics(
 def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any]:
     """
     Obtiene datos de mercado (precio, cambio, acciones, deuda neta, fx_rate, cf_ltm, noticias,
-    respaldo fundamental SEC EDGAR e info) desde Neon si tienen menos de 4 horas y precio válido.
+    respaldo fundamental SEC EDGAR e info) desde Neon usando upsert atómico para evitar colisiones.
     """
     ticker_upper = ticker_symbol.upper()
     now = datetime.utcnow()
@@ -781,8 +855,9 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
     change = price - prev_close if prev_close > 0 else 0.0
     change_pct = (change / prev_close) * 100 if prev_close > 0 else 0.0
 
-    fx_rate = _resolve_fx_rate_to_trade_currency(info)
     sec_fundamentals = _extract_sec_fundamental_fallbacks(ticker_upper, db)
+    sec_rep_curr = str(sec_fundamentals.get("reporting_currency") or "USD")
+    fx_rate = _resolve_fx_rate_to_trade_currency(info, sec_currency=sec_rep_curr)
     market_1y_fallback = _extract_1y_market_fallbacks(ticker) if not info else {}
 
     shares_raw = info.get("sharesOutstanding")
@@ -834,6 +909,7 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         "change": change,
         "change_pct": change_pct,
         "fx_rate": fx_rate,
+        "reporting_currency": sec_rep_curr,
         "shares_mm": shares_mm,
         "net_debt_mm": net_debt_mm,
         "news": news_list,
@@ -843,24 +919,17 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         "market_1y_fallback": market_1y_fallback,
     }
 
-    # Evitar persistir snapshots fallidos con precio 0
+    # Evitar persistir snapshots fallidos con precio 0; upsert atómico contra concurrencia
     if price > 0.0:
-        if cached_row is not None:
-            db.query(CompanyMarketCache).filter(
-                CompanyMarketCache.ticker == ticker_upper
-            ).update({
-                "market_data": snapshot,
-                "last_updated": now,
-            })
-        else:
-            db.add(
-                CompanyMarketCache(
-                    ticker=ticker_upper,
-                    market_data=snapshot,
-                    last_updated=now,
-                )
+        try:
+            _upsert_by_ticker(
+                db,
+                CompanyMarketCache,
+                ticker_upper,
+                {"market_data": snapshot, "last_updated": now},
             )
-        db.commit()
+        except Exception:
+            db.rollback()
 
     return snapshot
 
@@ -944,23 +1013,16 @@ def get_cached_estimates_and_guidance(ticker_symbol: str, db: Session) -> dict[s
         "sec_8k_guidance_filings": sec_8k_filings,
     }
 
-    if cached_row is not None:
-        db.query(CompanyEstimatesCache).filter(
-            CompanyEstimatesCache.ticker == ticker_upper
-        ).update({
-            "estimates_data": payload,
-            "last_updated": now,
-        })
-    else:
-        db.add(
-            CompanyEstimatesCache(
-                ticker=ticker_upper,
-                estimates_data=payload,
-                last_updated=now,
-            )
+    try:
+        _upsert_by_ticker(
+            db,
+            CompanyEstimatesCache,
+            ticker_upper,
+            {"estimates_data": payload, "last_updated": now},
         )
+    except Exception:
+        db.rollback()
 
-    db.commit()
     return payload
 
 
@@ -975,7 +1037,7 @@ def _build_summary_metrics(
     """
     Construye las 4 secciones del panel derecho estilo TIKR en 2 columnas
     combinando `info` de Yahoo Finance con los estados contables de SEC EDGAR
-    y series históricas de 1 año como respaldo automático en producción.
+    (ya convertidos a USD) y series históricas de 1 año como respaldo automático.
     """
     sec = sec_fundamentals if isinstance(sec_fundamentals, dict) else {}
     mkt_1y = market_1y_fallback if isinstance(market_1y_fallback, dict) else {}
@@ -1206,7 +1268,7 @@ def _build_summary_metrics(
 def get_company_profile(ticker_symbol: str, db: Session) -> dict:
     """
     Datos de mercado (precio, noticias, estructura de capital): Se leen desde CompanyMarketCache (TTL 4h)
-    con respaldo automático desde SEC EDGAR y series OHLCV.
+    con respaldo automático desde SEC EDGAR (convertido a USD) y series OHLCV.
     Datos estáticos (descripción en español, web): Se persisten en Neon (`CompanyProfile`) usando
     Yahoo Finance como fuente primaria y Wikipedia + SEC EDGAR como respaldo permanente.
     """
@@ -1235,7 +1297,6 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
         website = str(profile_db.website)
         translated_desc = desc_str
     else:
-        # Si info llegó vacío en el snapshot, hacer un intento directo por si el bloqueo fue transitorio
         if not info:
             try:
                 fresh_info = yf.Ticker(ticker_upper).info or {}
@@ -1310,22 +1371,15 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
                 persist_permanent = True
 
         if persist_permanent and translated_desc:
-            if profile_db:
-                db.query(CompanyProfile).filter(CompanyProfile.ticker == ticker_upper).update({
-                    "name": name,
-                    "website": website,
-                    "description": translated_desc,
-                })
-            else:
-                db.add(
-                    CompanyProfile(
-                        ticker=ticker_upper,
-                        name=name,
-                        website=website,
-                        description=translated_desc,
-                    )
+            try:
+                _upsert_by_ticker(
+                    db,
+                    CompanyProfile,
+                    ticker_upper,
+                    {"name": name, "website": website, "description": translated_desc},
                 )
-            db.commit()
+            except Exception:
+                db.rollback()
         elif not translated_desc:
             # Respaldo 2: Ficha institucional desde SEC EDGAR (transitoria, no congela CompanyProfile)
             exchanges = sec_sub_meta.get("exchanges") if isinstance(sec_sub_meta.get("exchanges"), list) else []
@@ -1345,6 +1399,7 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
         "change_pct": change_pct,
         "website": website,
         "description": translated_desc,
+        "reporting_currency": str(sec_fundamentals.get("reporting_currency") or "USD"),
         "news": news_list,
         "summary_metrics": _build_summary_metrics(
             info=info,

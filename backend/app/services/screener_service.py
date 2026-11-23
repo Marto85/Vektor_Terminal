@@ -2,9 +2,13 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.database import CompanyMarketCache
-from app.core.yf_client import get_cached_market_snapshot, CF_LTM_SCHEMA_VERSION
+from app.core.yf_client import (
+    get_cached_market_snapshot,
+    _build_summary_metrics,
+    CF_LTM_SCHEMA_VERSION,
+)
 
-# Universo institucional curado (~68 emisores líderes globales y ADRs LatAm)
+# Universo institucional curado (~150 emisores líderes globales y ADRs LatAm)
 SCREENER_UNIVERSE: list[str] = [
     # Mega Cap Tech, IA Frontier, Software & Ciberseguridad (28)
     "MSFT", "AAPL", "GOOGL", "META", "AMZN", "NVDA", "AVGO", "ORCL", "CRM", "ADBE",
@@ -38,96 +42,80 @@ SCREENER_UNIVERSE: list[str] = [
     "STNE", "PAGS", "XP", "ITUB", "PBR", "VALE", "BABA",
 ]
 
-def _extract_screener_row(ticker_upper: str, snap: dict[str, Any]) -> dict[str, Any] | None:
-    info: dict[str, Any] = snap.get("info") or {}
-    if not info:
-        return None
 
-    sector = str(info.get("sector") or "Otros")
-    industry = str(info.get("industry") or "")
-    is_financial = "financial" in sector.lower() or any(
-        k in industry.lower() for k in ("bank", "insurance", "capital markets", "credit", "asset management")
-    )
+def _infer_sector_from_sic_desc(sic_desc: str) -> str:
+    low = (sic_desc or "").lower()
+    if not low:
+        return "Otros"
+    if any(k in low for k in ("software", "computer", "semiconductor", "electronic", "data processing", "communications")):
+        return "Technology"
+    if any(k in low for k in ("bank", "depository", "credit", "finance", "insurance", "investment", "security brokers")):
+        return "Financial Services"
+    if any(k in low for k in ("pharmaceutical", "biological", "medical", "surgical", "hospital", "health")):
+        return "Healthcare"
+    if any(k in low for k in ("retail", "catalog", "apparel", "restaurant", "eating", "hotel", "motor vehicles")):
+        return "Consumer Cyclical"
+    if any(k in low for k in ("beverage", "food", "soap", "tobacco", "grocery")):
+        return "Consumer Defensive"
+    if any(k in low for k in ("petroleum", "oil", "gas", "coal", "energy")):
+        return "Energy"
+    if any(k in low for k in ("electric", "water", "natural gas distribution", "utility")):
+        return "Utilities"
+    if any(k in low for k in ("aircraft", "machinery", "railroad", "construction", "industrial", "aerospace")):
+        return "Industrials"
+    if any(k in low for k in ("chemical", "metal", "mining", "steel", "paper")):
+        return "Basic Materials"
+    if any(k in low for k in ("real estate", "reit")):
+        return "Real Estate"
+    return "Otros"
+
+
+def _extract_screener_row(ticker_upper: str, snap: dict[str, Any]) -> dict[str, Any] | None:
+    raw_info = snap.get("info")
+    info: dict[str, Any] = raw_info if isinstance(raw_info, dict) else {}
+    raw_sec_fb = snap.get("sec_fundamentals")
+    sec_fb: dict[str, Any] = raw_sec_fb if isinstance(raw_sec_fb, dict) else {}
 
     price = float(snap.get("price") or 0.0)
-    shares_mm = float(snap.get("shares_mm") or 0.0)
-    net_debt_mm = float(snap.get("net_debt_mm") or 0.0)
+    if price <= 0.0 and not info and not sec_fb:
+        return None
+
     fx_rate = float(snap.get("fx_rate") or 1.0)
-    cf_ltm: dict[str, Any] = snap.get("cf_ltm") or {}
+    summary = _build_summary_metrics(
+        info=info,
+        price=price,
+        fx_rate=fx_rate,
+        cf_ltm=snap.get("cf_ltm"),
+        sec_fundamentals=sec_fb,
+        market_1y_fallback=snap.get("market_1y_fallback"),
+    )
 
-    mcap_mm = round(price * shares_mm, 2) if (price > 0 and shares_mm > 0) else None
-    ev_mm = round(mcap_mm + net_debt_mm, 2) if mcap_mm is not None else None
+    cap = summary.get("capital_structure", {})
+    eff = summary.get("efficiency", {})
+    gcf = summary.get("growth_cashflow", {})
+    val = summary.get("valuation", {})
 
-    rev_mm = ((info.get("totalRevenue") or 0) * fx_rate) / 1_000_000.0 if info.get("totalRevenue") is not None else None
-    ebitda_mm = ((info.get("ebitda") or 0) * fx_rate) / 1_000_000.0 if info.get("ebitda") is not None else None
-    net_inc_mm = ((info.get("netIncomeToCommon") or 0) * fx_rate) / 1_000_000.0 if info.get("netIncomeToCommon") is not None else None
+    sic_desc = str(sec_fb.get("sic_description") or "").strip()
+    sector = str(info.get("sector") or _infer_sector_from_sic_desc(sic_desc) or "Otros")
+    industry = str(info.get("industry") or sic_desc or "")
+    is_financial = "financial" in sector.lower() or any(
+        k in industry.lower() for k in ("bank", "depository", "insurance", "capital markets", "credit", "asset management")
+    )
 
-    fcf_mm: float | None = cf_ltm.get("fcf_ltm_mm")
-    if fcf_mm is None and info.get("freeCashflow") is not None:
-        fcf_mm = round((float(info["freeCashflow"]) * fx_rate) / 1_000_000.0, 2)
-
-    pe_ltm: float | None = None
-    raw_pe = info.get("trailingPE")
-    if raw_pe is not None and float(raw_pe) > 0:
-        pe_ltm = round(float(raw_pe), 2)
-    elif mcap_mm and net_inc_mm and net_inc_mm > 0:
-        pe_ltm = round(mcap_mm / net_inc_mm, 2)
-
-    pe_ntm: float | None = None
-    raw_fpe = info.get("forwardPE")
-    if raw_fpe is not None and float(raw_fpe) > 0:
-        pe_ntm = round(float(raw_fpe), 2)
-    elif price > 0 and info.get("forwardEps") is not None and float(info["forwardEps"]) > 0:
-        pe_ntm = round(price / float(info["forwardEps"]), 2)
-
-    ev_ebitda_ltm: float | None = None
-    if not is_financial and ev_mm and ev_mm > 0 and ebitda_mm and ebitda_mm > 0:
-        ev_ebitda_ltm = round(ev_mm / ebitda_mm, 2)
-
-    ev_sales_ltm: float | None = None
-    if ev_mm and ev_mm > 0 and rev_mm and rev_mm > 0:
-        ev_sales_ltm = round(ev_mm / rev_mm, 2)
-
-    pb_ltm: float | None = None
-    if info.get("priceToBook") is not None and float(info["priceToBook"]) > 0:
-        pb_ltm = round(float(info["priceToBook"]), 2)
-
-    p_fcf_ltm: float | None = None
-    if not is_financial and mcap_mm and mcap_mm > 0 and fcf_mm and fcf_mm > 0:
-        p_fcf_ltm = round(mcap_mm / fcf_mm, 2)
+    mcap_mm = cap.get("market_cap_mm")
+    ev_mm = cap.get("enterprise_value_mm")
+    fcf_mm = gcf.get("fcf_ltm_mm")
 
     fcf_yield_pct: float | None = None
     if not is_financial and fcf_mm is not None and mcap_mm and mcap_mm > 0:
-        fcf_yield_pct = round((fcf_mm / mcap_mm) * 100.0, 2)
+        fcf_yield_pct = round((float(fcf_mm) / float(mcap_mm)) * 100.0, 2)
 
-    ebit_margin_pct = round(float(info["operatingMargins"]) * 100.0, 1) if info.get("operatingMargins") is not None else None
-    net_margin_pct = round(float(info["profitMargins"]) * 100.0, 1) if info.get("profitMargins") is not None else None
-    roe_pct = round(float(info["returnOnEquity"]) * 100.0, 1) if info.get("returnOnEquity") is not None else None
-
-    roic_pct: float | None = None
-    if not is_financial and rev_mm and rev_mm > 0 and ebit_margin_pct is not None and mcap_mm and pb_ltm and pb_ltm > 0:
-        inv_cap = (mcap_mm / pb_ltm) + net_debt_mm
-        if inv_cap > 0:
-            roic_pct = round(((rev_mm * (ebit_margin_pct / 100.0)) / inv_cap) * 100.0, 1)
-
-    net_debt_to_ebitda: float | None = None
-    if not is_financial and ebitda_mm and ebitda_mm > 0:
-        net_debt_to_ebitda = round(net_debt_mm / ebitda_mm, 2)
-
-    rev_growth_yoy_pct = round(float(info["revenueGrowth"]) * 100.0, 1) if info.get("revenueGrowth") is not None else None
-
-    raw_dy = info.get("dividendYield")
-    div_yield_pct: float | None = None
-    if raw_dy is not None:
-        val_dy = float(raw_dy)
-        div_yield_pct = round(val_dy if val_dy > 1 else val_dy * 100.0, 2)
-
-    target_price = info.get("targetMeanPrice")
+    target_price = val.get("target_price")
     upside_ws_pct = round(((float(target_price) - price) / price) * 100.0, 1) if (target_price and price > 0) else None
 
     return {
         "ticker": ticker_upper,
-        "name": info.get("shortName") or info.get("longName") or ticker_upper,
+        "name": info.get("shortName") or info.get("longName") or sec_fb.get("entity_name") or ticker_upper,
         "sector": sector,
         "industry": industry,
         "country": info.get("country") or "",
@@ -135,43 +123,46 @@ def _extract_screener_row(ticker_upper: str, snap: dict[str, Any]) -> dict[str, 
         "market_cap_mm": mcap_mm,
         "enterprise_value_mm": ev_mm,
         "fcf_ltm_mm": fcf_mm,
-        "pe_ltm": pe_ltm,
-        "pe_ntm": pe_ntm,
-        "ev_ebitda_ltm": ev_ebitda_ltm,
-        "ev_sales_ltm": ev_sales_ltm,
-        "pb_ltm": pb_ltm,
-        "p_fcf_ltm": p_fcf_ltm,
+        "pe_ltm": val.get("pe_ltm"),
+        "pe_ntm": val.get("pe_ntm"),
+        "ev_ebitda_ltm": None if is_financial else val.get("ev_to_ebitda_ltm"),
+        "ev_sales_ltm": val.get("ev_to_sales_ltm"),
+        "pb_ltm": val.get("pb_ltm"),
+        "p_fcf_ltm": None if is_financial else val.get("p_to_fcf_ltm"),
         "fcf_yield_pct": fcf_yield_pct,
-        "ebit_margin_pct": ebit_margin_pct,
-        "net_margin_pct": net_margin_pct,
-        "roe_pct": roe_pct,
-        "roic_pct": roic_pct,
-        "net_debt_to_ebitda": net_debt_to_ebitda,
-        "rev_growth_yoy_pct": rev_growth_yoy_pct,
-        "dividend_yield_pct": div_yield_pct,
+        "ebit_margin_pct": eff.get("ebit_margin_pct"),
+        "net_margin_pct": eff.get("net_margin_pct"),
+        "roe_pct": eff.get("roe_pct"),
+        "roic_pct": None if is_financial else eff.get("roic_pct"),
+        "net_debt_to_ebitda": None if is_financial else cap.get("net_debt_to_ebitda"),
+        "rev_growth_yoy_pct": gcf.get("revenue_growth_yoy_pct"),
+        "dividend_yield_pct": val.get("dividend_yield_pct"),
         "upside_ws_pct": upside_ws_pct,
     }
 
 
 def get_screener_universe(db: Session, bootstrap_limit: int = 12) -> dict[str, Any]:
     """
-    Devuelve todas las empresas cacheadas en SQLite listas para filtrar en el Screener.
-    Actualiza automáticamente snapshots que usen versiones previas de `cf_ltm`.
+    Devuelve todas las empresas cacheadas en Neon/SQLite listas para filtrar en el Screener.
+    Combina datos de mercado con respaldo SEC EDGAR para no dejar múltiplos vacíos.
     """
     cached_rows = db.query(CompanyMarketCache).all()
     cached_map: dict[str, dict[str, Any]] = {}
     for row in cached_rows:
         tk = str(row.ticker).upper()
         payload: Any = row.market_data
-        if isinstance(payload, dict) and payload.get("info"):
+        if isinstance(payload, dict) and float(payload.get("price") or 0) > 0:
             cf_block = payload.get("cf_ltm")
-            if isinstance(cf_block, dict) and cf_block.get("schema_version") == CF_LTM_SCHEMA_VERSION:
+            has_sec = isinstance(payload.get("sec_fundamentals"), dict) and len(payload["sec_fundamentals"]) > 0
+            if isinstance(cf_block, dict) and cf_block.get("schema_version") == CF_LTM_SCHEMA_VERSION and (payload.get("info") or has_sec):
                 cached_map[tk] = payload
             else:
                 try:
                     refreshed = get_cached_market_snapshot(tk, db)
-                    if refreshed and refreshed.get("info"):
+                    if refreshed and float(refreshed.get("price") or 0) > 0:
                         cached_map[tk] = refreshed
+                    else:
+                        cached_map[tk] = payload
                 except Exception:
                     cached_map[tk] = payload
 
@@ -181,7 +172,7 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 12) -> dict[str, A
         for sym in missing_from_universe[:bootstrap_limit]:
             try:
                 snap = get_cached_market_snapshot(sym, db)
-                if snap and snap.get("info"):
+                if snap and float(snap.get("price") or 0) > 0:
                     cached_map[sym] = snap
             except Exception:
                 continue
@@ -209,7 +200,7 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 12) -> dict[str, A
 
 def sync_screener_batch(db: Session, batch_size: int = 15) -> dict[str, Any]:
     """
-    Sincroniza en SQLite el siguiente lote de `batch_size` empresas del universo curado
+    Sincroniza en base de datos el siguiente lote de `batch_size` empresas del universo curado
     que aún no están cacheadas.
     """
     cached_tickers = {
@@ -222,7 +213,7 @@ def sync_screener_batch(db: Session, batch_size: int = 15) -> dict[str, Any]:
     for sym in pending[:batch_size]:
         try:
             snap = get_cached_market_snapshot(sym, db)
-            if snap and snap.get("info"):
+            if snap and float(snap.get("price") or 0) > 0:
                 synced.append(sym)
         except Exception:
             continue

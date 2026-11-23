@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.yf_client import (
     get_cached_market_snapshot,
     get_cached_estimates_and_guidance,
+    _build_summary_metrics,
 )
 
 # Mapa curado de pares directos por industria / ticker para asegurar comparables institucionales
@@ -24,6 +25,8 @@ CURATED_PEERS_BY_TICKER: dict[str, list[str]] = {
     "PEP": ["KO", "MNST", "KDP", "MDLZ", "KHC"],
     "JPM": ["BAC", "WFC", "C", "GS", "MS"],
     "BAC": ["JPM", "WFC", "C", "USB", "PNC"],
+    "BMA": ["GGAL", "BBAR", "SUPV", "ITUB", "NU"],
+    "GGAL": ["BMA", "BBAR", "SUPV", "ITUB", "NU"],
     "NU": ["STNE", "PAGS", "XP", "SOFI", "ITUB"],
     "STNE": ["PAGS", "NU", "MELI", "SQ", "PYPL"],
     "MELI": ["AMZN", "SE", "SHOP", "NU", "STNE"],
@@ -119,92 +122,77 @@ def _extract_comparable_row(ticker_upper: str, db: Session, is_base: bool = Fals
     except Exception:
         return None
 
-    info: dict[str, Any] = snap.get("info", {})
-    if not info:
+    raw_info = snap.get("info")
+    info: dict[str, Any] = raw_info if isinstance(raw_info, dict) else {}
+    raw_sec_fb = snap.get("sec_fundamentals")
+    sec_fb: dict[str, Any] = raw_sec_fb if isinstance(raw_sec_fb, dict) else {}
+    price = float(snap.get("price") or 0.0)
+    if price <= 0.0 and not info and not sec_fb:
         return None
 
-    price = float(snap.get("price") or 0.0)
-    shares_mm = float(snap.get("shares_mm") or 0.0)
-    net_debt_mm = float(snap.get("net_debt_mm") or 0.0)
     fx_rate = float(snap.get("fx_rate") or 1.0)
-    cf_ltm: dict[str, Any] = snap.get("cf_ltm") or {}
+    summary = _build_summary_metrics(
+        info=info,
+        price=price,
+        fx_rate=fx_rate,
+        cf_ltm=snap.get("cf_ltm"),
+        sec_fundamentals=sec_fb,
+        market_1y_fallback=snap.get("market_1y_fallback"),
+    )
+    cap = summary.get("capital_structure", {})
+    eff = summary.get("efficiency", {})
+    gcf = summary.get("growth_cashflow", {})
+    val = summary.get("valuation", {})
 
-    mcap_mm = round(price * shares_mm, 2) if (price > 0 and shares_mm > 0) else None
-    ev_mm = round(mcap_mm + net_debt_mm, 2) if mcap_mm is not None else None
-
-    rev_mm = ((info.get("totalRevenue") or 0) * fx_rate) / 1_000_000.0 if info.get("totalRevenue") is not None else None
-    ebitda_mm = ((info.get("ebitda") or 0) * fx_rate) / 1_000_000.0 if info.get("ebitda") is not None else None
-    net_inc_mm = ((info.get("netIncomeToCommon") or 0) * fx_rate) / 1_000_000.0 if info.get("netIncomeToCommon") is not None else None
-
-    fcf_mm: float | None = cf_ltm.get("fcf_ltm_mm")
-    if fcf_mm is None and info.get("freeCashflow") is not None:
-        fcf_mm = round((float(info["freeCashflow"]) * fx_rate) / 1_000_000.0, 2)
-
-    raw_trailing_pe = info.get("trailingPE")
-    if raw_trailing_pe is not None:
-        pe_ltm: float | str | None = round(float(raw_trailing_pe), 2) if float(raw_trailing_pe) > 0 else "N/M"
-    else:
-        pe_ltm = _valuation_multiple(mcap_mm, net_inc_mm)
-
-    raw_fwd_pe = info.get("forwardPE")
-    pe_ntm: float | str | None = None
-    if raw_fwd_pe is not None:
-        pe_ntm = round(float(raw_fwd_pe), 2) if float(raw_fwd_pe) > 0 else "N/M"
-    elif price > 0 and info.get("forwardEps") is not None:
-        f_eps = float(info["forwardEps"])
-        pe_ntm = round(price / f_eps, 2) if f_eps > 0 else "N/M"
-
-    raw_pb = info.get("priceToBook")
-    pb_ltm: float | str | None = None
-    if raw_pb is not None:
-        pb_ltm = round(float(raw_pb), 2) if float(raw_pb) > 0 else "N/M"
-
-    ev_sales = _valuation_multiple(ev_mm, rev_mm)
-    ev_ebitda = _valuation_multiple(ev_mm, ebitda_mm)
-    p_fcf = _valuation_multiple(mcap_mm, fcf_mm)
+    mcap_mm = cap.get("market_cap_mm")
+    ev_mm = cap.get("enterprise_value_mm")
+    fcf_mm = gcf.get("fcf_ltm_mm")
 
     fcf_yield_pct: float | None = None
     if fcf_mm is not None and mcap_mm and mcap_mm > 0:
-        fcf_yield_pct = round((fcf_mm / mcap_mm) * 100.0, 2)
+        fcf_yield_pct = round((float(fcf_mm) / float(mcap_mm)) * 100.0, 2)
 
+    rev_mm = ((info.get("totalRevenue") or 0) * fx_rate) / 1_000_000.0 if info.get("totalRevenue") is not None else sec_fb.get("revenue_mm")
     rev_g = info.get("revenueGrowth")
-    rev_ntm = rev_mm * (1.0 + float(rev_g)) if (rev_mm and rev_mm > 0 and rev_g is not None) else None
+    rev_ntm = float(rev_mm) * (1.0 + float(rev_g)) if (rev_mm and float(rev_mm) > 0 and rev_g is not None) else None
     ev_sales_ntm = _valuation_multiple(ev_mm, rev_ntm)
 
-    ebit_margin = round(float(info["operatingMargins"]) * 100.0, 1) if info.get("operatingMargins") is not None else None
-    net_margin = round(float(info["profitMargins"]) * 100.0, 1) if info.get("profitMargins") is not None else None
-    roe = round(float(info["returnOnEquity"]) * 100.0, 1) if info.get("returnOnEquity") is not None else None
-    roic = None
-    if rev_mm and rev_mm > 0 and ebit_margin is not None and mcap_mm and isinstance(pb_ltm, float) and pb_ltm > 0:
-        inv_cap = (mcap_mm / pb_ltm) + net_debt_mm
-        if inv_cap > 0:
-            roic = round(((rev_mm * (ebit_margin / 100.0)) / inv_cap) * 100.0, 1)
-
     consensus_summary = est.get("consensus_summary", {})
-    rev_growth_pct = round(float(rev_g) * 100.0, 1) if rev_g is not None else consensus_summary.get("revenue_growth_yoy_pct")
-    target_price = info.get("targetMeanPrice")
+    rev_growth_pct = gcf.get("revenue_growth_yoy_pct")
+    if rev_growth_pct is None:
+        rev_growth_pct = consensus_summary.get("revenue_growth_yoy_pct")
+
+    target_price = val.get("target_price")
     upside_ws_pct = round(((float(target_price) - price) / price) * 100.0, 1) if (target_price and price > 0) else None
+
+    pe_ltm: float | str | None = val.get("pe_ltm")
+    if pe_ltm is None and sec_fb.get("net_income_mm") is not None and float(sec_fb["net_income_mm"]) <= 0:
+        pe_ltm = "N/M"
+
+    p_fcf_ltm: float | str | None = val.get("p_to_fcf_ltm")
+    if p_fcf_ltm is None and fcf_mm is not None and float(fcf_mm) <= 0:
+        p_fcf_ltm = "N/M"
 
     return {
         "ticker": ticker_upper,
-        "name": info.get("shortName") or info.get("longName") or ticker_upper,
+        "name": info.get("shortName") or info.get("longName") or sec_fb.get("entity_name") or ticker_upper,
         "is_base": is_base,
         "price": round(price, 2),
         "market_cap_mm": mcap_mm,
         "enterprise_value_mm": ev_mm,
         "fcf_ltm_mm": fcf_mm,
         "fcf_yield_pct": fcf_yield_pct,
-        "ev_sales_ltm": ev_sales,
+        "ev_sales_ltm": val.get("ev_to_sales_ltm"),
         "ev_sales_ntm": ev_sales_ntm,
-        "ev_ebitda_ltm": ev_ebitda,
+        "ev_ebitda_ltm": val.get("ev_to_ebitda_ltm"),
         "pe_ltm": pe_ltm,
-        "pe_ntm": pe_ntm,
-        "pb_ltm": pb_ltm,
-        "p_fcf_ltm": p_fcf,
-        "ebit_margin_pct": ebit_margin,
-        "net_margin_pct": net_margin,
-        "roe_pct": roe,
-        "roic_pct": roic,
+        "pe_ntm": val.get("pe_ntm"),
+        "pb_ltm": val.get("pb_ltm"),
+        "p_fcf_ltm": p_fcf_ltm,
+        "ebit_margin_pct": eff.get("ebit_margin_pct"),
+        "net_margin_pct": eff.get("net_margin_pct"),
+        "roe_pct": eff.get("roe_pct"),
+        "roic_pct": eff.get("roic_pct"),
         "rev_growth_yoy_pct": rev_growth_pct,
         "upside_ws_pct": upside_ws_pct,
     }
@@ -249,8 +237,10 @@ def build_peers_comparison(ticker_symbol: str, db: Session) -> dict[str, Any]:
     classification = est.get("classification", {})
     sector = classification.get("sector", "")
     industry = classification.get("industry", "")
-    is_financial = "financial" in sector.lower() or any(
-        k in industry.lower() for k in ("bank", "insurance", "capital markets", "credit", "asset management")
+    sic_desc = classification.get("sic_description", "")
+    is_financial = any(
+        k in f"{sector} {industry} {sic_desc}".lower()
+        for k in ("financial", "bank", "depository", "insurance", "capital markets", "credit", "asset management")
     )
 
     base_row = _extract_comparable_row(ticker_upper, db, is_base=True)

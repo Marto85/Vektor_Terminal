@@ -2,6 +2,32 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import apiClient, { getStoredToken, setStoredToken } from "../api/client";
 import { AuthContext } from "./authStore";
 
+const CACHED_USER_KEY = "vektor_cached_user_v1";
+
+function loadCachedUser() {
+  if (typeof window === "undefined") return null;
+  try {
+    if (!getStoredToken()) return null;
+    const raw = localStorage.getItem(CACHED_USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedUser(userObj) {
+  if (typeof window === "undefined") return;
+  try {
+    if (userObj) {
+      localStorage.setItem(CACHED_USER_KEY, JSON.stringify(userObj));
+    } else {
+      localStorage.removeItem(CACHED_USER_KEY);
+    }
+  } catch {
+    // Ignorar si localStorage no está disponible
+  }
+}
+
 function consumeInitialUrlAuthParams() {
   if (typeof window === "undefined") {
     return { oauthToken: null, oauthError: null, resetToken: null };
@@ -22,34 +48,43 @@ function consumeInitialUrlAuthParams() {
 export function AuthProvider({ children }) {
   const [initialUrlParams] = useState(() => consumeInitialUrlAuthParams());
 
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() =>
+    initialUrlParams.oauthToken ? null : loadCachedUser(),
+  );
   const [oauthError, setOauthError] = useState(
-    () => initialUrlParams.oauthError || ""
+    () => initialUrlParams.oauthError || "",
   );
   const [pendingResetToken, setPendingResetToken] = useState(
-    () => initialUrlParams.resetToken || ""
+    () => initialUrlParams.resetToken || "",
   );
-  const [loadingAuth, setLoadingAuth] = useState(() =>
-    Boolean(initialUrlParams.oauthToken || getStoredToken())
-  );
+  const [loadingAuth, setLoadingAuth] = useState(() => {
+    if (initialUrlParams.oauthToken) return true;
+    const hasToken = Boolean(getStoredToken());
+    const hasCachedProfile = Boolean(loadCachedUser());
+    return hasToken && !hasCachedProfile;
+  });
 
   const logout = useCallback(() => {
     setStoredToken(null);
+    saveCachedUser(null);
     setUser(null);
   }, []);
 
   const refreshProfile = useCallback(async () => {
     const token = getStoredToken();
     if (!token) {
+      saveCachedUser(null);
       setUser(null);
       setLoadingAuth(false);
       return;
     }
     try {
       const res = await apiClient.get("/auth/me");
+      saveCachedUser(res.data);
       setUser(res.data);
     } catch {
       setStoredToken(null);
+      saveCachedUser(null);
       setUser(null);
     } finally {
       setLoadingAuth(false);
@@ -67,11 +102,15 @@ export function AuthProvider({ children }) {
     apiClient
       .get("/auth/me")
       .then((res) => {
-        if (!cancelled) setUser(res.data);
+        if (!cancelled) {
+          saveCachedUser(res.data);
+          setUser(res.data);
+        }
       })
       .catch(() => {
         if (!cancelled) {
           setStoredToken(null);
+          saveCachedUser(null);
           setUser(null);
         }
       })
@@ -86,6 +125,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     const handleUnauthorized = () => {
+      saveCachedUser(null);
       setUser(null);
     };
     window.addEventListener("vektor:unauthorized", handleUnauthorized);
@@ -93,7 +133,7 @@ export function AuthProvider({ children }) {
       window.removeEventListener("vektor:unauthorized", handleUnauthorized);
   }, []);
 
- const login = useCallback(async (identifier, password) => {
+  const login = useCallback(async (identifier, password) => {
     const cleanId = (identifier || "").trim();
     const res = await apiClient.post("/auth/login", {
       email: cleanId,
@@ -101,11 +141,12 @@ export function AuthProvider({ children }) {
     });
     const { access_token, user: loggedUser } = res.data;
     setStoredToken(access_token);
+    saveCachedUser(loggedUser);
     setUser(loggedUser);
     return loggedUser;
   }, []);
 
- const registerPublic = useCallback(
+  const registerPublic = useCallback(
     async ({ username, email, full_name, password, advisor_id = null }) => {
       const res = await apiClient.post("/auth/register", {
         username,
@@ -116,10 +157,11 @@ export function AuthProvider({ children }) {
       });
       const { access_token, user: createdUser } = res.data;
       setStoredToken(access_token);
+      saveCachedUser(createdUser);
       setUser(createdUser);
       return createdUser;
     },
-    []
+    [],
   );
 
   const requestRecovery = useCallback(async (email) => {
@@ -134,6 +176,7 @@ export function AuthProvider({ children }) {
     });
     const { access_token, user: updatedUser } = res.data;
     setStoredToken(access_token);
+    saveCachedUser(updatedUser);
     setUser(updatedUser);
     setPendingResetToken("");
     if (typeof window !== "undefined") {
@@ -159,6 +202,7 @@ export function AuthProvider({ children }) {
       new_password: newPassword,
     });
     if (res.data?.user) {
+      saveCachedUser(res.data.user);
       setUser(res.data.user);
     }
     return res.data;
@@ -199,7 +243,7 @@ export function AuthProvider({ children }) {
       logout,
       changePassword,
       refreshProfile,
-    ]
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

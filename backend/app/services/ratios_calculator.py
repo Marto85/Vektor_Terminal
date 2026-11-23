@@ -3,8 +3,8 @@ from typing import Any
 from sqlalchemy.orm import Session
 import yfinance as yf
 
-from app.models.database import CompanyMarketCache
-from app.core.yf_client import get_company_profile
+from app.models.database import CompanyData, CompanyMarketCache
+from app.core.yf_client import get_cached_market_snapshot
 
 
 def _safe_div(num: float | None, den: float | None) -> float:
@@ -84,7 +84,6 @@ def _compute_year_economic_components(
     sbc = abs(_get_resilient_val(lookup, "Compensación basada en acciones", y))
     fcf_adj_sbc = fcf_reported - sbc
 
-    # Capital de trabajo operativo no financiero: (Activo Corr - Caja) - (Pasivo Corr - Deuda CP)
     ac_curr = _get_resilient_val(lookup, "Total activo corriente", y)
     pc_curr = _get_resilient_val(lookup, "Total pasivo corriente", y)
     dcp_curr = _get_resilient_val(lookup, "Deuda a corto plazo", y)
@@ -175,7 +174,6 @@ def calculate_ratios(financial_data: list, years_range: list) -> list:
         deuda_total = get_val("Deuda a corto plazo", y) + get_val("Deuda a largo plazo", y)
         ebitda = ebit + da
 
-        # Rentabilidad y Márgenes
         margen_bruto = _safe_div(beneficio_bruto, ventas) * 100.0
         margen_operativo = _safe_div(ebit, ventas) * 100.0
         margen_neto = _safe_div(beneficio_neto, ventas) * 100.0
@@ -184,7 +182,6 @@ def calculate_ratios(financial_data: list, years_range: list) -> list:
         roe = _safe_div(beneficio_neto, patrimonio) * 100.0
         rotacion_activos = _safe_div(ventas, activo_total)
 
-        # Liquidez y Solvencia
         current_ratio = _safe_div(activo_corr, pasivo_corr)
         quick_ratio = _safe_div(activo_corr - get_val("Inventario", y), pasivo_corr)
         cfo_a_pasivo = _safe_div(cfo, pasivo_corr)
@@ -194,12 +191,10 @@ def calculate_ratios(financial_data: list, years_range: list) -> list:
         cobertura_intereses = _safe_div(ebit, intereses)
         deuda_ebitda = _safe_div(deuda_total, ebitda)
 
-        # Descomposición DuPont (3 y 5 factores)
         apalancamiento_dupont = _safe_div(activo_total, patrimonio)
         carga_fiscal = _safe_div(beneficio_neto, ebt) * 100.0 if ebt != 0.0 else 0.0
         carga_intereses = _safe_div(ebt, ebit) * 100.0 if ebit != 0.0 else 0.0
 
-        # Ciclo de Conversión de Efectivo (DSO + DIO - DPO)
         avg_ar = get_avg_balance("Cuentas por cobrar", idx)
         avg_inv = get_avg_balance("Inventario", idx)
         avg_ap = get_avg_balance("Cuentas por pagar", idx)
@@ -209,7 +204,6 @@ def calculate_ratios(financial_data: list, years_range: list) -> list:
         dpo = _safe_div(avg_ap, cogs) * 365.0 if cogs > 0 else 0.0
         ccc = (dso + dio - dpo) if (ventas > 0 and (dso > 0 or dio > 0 or dpo > 0)) else 0.0
 
-        # Asignación de Capital y Calidad de FCF (Etapa 14C)
         ec = econ_by_idx[idx]
         roiic_yoy = 0.0
         net_dilution_pct = 0.0
@@ -312,24 +306,37 @@ def calculate_ratios(financial_data: list, years_range: list) -> list:
     return financial_data
 
 
-def _classify_sector_profile(sector: str, industry: str) -> dict[str, Any]:
+def _classify_sector_profile(sector: str, industry: str, sic_code: str | None = None) -> dict[str, Any]:
     sec_low = (sector or "").lower()
     ind_low = (industry or "").lower()
     combined = f"{sec_low} {ind_low}"
 
-    is_financial = any(
-        k in combined
-        for k in ["financial", "bank", "insurance", "credit", "capital markets", "asset management", "reit", "real estate"]
+    sic_int: int | None = None
+    if sic_code is not None:
+        try:
+            sic_int = int(str(sic_code).strip())
+        except ValueError:
+            sic_int = None
+
+    is_financial = (
+        (sic_int is not None and 6000 <= sic_int <= 6799)
+        or any(
+            k in combined
+            for k in ["financial", "bank", "depository", "insurance", "credit", "capital markets", "asset management", "reit", "real estate"]
+        )
     )
-    is_manufacturing = any(
-        k in combined
-        for k in ["industrial", "manufacturing", "auto", "aerospace", "machinery", "chemical", "basic materials", "metals", "semiconductor", "hardware", "consumer defensive", "consumer cyclical"]
+    is_manufacturing = (
+        (sic_int is not None and 1000 <= sic_int <= 3999)
+        or any(
+            k in combined
+            for k in ["industrial", "manufacturing", "auto", "aerospace", "machinery", "chemical", "basic materials", "metals", "semiconductor", "hardware", "consumer defensive", "consumer cyclical"]
+        )
     )
 
     if is_financial:
         return {
             "profile": "financial",
-            "label": "Sector Financiero / Seguros / Inmobiliario",
+            "label": "Sector Financiero / Bancario / Seguros",
             "altman_applicable": False,
             "altman_recommended_variant": "none",
             "altman_warning": (
@@ -394,6 +401,7 @@ def _build_capital_allocation_and_tsr(
     years_range: list[str],
     valid_years: list[str],
     mcap_mm: float,
+    sec_fx_to_usd: float = 1.0,
 ) -> dict[str, Any]:
     idx_curr = years_range.index(valid_years[-1])
     idx_prev = years_range.index(valid_years[-2])
@@ -401,7 +409,6 @@ def _build_capital_allocation_and_tsr(
     ec_curr = _compute_year_economic_components(lookup, years_range, idx_curr)
     ec_prev = _compute_year_economic_components(lookup, years_range, idx_prev)
 
-    # Ventana multi-año (hasta 3 ejercicios atrás si hay datos válidos)
     base_year = valid_years[max(0, len(valid_years) - 4)]
     idx_base = years_range.index(base_year)
     ec_base = _compute_year_economic_components(lookup, years_range, idx_base)
@@ -422,7 +429,7 @@ def _build_capital_allocation_and_tsr(
     if delta_ic_multi <= 0.0 and delta_nopat_multi > 0.0:
         roiic_note = (
             f"Crecimiento sin consumo neto de capital ({base_year}→{valid_years[-1]}): NOPAT subió "
-            f"US$ {delta_nopat_multi:,.0f} MM reduciendo capital invertido."
+            f"US$ {delta_nopat_multi * sec_fx_to_usd:,.0f} MM reduciendo capital invertido."
         )
     elif roiic_multi_pct is not None:
         roiic_note = (
@@ -434,7 +441,6 @@ def _build_capital_allocation_and_tsr(
 
     intrinsic_growth_pct = round((ec_curr["roic_pct"] / 100.0) * ec_curr["reinvestment_rate_pct"], 2)
 
-    # Calidad de FCF post-SBC
     sbc_erosion = ec_curr["sbc_to_fcf_pct"]
     if ec_curr["fcf_reported"] <= 0.0:
         sbc_verdict = "FCF reportado negativo o nulo; el gasto en SBC profundiza la salida económica."
@@ -446,7 +452,6 @@ def _build_capital_allocation_and_tsr(
         sbc_verdict = f"FCF limpio: el SBC representa solo {sbc_erosion:.1f}% del FCF reportado."
         sbc_color = "emerald"
 
-    # TSR Bridge (Descomposición del retorno anualizado en la ventana base_year -> y_curr)
     fundamental_cagr_pct = 0.0
     if ec_base["ventas"] > 0.0 and ec_curr["ventas"] > 0.0:
         fundamental_cagr_pct = (((ec_curr["ventas"] / ec_base["ventas"]) ** (1.0 / span_years)) - 1.0) * 100.0
@@ -455,8 +460,8 @@ def _build_capital_allocation_and_tsr(
     if ec_base["shares"] > 0.0 and ec_curr["shares"] > 0.0:
         net_share_change_cagr_pct = (((ec_curr["shares"] / ec_base["shares"]) ** (1.0 / span_years)) - 1.0) * 100.0
 
-    # Retorno anualizado al accionista vía dividendos + recompras netas de dilución
-    div_yield_pct = _safe_div(ec_curr["dividends_paid"], mcap_mm) * 100.0 if mcap_mm > 0.0 else 0.0
+    dividends_usd_mm = ec_curr["dividends_paid"] * sec_fx_to_usd
+    div_yield_pct = _safe_div(dividends_usd_mm, mcap_mm) * 100.0 if mcap_mm > 0.0 else 0.0
     net_buyback_yield_pct = -net_share_change_cagr_pct
     capital_return_pct = div_yield_pct + net_buyback_yield_pct
 
@@ -487,13 +492,13 @@ def _build_capital_allocation_and_tsr(
         "roiic_1y_pct": roiic_1y_pct,
         "roiic_multi_pct": roiic_multi_pct,
         "roiic_note": roiic_note,
-        "invested_capital_mm": round(ec_curr["invested_capital"], 2),
-        "nopat_mm": round(ec_curr["nopat"], 2),
+        "invested_capital_mm": round(ec_curr["invested_capital"] * sec_fx_to_usd, 2),
+        "nopat_mm": round(ec_curr["nopat"] * sec_fx_to_usd, 2),
         "reinvestment_rate_pct": round(ec_curr["reinvestment_rate_pct"], 2),
         "intrinsic_growth_pct": intrinsic_growth_pct,
-        "fcf_reported_mm": round(ec_curr["fcf_reported"], 2),
-        "sbc_mm": round(ec_curr["sbc"], 2),
-        "fcf_adj_sbc_mm": round(ec_curr["fcf_adj_sbc"], 2),
+        "fcf_reported_mm": round(ec_curr["fcf_reported"] * sec_fx_to_usd, 2),
+        "sbc_mm": round(ec_curr["sbc"] * sec_fx_to_usd, 2),
+        "fcf_adj_sbc_mm": round(ec_curr["fcf_adj_sbc"] * sec_fx_to_usd, 2),
         "sbc_to_fcf_pct": round(ec_curr["sbc_to_fcf_pct"], 2),
         "sbc_to_sales_pct": round(ec_curr["sbc_to_sales_pct"], 2),
         "sbc_verdict": sbc_verdict,
@@ -533,41 +538,66 @@ def build_financial_health_report(
     y_prev = valid_years[-2]
 
     cache_row = db.query(CompanyMarketCache).filter(CompanyMarketCache.ticker == sym).first()
-    raw_md = getattr(cache_row, "market_data", None) if cache_row else None
-    md: dict[str, Any] = dict(raw_md) if isinstance(raw_md, dict) else {}
+    raw_cached_md = getattr(cache_row, "market_data", None) if cache_row else None
+    cached_md: dict[str, Any] = dict(raw_cached_md) if isinstance(raw_cached_md, dict) else {}
 
-    if len(md) == 0:
+    md: dict[str, Any] = dict(cached_md)
+    if not md or (not md.get("sector") and not md.get("sec_fundamentals") and float(md.get("price") or 0.0) <= 0.0):
         try:
-            get_company_profile(sym, db)
-            cache_row = db.query(CompanyMarketCache).filter(CompanyMarketCache.ticker == sym).first()
-            raw_md = getattr(cache_row, "market_data", None) if cache_row else None
-            if isinstance(raw_md, dict):
-                md = dict(raw_md)
+            fresh_snap = get_cached_market_snapshot(sym, db)
+            if isinstance(fresh_snap, dict):
+                merged = dict(fresh_snap)
+                for k, v in cached_md.items():
+                    if v and not merged.get(k):
+                        merged[k] = v
+                md = merged
         except Exception:
             pass
 
-    sector = str(md.get("sector") or "").strip()
-    industry = str(md.get("industry") or "").strip()
-    company_name = str(md.get("name") or "").strip()
+    raw_info = md.get("info")
+    info: dict[str, Any] = raw_info if isinstance(raw_info, dict) else {}
+    raw_sec_fb = md.get("sec_fundamentals")
+    sec_fb: dict[str, Any] = raw_sec_fb if isinstance(raw_sec_fb, dict) else {}
 
-    if not sector or not company_name or company_name.upper() == sym:
-        try:
-            info = yf.Ticker(sym).info or {}
-            sector = str(info.get("sector") or sector or "").strip()
-            industry = str(info.get("industry") or industry or "").strip()
-            company_name = str(info.get("shortName") or info.get("longName") or company_name or sym).strip()
-            if cache_row and isinstance(md, dict):
-                md["sector"] = sector
-                md["industry"] = industry
-                md["name"] = company_name
-                setattr(cache_row, "market_data", md)
-                db.commit()
-        except Exception:
-            pass
+    company_row = db.query(CompanyData).filter(CompanyData.ticker == sym).first()
+    sic_code: str | None = None
+    sic_desc_raw = str(sec_fb.get("sic_description") or "").strip()
+    entity_name_raw = str(sec_fb.get("entity_name") or "").strip()
+    if company_row is not None and isinstance(company_row.raw_facts, dict):
+        if company_row.raw_facts.get("sic") is not None:
+            sic_code = str(company_row.raw_facts.get("sic")).strip()
+        if not sic_desc_raw:
+            sic_desc_raw = str(company_row.raw_facts.get("sicDescription") or "").strip()
+        if not entity_name_raw:
+            entity_name_raw = str(company_row.raw_facts.get("entityName") or "").strip()
 
-    company_name = company_name or sym
-    mcap_mm = float((md.get("summary_metrics") or {}).get("capital", {}).get("market_cap") or 0.0)
-    sector_info = _classify_sector_profile(sector, industry)
+    sector = str(info.get("sector") or md.get("sector") or "").strip()
+    industry = str(info.get("industry") or md.get("industry") or sic_desc_raw or "").strip()
+    company_name = str(
+        info.get("shortName")
+        or info.get("longName")
+        or md.get("name")
+        or entity_name_raw
+        or sym
+    ).strip()
+
+    sec_fx_to_usd = float(sec_fb.get("sec_fx_to_usd") or md.get("fx_rate") or 1.0)
+    price_usd = float(md.get("price") or 0.0)
+    shares_mm = float(md.get("shares_mm") or sec_fb.get("shares_out_mm") or 0.0)
+
+    raw_sum_metrics = md.get("summary_metrics")
+    sum_metrics: dict[str, Any] = raw_sum_metrics if isinstance(raw_sum_metrics, dict) else {}
+    cached_mcap = float(
+        (sum_metrics.get("capital_structure") or {}).get("market_cap_mm")
+        or (sum_metrics.get("capital") or {}).get("market_cap")
+        or 0.0
+    )
+
+    mcap_mm = round(price_usd * shares_mm, 2) if (price_usd > 0 and shares_mm > 0) else cached_mcap
+    mcap_local_mm = (mcap_mm / sec_fx_to_usd) if (mcap_mm > 0 and sec_fx_to_usd > 0) else mcap_mm
+
+    sector_info = _classify_sector_profile(sector, industry, sic_code=sic_code)
+    display_sector = sector or (sector_info["label"] if sector_info["profile"] == "financial" else sic_desc_raw or "No especificado")
 
     # 1. PIOTROSKI F-SCORE (0 a 9 puntos)
     ni_curr = get_val("Beneficio Neto", y_curr)
@@ -636,8 +666,8 @@ def build_financial_health_report(
             "target_rule": "Debe ser > US$ 0 MM",
             "passed": f2_pass,
             "status": _evaluate_criterion_status(f2_pass, f2_near),
-            "curr_display": f"US$ {cfo_curr:,.0f} MM",
-            "prev_display": f"US$ {get_val('Efectivo de Operaciones (CFO)', y_prev):,.0f} MM",
+            "curr_display": f"US$ {cfo_curr * sec_fx_to_usd:,.0f} MM",
+            "prev_display": f"US$ {get_val('Efectivo de Operaciones (CFO)', y_prev) * sec_fx_to_usd:,.0f} MM",
             "detail": "La operación principal genera caja real positiva.",
         },
         {
@@ -657,10 +687,10 @@ def build_financial_health_report(
             "short_label": "CFO > BN",
             "group": "Rentabilidad",
             "name": "Calidad de ganancias (Caja > Contable)",
-            "target_rule": f"CFO debe superar US$ {ni_curr:,.0f} MM",
+            "target_rule": f"CFO debe superar US$ {ni_curr * sec_fx_to_usd:,.0f} MM",
             "passed": f4_pass,
             "status": _evaluate_criterion_status(f4_pass, f4_near),
-            "curr_display": f"CFO {cfo_curr:,.0f} vs BN {ni_curr:,.0f}",
+            "curr_display": f"CFO {cfo_curr * sec_fx_to_usd:,.0f} vs BN {ni_curr * sec_fx_to_usd:,.0f}",
             "prev_display": "-",
             "detail": "Evita ganancias contables artificiales respaldadas solo por devengamientos.",
         },
@@ -748,7 +778,7 @@ def build_financial_health_report(
     x1 = _safe_div(wc, ta_curr)
     x2 = _safe_div(re, ta_curr)
     x3 = _safe_div(ebit_curr, ta_curr)
-    x4_mkt = _safe_div(mcap_mm if mcap_mm > 0 else bv_equity, tl_curr)
+    x4_mkt = _safe_div(mcap_local_mm if mcap_local_mm > 0 else bv_equity, tl_curr)
     x4_book = _safe_div(bv_equity, tl_curr)
     x5 = _safe_div(sales_curr, ta_curr)
 
@@ -786,19 +816,20 @@ def build_financial_health_report(
     interest_burden = _safe_div(ebt_curr, ebit_curr)
     ebit_margin_pct = _safe_div(ebit_curr, sales_curr) * 100.0
 
-    # 4. ASIGNACIÓN DE CAPITAL, FCF POST-SBC Y TSR BRIDGE (Etapa 14C)
+    # 4. ASIGNACIÓN DE CAPITAL, FCF POST-SBC Y TSR BRIDGE
     capital_allocation = _build_capital_allocation_and_tsr(
         sym=sym,
         lookup=lookup,
         years_range=years_range,
         valid_years=valid_years,
         mcap_mm=mcap_mm,
+        sec_fx_to_usd=sec_fx_to_usd,
     )
 
     return {
         "ticker": sym,
         "company_name": company_name,
-        "sector": sector or "No especificado",
+        "sector": display_sector,
         "industry": industry or "No especificada",
         "fiscal_year_curr": y_curr,
         "fiscal_year_prev": y_prev,

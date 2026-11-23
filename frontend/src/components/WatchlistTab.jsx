@@ -268,9 +268,19 @@ export default function WatchlistTab({
     if (val.trim().length > 0) {
       try {
         const res = await apiClient.get(
-          `/search?q=${val}`
+          `/search?q=${encodeURIComponent(val)}`
         );
-        setAddResults(res.data || []);
+        const upperQ = val.trim().toUpperCase();
+        const rawList = Array.isArray(res.data) ? res.data : [];
+        const sorted = [...rawList].sort((a, b) => {
+          const aExact = String(a.ticker || "").toUpperCase() === upperQ ? 1 : 0;
+          const bExact = String(b.ticker || "").toUpperCase() === upperQ ? 1 : 0;
+          if (aExact !== bExact) return bExact - aExact;
+          const aEq = String(a.type || "").toUpperCase() === "EQUITY" ? 1 : 0;
+          const bEq = String(b.type || "").toUpperCase() === "EQUITY" ? 1 : 0;
+          return bEq - aEq;
+        });
+        setAddResults(sorted);
         setShowAddDropdown(true);
       } catch {
         setAddResults([]);

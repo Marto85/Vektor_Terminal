@@ -42,14 +42,15 @@ function numAt(row, periodKey) {
   return typeof v === "number" && !Number.isNaN(v) ? v : null;
 }
 
-function fmtMoneyMM(val) {
+function fmtMoneyMM(val, currencyCode = "USD") {
   if (val === null || val === undefined) return "-";
   const neg = val < 0;
+  const prefix = currencyCode === "USD" ? "US$" : currencyCode;
   const formatted = new Intl.NumberFormat("es-AR", {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   }).format(Math.abs(val));
-  return neg ? `(US$ ${formatted} MM)` : `US$ ${formatted} MM`;
+  return neg ? `(${prefix} ${formatted} MM)` : `${prefix} ${formatted} MM`;
 }
 
 function fmtPct(val, decimals = 1) {
@@ -86,6 +87,7 @@ export default function FinancialsQuickCards({
   activeContentTab,
   period,
   onOpenInfo,
+  reportingCurrency = "USD",
 }) {
   if (
     !Array.isArray(financialData) ||
@@ -98,9 +100,30 @@ export default function FinancialsQuickCards({
   const periods = extractPeriodKeys(financialData);
   if (periods.length === 0) return null;
 
-  const currP = periods[periods.length - 1];
-  const prevP = periods.length >= 2 ? periods[periods.length - 2] : null;
+  // Seleccionar el último período con datos contables reales (evita columnas vacías del año en curso)
+  const coreProbeRows = financialData.filter(
+    (r) =>
+      !r.is_header &&
+      !r.is_sub &&
+      ["Ingresos Totales", "Total activo", "Beneficio Neto", "Patrimonio neto"].includes(
+        String(r.Métrica || "").trim(),
+      ),
+  );
+  const validPeriods = periods.filter((p) =>
+    coreProbeRows.some((r) => {
+      const v = r[p];
+      return typeof v === "number" && !Number.isNaN(v) && v !== 0;
+    }),
+  );
+  const effectivePeriods = validPeriods.length > 0 ? validPeriods : periods;
+
+  const currP = effectivePeriods[effectivePeriods.length - 1];
+  const prevP =
+    effectivePeriods.length >= 2
+      ? effectivePeriods[effectivePeriods.length - 2]
+      : null;
   const compLabel = period === "annual" ? `vs ${prevP}` : `vs ${prevP}`;
+  const fmtMoney = (v) => fmtMoneyMM(v, reportingCurrency);
 
   const revRow = findMetricRow(financialData, "Cuenta de Resultados", [
     "Ingresos Totales",
@@ -144,7 +167,7 @@ export default function FinancialsQuickCards({
     cards = [
       {
         title: `Ingresos Totales (${currP})`,
-        value: fmtMoneyMM(revCurr),
+        value: fmtMoney(revCurr),
         sub:
           revGrowth !== null
             ? `${revGrowth >= 0 ? "+" : ""}${revGrowth.toFixed(1)}% ${compLabel}`
@@ -157,8 +180,8 @@ export default function FinancialsQuickCards({
         value: fmtPct(gmCurr),
         sub:
           gmDelta !== null
-            ? `${gmDelta >= 0 ? "+" : ""}${gmDelta.toFixed(1)} pp ${compLabel} · ${fmtMoneyMM(gpCurr)}`
-            : fmtMoneyMM(gpCurr),
+            ? `${gmDelta >= 0 ? "+" : ""}${gmDelta.toFixed(1)} pp ${compLabel} · ${fmtMoney(gpCurr)}`
+            : fmtMoney(gpCurr),
         trend: gmDelta,
         glossaryKey: "Margen bruto LTM",
       },
@@ -167,14 +190,14 @@ export default function FinancialsQuickCards({
         value: fmtPct(omCurr),
         sub:
           omDelta !== null
-            ? `${omDelta >= 0 ? "+" : ""}${omDelta.toFixed(1)} pp ${compLabel} · ${fmtMoneyMM(ebitCurr)}`
-            : fmtMoneyMM(ebitCurr),
+            ? `${omDelta >= 0 ? "+" : ""}${omDelta.toFixed(1)} pp ${compLabel} · ${fmtMoney(ebitCurr)}`
+            : fmtMoney(ebitCurr),
         trend: omDelta,
         glossaryKey: "Margen EBIT LTM",
       },
       {
         title: `Beneficio Neto (${currP})`,
-        value: fmtMoneyMM(niCurr),
+        value: fmtMoney(niCurr),
         sub: `Margen neto ${fmtPct(nmCurr)}${niGrowth !== null ? ` (${niGrowth >= 0 ? "+" : ""}${niGrowth.toFixed(1)}%)` : ""}`,
         trend: niGrowth,
         glossaryKey: "Margen neto LTM",
@@ -224,14 +247,14 @@ export default function FinancialsQuickCards({
     cards = [
       {
         title: `Caja e Inv. Corto Plazo (${currP})`,
-        value: fmtMoneyMM(cashTotal),
-        sub: `Deuda financiera total: ${fmtMoneyMM(debtTotal)}`,
+        value: fmtMoney(cashTotal),
+        sub: `Deuda financiera total: ${fmtMoney(debtTotal)}`,
         trend: null,
         glossaryKey: "Efectivo e Inversiones a Corto Plazo",
       },
       {
         title: isNetCash ? "Posición de Caja Neta" : "Deuda Neta",
-        value: fmtMoneyMM(Math.abs(netDebt)),
+        value: fmtMoney(Math.abs(netDebt)),
         sub: isNetCash
           ? "La caja supera a la deuda financiera"
           : "Deuda total menos caja disponible",
@@ -240,7 +263,7 @@ export default function FinancialsQuickCards({
       },
       {
         title: `Patrimonio Neto (${currP})`,
-        value: fmtMoneyMM(eqCurr),
+        value: fmtMoney(eqCurr),
         sub:
           eqGrowth !== null
             ? `${eqGrowth >= 0 ? "+" : ""}${eqGrowth.toFixed(1)}% ${compLabel}`
@@ -250,7 +273,7 @@ export default function FinancialsQuickCards({
       },
       {
         title: "Capital de Trabajo Neto",
-        value: fmtMoneyMM(workingCap),
+        value: fmtMoney(workingCap),
         sub:
           currRatio !== null
             ? `Liquidez corriente: ${fmtMult(currRatio, "x")}`
@@ -297,7 +320,7 @@ export default function FinancialsQuickCards({
     cards = [
       {
         title: `Flujo Operativo CFO (${currP})`,
-        value: fmtMoneyMM(cfoCurr),
+        value: fmtMoney(cfoCurr),
         sub:
           cfoGrowth !== null
             ? `${cfoGrowth >= 0 ? "+" : ""}${cfoGrowth.toFixed(1)}% ${compLabel}`
@@ -307,7 +330,7 @@ export default function FinancialsQuickCards({
       },
       {
         title: "Inversión en CapEx",
-        value: fmtMoneyMM(capexAbs),
+        value: fmtMoney(capexAbs),
         sub:
           capexIntensity !== null
             ? `${capexIntensity.toFixed(1)}% sobre ingresos totales`
@@ -317,7 +340,7 @@ export default function FinancialsQuickCards({
       },
       {
         title: `Flujo de Caja Libre (${currP})`,
-        value: fmtMoneyMM(fcfCurr),
+        value: fmtMoney(fcfCurr),
         sub: `Margen FCF ${fmtPct(fcfMargin)}${fcfGrowth !== null ? ` (${fcfGrowth >= 0 ? "+" : ""}${fcfGrowth.toFixed(1)}%)` : ""}`,
         trend: fcfCurr !== null && fcfCurr < 0 ? -1 : fcfGrowth,
         glossaryKey: "Flujo de caja libre (FCF)",

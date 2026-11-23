@@ -37,8 +37,18 @@ FINANCIAL_STATEMENTS = {
         "Beneficio Neto": ["NetIncomeLoss", "ProfitLoss", "ProfitLossAttributableToOwnersOfParent"],
         "BPA Básico": ["EarningsPerShareBasic", "BasicEarningsLossPerShare"],
         "BPA Diluido": ["EarningsPerShareDiluted", "DilutedEarningsLossPerShare"],
-        "Acciones en Circulación (Básicas)": ["WeightedAverageNumberOfSharesOutstandingBasic", "WeightedAverageShares"],
-        "Acciones en Circulación (Diluidas)": ["WeightedAverageNumberOfDilutedSharesOutstanding", "AdjustedWeightedAverageShares"]
+        "Acciones en Circulación (Básicas)": [
+            "WeightedAverageNumberOfSharesOutstandingBasic",
+            "WeightedAverageShares",
+            "EntityCommonStockSharesOutstanding",
+            "CommonStockSharesOutstanding",
+        ],
+        "Acciones en Circulación (Diluidas)": [
+            "WeightedAverageNumberOfDilutedSharesOutstanding",
+            "AdjustedWeightedAverageShares",
+            "WeightedAverageNumberOfSharesOutstandingBasic",
+            "EntityCommonStockSharesOutstanding",
+        ],
     },
     "Balance de Situación": {
         "Efectivo y equivalentes": [
@@ -114,11 +124,43 @@ QUARTERLY_FORMS = ["10-Q", "10-K", "10-Q/A", "10-K/A", "20-F", "20-F/A", "6-K"]
 
 def _get_taxonomy_data(raw_facts: dict) -> dict:
     facts = raw_facts.get("facts", {})
-    if "us-gaap" in facts and facts["us-gaap"]:
-        return facts["us-gaap"]
-    if "ifrs-full" in facts and facts["ifrs-full"]:
-        return facts["ifrs-full"]
-    return {}
+    merged: dict = {}
+    if isinstance(facts.get("us-gaap"), dict) and facts["us-gaap"]:
+        merged.update(facts["us-gaap"])
+    elif isinstance(facts.get("ifrs-full"), dict) and facts["ifrs-full"]:
+        merged.update(facts["ifrs-full"])
+    if isinstance(facts.get("dei"), dict):
+        for k, v in facts["dei"].items():
+            if k not in merged:
+                merged[k] = v
+    return merged
+
+
+def detect_reporting_currency(raw_facts: dict) -> str:
+    """
+    Detecta la moneda original en la que están expresados los estados financieros de SEC EDGAR
+    (ej. 'USD' para empresas estadounidenses/MELI, 'ARS' para BMA, 'BRL' para PBR/NU).
+    """
+    gaap_data = _get_taxonomy_data(raw_facts)
+    probe_tags = (
+        "Assets",
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "Revenues",
+        "InterestRevenueExpenseNet",
+        "NetIncomeLoss",
+        "ProfitLoss",
+        "CashAndCashEquivalentsAtCarryingValue",
+    )
+    for tag in probe_tags:
+        tag_obj = gaap_data.get(tag)
+        if isinstance(tag_obj, dict):
+            units_keys = list((tag_obj.get("units") or {}).keys())
+            if "USD" in units_keys:
+                return "USD"
+            for uk in units_keys:
+                if isinstance(uk, str) and len(uk) == 3 and uk.isalpha():
+                    return uk.upper()
+    return "USD"
 
 
 def extract_annual_metrics(raw_facts: dict) -> list:
@@ -146,7 +188,7 @@ def extract_annual_metrics(raw_facts: dict) -> list:
                     
                     for entry in units:
                         if entry.get("form") in ANNUAL_FORMS and entry.get("fp") == "FY":
-                            if statement != "Balance de Situación" and entry.get("start") and entry.get("end"):
+                            if statement != "Balance de Situación" and "Acciones" not in standard_name and entry.get("start") and entry.get("end"):
                                 try:
                                     d_start = datetime.strptime(entry["start"], "%Y-%m-%d")
                                     d_end = datetime.strptime(entry["end"], "%Y-%m-%d")
@@ -194,7 +236,7 @@ def extract_annual_metrics(raw_facts: dict) -> list:
             df_pivot[y] = 0.0
     df_pivot = df_pivot.fillna(0.0)
 
-    # Rellenar cualquier métrica/año que haya quedado en 0.0 desde el respaldo normalizado de yfinance (NU, STNE, JNJ)
+    # Rellenar cualquier métrica/año que haya quedado en 0.0 desde el respaldo normalizado de yfinance
     if yf_annual_fb:
         for idx, row in df_pivot.iterrows():
             m_name = str(row["Métrica"])
@@ -276,7 +318,7 @@ def extract_annual_metrics(raw_facts: dict) -> list:
                         else:
                             prev = get_val(metric, years_range[i-1])
                             curr = get_val(metric, y)
-                            pct_row[y] = safe_div(curr - prev, prev) * 100
+                            pct_row[y] = 0.0 if curr == 0.0 else safe_div(curr - prev, prev) * 100
                     ordered_rows.append(pct_row)
 
                 if metric == "Beneficio Bruto":
@@ -507,7 +549,7 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
                             prev_p = all_quarters[idx_all - 1]
                             prev = get_val(metric, prev_p)
                             curr = get_val(metric, p)
-                            pct_row[p] = safe_div(curr - prev, prev) * 100
+                            pct_row[p] = 0.0 if curr == 0.0 else safe_div(curr - prev, prev) * 100
                         else:
                             pct_row[p] = 0.0
                     ordered_rows.append(pct_row)

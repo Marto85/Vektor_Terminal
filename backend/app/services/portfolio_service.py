@@ -131,13 +131,14 @@ def fetch_live_quotes(tickers: list[str]) -> dict[str, dict]:
 
 def _compute_twr_metrics(
     ordered_txs: list[PortfolioTransaction],
-    ending_total_equity: float,
+    ending_holdings_value: float,
     net_external_deposits: float,
 ) -> dict:
     """
     Calcula el Time-Weighted Return (TWR) encadenando sub-períodos delimitados
-    por flujos externos de caja (DEPOSIT / WITHDRAWAL), aislando el rendimiento
-    puro de selección de activos respecto al timing de aportes/retiros.
+    por flujos externos de caja (DEPOSIT / WITHDRAWAL), reconociendo como aporte
+    implícito toda compra (BUY) realizada sin saldo de caja previo para evitar
+    falsos -100% al operar sin depósitos explícitos o al liquidar el 100% de una tenencia.
     """
     if not ordered_txs:
         return {
@@ -157,6 +158,7 @@ def _compute_twr_metrics(
     qty_by_sym: dict[str, float] = {}
     last_known_price: dict[str, float] = {}
     cash = 0.0
+    implicit_deposits_total = 0.0
 
     subperiod_returns: list[float] = []
     v_start: float | None = None
@@ -164,7 +166,9 @@ def _compute_twr_metrics(
     for d in sorted_dates:
         day_txs = by_date[d]
         external_flow_today = 0.0
+        sim_cash = cash
 
+        # 1. Pre-evaluar flujos externos explícitos e implícitos del día antes de las operaciones
         for tx in day_txs:
             ttype = (tx.tx_type or "").upper()
             sym = (tx.ticker or "").strip().upper()
@@ -173,11 +177,30 @@ def _compute_twr_metrics(
             comm = float(tx.commission or 0.0)
 
             if ttype == "DEPOSIT":
-                external_flow_today += qty * price - comm
+                net_dep = qty * price - comm
+                external_flow_today += net_dep
+                sim_cash += net_dep
             elif ttype == "WITHDRAWAL":
-                external_flow_today -= qty * price + comm
-            elif sym and price > 0.0:
-                last_known_price[sym] = price
+                net_wdr = qty * price + comm
+                external_flow_today -= net_wdr
+                sim_cash -= net_wdr
+            elif ttype == "BUY" and sym:
+                op_cost = qty * price + comm
+                if sim_cash < op_cost - 1e-6:
+                    shortfall = op_cost - max(0.0, sim_cash)
+                    external_flow_today += shortfall
+                    implicit_deposits_total += shortfall
+                    sim_cash += shortfall
+                sim_cash -= op_cost
+                if price > 0.0:
+                    last_known_price[sym] = price
+            elif ttype == "SELL" and sym:
+                proceeds = qty * price - comm
+                sim_cash += proceeds
+                if price > 0.0:
+                    last_known_price[sym] = price
+            elif ttype == "DIVIDEND":
+                sim_cash += qty * price - comm
 
         holdings_val_before = sum(
             qty_by_sym.get(s, 0.0) * last_known_price.get(s, 0.0)
@@ -185,12 +208,14 @@ def _compute_twr_metrics(
         )
         equity_before_flow = holdings_val_before + max(0.0, cash)
 
-        if external_flow_today != 0.0:
+        if abs(external_flow_today) > 1e-6:
             if v_start is not None and v_start > 1e-6:
                 r_sub = (equity_before_flow - v_start) / v_start
                 subperiod_returns.append(r_sub)
-            v_start = max(0.0, equity_before_flow + external_flow_today)
+            new_base = equity_before_flow + external_flow_today
+            v_start = new_base if new_base > 1e-6 else None
 
+        # 2. Aplicar efectivamente las operaciones del día
         for tx in day_txs:
             ttype = (tx.tx_type or "").upper()
             sym = (tx.ticker or "").strip().upper()
@@ -203,9 +228,13 @@ def _compute_twr_metrics(
             elif ttype == "WITHDRAWAL":
                 cash -= qty * price + comm
             elif ttype == "BUY" and sym:
+                op_cost = qty * price + comm
+                if cash < op_cost - 1e-6:
+                    cash += op_cost - max(0.0, cash)
                 qty_by_sym[sym] = qty_by_sym.get(sym, 0.0) + qty
-                last_known_price[sym] = price
-                cash -= qty * price + comm
+                if price > 0.0:
+                    last_known_price[sym] = price
+                cash -= op_cost
             elif ttype == "SELL" and sym:
                 qty_by_sym[sym] = max(0.0, qty_by_sym.get(sym, 0.0) - qty)
                 if price > 0.0:
@@ -223,6 +252,7 @@ def _compute_twr_metrics(
             if initial_eq > 1e-6:
                 v_start = initial_eq
 
+    ending_total_equity = ending_holdings_value + max(0.0, cash)
     if v_start is not None and v_start > 1e-6:
         r_final = (ending_total_equity - v_start) / v_start
         subperiod_returns.append(r_final)
@@ -245,10 +275,16 @@ def _compute_twr_metrics(
     except Exception:
         days_invested = 0
 
+    effective_contributed = (
+        net_external_deposits
+        if abs(net_external_deposits) > 1e-6
+        else implicit_deposits_total
+    )
+
     return {
         "twr_pct": round(twr_pct, 2),
         "twr_annualized_pct": twr_annualized_pct,
-        "net_contributed_capital": round(net_external_deposits, 2),
+        "net_contributed_capital": round(effective_contributed, 2),
         "subperiods_count": len(subperiod_returns),
         "days_invested": days_invested,
     }
@@ -413,7 +449,7 @@ def compute_portfolio_positions(
 
     twr_metrics = _compute_twr_metrics(
         ordered_txs=ordered,
-        ending_total_equity=total_equity,
+        ending_holdings_value=total_market_value,
         net_external_deposits=net_external_deposits,
     )
 

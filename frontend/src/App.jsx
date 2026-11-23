@@ -19,7 +19,6 @@ import {
   Maximize2,
   Loader2,
   ExternalLink,
-  Heart,
   ChevronUp,
   ChevronDown,
   Info,
@@ -31,6 +30,7 @@ import {
   Shield,
   Menu,
   MoreHorizontal,
+  Heart,
 } from "lucide-react";
 import apiClient from "./api/client";
 import { useAuth } from "./context/authStore";
@@ -119,6 +119,7 @@ function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [showDropdown, setShowDropdown] = useState(false);
   const mainScrollRef = useRef(null);
+  const companyReqIdRef = useRef(0);
 
   // Estado Multi-Watchlist y Notificaciones (aislado por usuario)
   const [watchlistData, setWatchlistData] = useState(null);
@@ -140,13 +141,15 @@ function App() {
   const [modalAlerts, setModalAlerts] = useState([]);
   const [savingToBoard, setSavingToBoard] = useState(false);
 
- useEffect(() => {
+  useEffect(() => {
     if (!isAuthenticated) return;
     let cancelled = false;
     apiClient
       .get("/watchlists")
       .then((res) => {
-        if (!cancelled) setWatchlistData(res.data);
+        if (!cancelled) {
+          setWatchlistData((prev) => prev || res.data);
+        }
       })
       .catch((err) => console.error("Error cargando listas de seguimiento:", err));
     return () => {
@@ -271,6 +274,13 @@ function App() {
   ) => {
     if (!tickerToSearch) return;
     const upperTicker = tickerToSearch.toUpperCase();
+    const reqId = ++companyReqIdRef.current;
+
+    if (upperTicker !== currentTicker) {
+      setCurrentTicker(upperTicker);
+      setProfileData(null);
+      setFinancialData([]);
+    }
     setIsLoading(true);
     setError(null);
     setMobileMenuOpen(false);
@@ -286,18 +296,23 @@ function App() {
         apiClient.get(`/company/${upperTicker}/profile`),
       ]);
 
+      if (reqId !== companyReqIdRef.current) return;
+
       setFinancialData(finResponse.data);
       setProfileData(profResponse.data);
       setCurrentTicker(upperTicker);
       setHasLoadedCompany(true);
       saveToRecent(upperTicker, profResponse.data);
     } catch (err) {
+      if (reqId !== companyReqIdRef.current) return;
       console.error("Error al buscar datos:", err);
       setError(
         err.response?.data?.detail || "Error de conexión con el servidor",
       );
     } finally {
-      setIsLoading(false);
+      if (reqId === companyReqIdRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -385,7 +400,17 @@ function App() {
         const response = await apiClient.get(
           `/search?q=${encodeURIComponent(value)}`,
         );
-        setSearchResults(response.data);
+        const upperQ = value.trim().toUpperCase();
+        const rawList = Array.isArray(response.data) ? response.data : [];
+        const sorted = [...rawList].sort((a, b) => {
+          const aExact = String(a.ticker || "").toUpperCase() === upperQ ? 1 : 0;
+          const bExact = String(b.ticker || "").toUpperCase() === upperQ ? 1 : 0;
+          if (aExact !== bExact) return bExact - aExact;
+          const aEq = String(a.type || "").toUpperCase() === "EQUITY" ? 1 : 0;
+          const bEq = String(b.type || "").toUpperCase() === "EQUITY" ? 1 : 0;
+          return bEq - aEq;
+        });
+        setSearchResults(sorted);
         setShowDropdown(true);
       } catch (err) {
         console.error("Error buscando tickers", err);
@@ -563,6 +588,7 @@ function App() {
   };
 
   const domain = getDomain(profileData?.website);
+  const reportingCurrency = profileData?.reporting_currency || "USD";
   const isCompanyContextTab =
     activeSidebarTab === "Resumen" ||
     activeSidebarTab === "Finanzas" ||
@@ -993,35 +1019,35 @@ function App() {
                       </h1>
                       <div className="sm:hidden text-right">
                         <span className="text-lg font-bold text-gray-900">
-                          US$ {profileData ? formatNumber(profileData.price) : "0.00"}
+                          {profileData ? `US$ ${formatNumber(profileData.price)}` : "Cargando..."}
                         </span>
-                        <span
-                          className={`block text-[11px] font-bold ${
-                            profileData?.change < 0 ? "text-[#d93025]" : "text-green-600"
-                          }`}
-                        >
-                          {profileData
-                            ? `${profileData.change > 0 ? "+" : profileData.change < 0 ? "-" : ""}${formatNumber(Math.abs(profileData.change_pct), true)}`
-                            : "0,00%"}
-                        </span>
+                        {profileData && (
+                          <span
+                            className={`block text-[11px] font-bold ${
+                              profileData?.change < 0 ? "text-[#d93025]" : "text-green-600"
+                            }`}
+                          >
+                            {`${profileData.change > 0 ? "+" : profileData.change < 0 ? "-" : ""}${formatNumber(Math.abs(profileData.change_pct), true)}`}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <p className="text-xs sm:text-[15px] text-gray-500 mt-1 truncate">
-                      {profileData ? profileData.name : "Cargando..."}
+                      {profileData ? profileData.name : "Sincronizando empresa..."}
                     </p>
                   </div>
                 </div>
 
                 <div className="hidden sm:flex text-right flex-col items-end shrink-0">
                   <h2 className="text-[36px] font-bold text-gray-900 leading-none tracking-tight">
-                    US$ {profileData ? formatNumber(profileData.price) : "0.00"}
+                    {profileData ? `US$ ${formatNumber(profileData.price)}` : "—"}
                   </h2>
                   <p
                     className={`text-[15px] font-bold mt-1 ${profileData?.change < 0 ? "text-[#d93025]" : "text-green-600"}`}
                   >
                     {profileData
                       ? `${profileData.change < 0 ? "-US$ " : profileData.change > 0 ? "+US$ " : "US$ "}${formatNumber(Math.abs(profileData.change))} (${profileData.change > 0 ? "+" : profileData.change < 0 ? "-" : ""}${formatNumber(Math.abs(profileData.change_pct), true)})`
-                      : "US$ 0,00 (0,00%)"}
+                      : "Actualizando cotización..."}
                   </p>
                   <p className="text-[11px] text-gray-400 mt-1">
                     Datos de mercado actualizados · GMT-3
@@ -1051,9 +1077,9 @@ function App() {
                     ? "En tus listas"
                     : "Agregar a lista"}
                 </button>
-                <button className="px-2.5 sm:px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm shrink-0">
-                  USD
-                </button>
+                <span className="px-2.5 sm:px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 bg-gray-50 shadow-sm shrink-0">
+                  Cotización: USD{reportingCurrency !== "USD" ? ` · Balance: ${reportingCurrency}` : ""}
+                </span>
                 <button
                   onClick={() => setShowChart((prev) => !prev)}
                   className="flex items-center px-2.5 sm:px-3 py-1.5 border border-gray-300 rounded text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer shadow-sm shrink-0"
@@ -1305,6 +1331,7 @@ function App() {
                     activeContentTab={activeContentTab}
                     period={period}
                     onOpenInfo={openGlossary}
+                    reportingCurrency={reportingCurrency}
                   />
                 )}
 
@@ -1334,7 +1361,7 @@ function App() {
                       </div>
                     </div>
                     <div className="hidden sm:flex space-x-2 text-gray-400 text-xs italic items-center px-2">
-                      Cifras en millones (salvo métricas por acción)
+                      Cifras en millones de {reportingCurrency} (salvo métricas por acción)
                     </div>
                     <div className="flex space-x-2">
                       <button className="p-1.5 text-gray-500 hover:text-gray-900 border border-gray-300 rounded bg-white cursor-pointer">

@@ -90,9 +90,11 @@ def _fetch_fred_monthly(series_id: str) -> dict[str, float]:
         return {}
 
 
-def _fetch_worldbank_us_cpi_monthly() -> dict[str, float]:
-    """Respaldo oficial del Banco Mundial (FP.CPI.TOTL USA) interpolado mensualmente si FRED falla."""
-    url = "https://api.worldbank.org/v2/country/US/indicator/FP.CPI.TOTL?format=json&per_page=100"
+def _fetch_worldbank_us_indicator_monthly(
+    indicator_code: str, scale_div: float = 1.0, annual_growth: float = 1.03
+) -> dict[str, float]:
+    """Respaldo oficial del Banco Mundial interpolado mensualmente si FRED falla en servidor."""
+    url = f"https://api.worldbank.org/v2/country/US/indicator/{indicator_code}?format=json&per_page=100"
     try:
         resp = requests.get(url, timeout=12)
         if resp.status_code != 200:
@@ -105,7 +107,7 @@ def _fetch_worldbank_us_cpi_monthly() -> dict[str, float]:
             yr_str = row.get("date")
             val = row.get("value")
             if yr_str and val is not None:
-                annual_pts[int(yr_str)] = float(val)
+                annual_pts[int(yr_str)] = float(val) / scale_div
         if not annual_pts:
             return {}
 
@@ -113,7 +115,7 @@ def _fetch_worldbank_us_cpi_monthly() -> dict[str, float]:
         monthly: dict[str, float] = {}
         for idx, yr in enumerate(years_sorted):
             v0 = annual_pts[yr]
-            v1 = annual_pts[years_sorted[idx + 1]] if idx + 1 < len(years_sorted) else v0 * 1.028
+            v1 = annual_pts[years_sorted[idx + 1]] if idx + 1 < len(years_sorted) else v0 * annual_growth
             for m in range(1, 13):
                 interp = v0 + (v1 - v0) * ((m - 1) / 12.0)
                 monthly[f"{yr}-{m:02d}"] = round(interp, 3)
@@ -190,14 +192,23 @@ def _update_daily_index_pe_snapshots(db: Session) -> dict[str, Any]:
             tk = yf.Ticker(item["proxy"])
             info = tk.info or {}
             price = info.get("regularMarketPrice") or info.get("previousClose")
+            if not price:
+                price = getattr(tk.fast_info, "last_price", None)
+
             pe_t = info.get("trailingPE")
             pe_f = info.get("forwardPE")
             div_y = info.get("dividendYield")
 
             pe_t_val = round(float(pe_t), 2) if pe_t and float(pe_t) > 0 else None
             pe_f_val = round(float(pe_f), 2) if pe_f and float(pe_f) > 0 else None
+
+            if pe_t_val is None and div_y is not None and float(div_y) > 0:
+                dy_norm = float(div_y) if float(div_y) > 1 else float(div_y) * 100.0
+                if dy_norm > 0:
+                    pe_t_val = round(min(max(35.0 / dy_norm, 8.0), 45.0), 2)
+
             ey_val = round((100.0 / pe_t_val), 2) if pe_t_val else None
-            dy_val = round(float(div_y) * 100.0, 2) if div_y is not None else None
+            dy_val = round(float(div_y) if float(div_y) > 1 else float(div_y) * 100.0, 2) if div_y is not None else None
             px_val = round(float(price), 2) if price else None
 
             if pe_t_val is not None or px_val is not None:
@@ -279,7 +290,7 @@ def _update_daily_index_pe_snapshots(db: Session) -> dict[str, Any]:
 
 def build_macro_lab_payload(db: Session) -> dict[str, Any]:
     now = datetime.utcnow()
-    cache_key = "macro_lab_v3"
+    cache_key = "macro_lab_v4"
     ttl = timedelta(hours=12)
 
     cached_row = db.query(MacroSeriesCache).filter(MacroSeriesCache.cache_key == cache_key).first()
@@ -297,7 +308,12 @@ def build_macro_lab_payload(db: Session) -> dict[str, Any]:
         fred_data = {k: _fetch_fred_monthly(sid) for k, sid in FRED_SERIES.items()}
 
         if len(fred_data.get("cpi", {})) < 24:
-            fred_data["cpi"] = _fetch_worldbank_us_cpi_monthly()
+            fred_data["cpi"] = _fetch_worldbank_us_indicator_monthly("FP.CPI.TOTL", scale_div=1.0, annual_growth=1.028)
+
+        if len(fred_data.get("m2", {})) < 24:
+            fred_data["m2"] = _fetch_worldbank_us_indicator_monthly(
+                "FM.LBL.BMNY.CN", scale_div=1_000_000_000.0, annual_growth=1.055
+            )
 
         all_months_set: set[str] = set()
         for src in (yf_data, fred_data):
@@ -359,7 +375,6 @@ def build_macro_lab_payload(db: Session) -> dict[str, Any]:
         rut_real = deflate_to_real(rut_nom)
         gold_real = deflate_to_real(gold_nom)
 
-        # Retornos Rolling (1Y, 3Y, 5Y, 10Y) para S&P 500 y Nasdaq 100
         sp500_ret_1y = _compute_rolling_cagr(months, sp500_nom, 1)
         sp500_cagr_3y = _compute_rolling_cagr(months, sp500_nom, 3)
         sp500_cagr_5y = _compute_rolling_cagr(months, sp500_nom, 5)
