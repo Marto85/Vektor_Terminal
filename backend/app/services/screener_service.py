@@ -157,40 +157,26 @@ def _extract_screener_row(ticker_upper: str, snap: dict[str, Any]) -> dict[str, 
     }
 
 
-def get_screener_universe(db: Session, bootstrap_limit: int = 8) -> dict[str, Any]:
+def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, Any]:
     """
-    Devuelve todas las empresas cacheadas en Neon/SQLite listas para filtrar en el Screener.
-    Paraleliza actualizaciones/descargas con sesiones aisladas para evitar timeouts de 40s.
+    Devuelve de inmediato todas las empresas cacheadas en Neon/SQLite sin bloquear
+    en refrescos masivos de red. El refresco de esquemas/nuevos emisores se realiza
+    vía `POST /screener/sync`.
     """
     cached_rows = db.query(CompanyMarketCache).all()
     cached_map: dict[str, dict[str, Any]] = {}
-    stale_tickers: list[str] = []
 
     for row in cached_rows:
         tk = str(row.ticker).upper()
         payload: Any = row.market_data
         if isinstance(payload, dict) and float(payload.get("price") or 0) > 0:
             cached_map[tk] = payload
-            cf_block = payload.get("cf_ltm")
-            has_sec = isinstance(payload.get("sec_fundamentals"), dict) and len(payload["sec_fundamentals"]) > 0
-            if not (
-                isinstance(cf_block, dict)
-                and cf_block.get("schema_version") == CF_LTM_SCHEMA_VERSION
-                and (payload.get("info") or has_sec)
-            ):
-                stale_tickers.append(tk)
-
-    # Refrescar en paralelo hasta 6 snapshots desactualizados por llamada para no bloquear la respuesta
-    if stale_tickers:
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            for sym, snap in pool.map(_fetch_snapshot_isolated, stale_tickers[:6]):
-                if snap is not None:
-                    cached_map[sym] = snap
 
     missing_from_universe = [t for t in SCREENER_UNIVERSE if t not in cached_map]
 
-    if len(cached_map) < 8 and missing_from_universe and bootstrap_limit > 0:
-        with ThreadPoolExecutor(max_workers=6) as pool:
+    # Solo hacer bootstrap si la base está completamente vacía
+    if len(cached_map) == 0 and missing_from_universe and bootstrap_limit > 0:
+        with ThreadPoolExecutor(max_workers=4) as pool:
             for sym, snap in pool.map(_fetch_snapshot_isolated, missing_from_universe[:bootstrap_limit]):
                 if snap is not None:
                     cached_map[sym] = snap
@@ -216,21 +202,31 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 8) -> dict[str, An
     }
 
 
-def sync_screener_batch(db: Session, batch_size: int = 15) -> dict[str, Any]:
+def sync_screener_batch(db: Session, batch_size: int = 10) -> dict[str, Any]:
     """
-    Sincroniza en paralelo el siguiente lote de `batch_size` empresas del universo curado.
+    Sincroniza en paralelo el siguiente lote de empresas faltantes o con esquema anterior.
     """
-    cached_tickers = {
-        str(r.ticker).upper()
-        for r in db.query(CompanyMarketCache.ticker).all()
-    }
-    pending = [t for t in SCREENER_UNIVERSE if t not in cached_tickers]
+    cached_rows = db.query(CompanyMarketCache).all()
+    up_to_date_tickers: set[str] = set()
+    stale_tickers: list[str] = []
+
+    for r in cached_rows:
+        tk = str(r.ticker).upper()
+        payload: Any = r.market_data
+        if isinstance(payload, dict) and float(payload.get("price") or 0) > 0:
+            cf_block = payload.get("cf_ltm")
+            if isinstance(cf_block, dict) and cf_block.get("schema_version") == CF_LTM_SCHEMA_VERSION:
+                up_to_date_tickers.add(tk)
+            else:
+                stale_tickers.append(tk)
+
+    pending_new = [t for t in SCREENER_UNIVERSE if t not in up_to_date_tickers and t not in stale_tickers]
+    targets = (pending_new + stale_tickers)[:batch_size]
 
     synced: list[str] = []
-    batch = pending[:batch_size]
-    if batch:
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            for sym, snap in pool.map(_fetch_snapshot_isolated, batch):
+    if targets:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            for sym, snap in pool.map(_fetch_snapshot_isolated, targets):
                 if snap is not None:
                     synced.append(sym)
 
