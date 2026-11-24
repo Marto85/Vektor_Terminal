@@ -1,7 +1,8 @@
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 from sqlalchemy.orm import Session
 
-from app.models.database import CompanyMarketCache
+from app.models.database import CompanyMarketCache, SessionLocal
 from app.core.yf_client import (
     get_cached_market_snapshot,
     _build_summary_metrics,
@@ -41,6 +42,21 @@ SCREENER_UNIVERSE: list[str] = [
     # LatAm & Emergentes (7)
     "STNE", "PAGS", "XP", "ITUB", "PBR", "VALE", "BABA",
 ]
+
+
+def _fetch_snapshot_isolated(ticker_sym: str) -> tuple[str, dict[str, Any] | None]:
+    """Ejecuta `get_cached_market_snapshot` con sesión SQLAlchemy aislada por hilo."""
+    local_db = SessionLocal()
+    try:
+        snap = get_cached_market_snapshot(ticker_sym, local_db)
+        if snap and float(snap.get("price") or 0) > 0:
+            return ticker_sym, snap
+        return ticker_sym, None
+    except Exception:
+        local_db.rollback()
+        return ticker_sym, None
+    finally:
+        local_db.close()
 
 
 def _infer_sector_from_sic_desc(sic_desc: str) -> str:
@@ -141,41 +157,43 @@ def _extract_screener_row(ticker_upper: str, snap: dict[str, Any]) -> dict[str, 
     }
 
 
-def get_screener_universe(db: Session, bootstrap_limit: int = 12) -> dict[str, Any]:
+def get_screener_universe(db: Session, bootstrap_limit: int = 8) -> dict[str, Any]:
     """
     Devuelve todas las empresas cacheadas en Neon/SQLite listas para filtrar en el Screener.
-    Combina datos de mercado con respaldo SEC EDGAR para no dejar múltiplos vacíos.
+    Paraleliza actualizaciones/descargas con sesiones aisladas para evitar timeouts de 40s.
     """
     cached_rows = db.query(CompanyMarketCache).all()
     cached_map: dict[str, dict[str, Any]] = {}
+    stale_tickers: list[str] = []
+
     for row in cached_rows:
         tk = str(row.ticker).upper()
         payload: Any = row.market_data
         if isinstance(payload, dict) and float(payload.get("price") or 0) > 0:
+            cached_map[tk] = payload
             cf_block = payload.get("cf_ltm")
             has_sec = isinstance(payload.get("sec_fundamentals"), dict) and len(payload["sec_fundamentals"]) > 0
-            if isinstance(cf_block, dict) and cf_block.get("schema_version") == CF_LTM_SCHEMA_VERSION and (payload.get("info") or has_sec):
-                cached_map[tk] = payload
-            else:
-                try:
-                    refreshed = get_cached_market_snapshot(tk, db)
-                    if refreshed and float(refreshed.get("price") or 0) > 0:
-                        cached_map[tk] = refreshed
-                    else:
-                        cached_map[tk] = payload
-                except Exception:
-                    cached_map[tk] = payload
+            if not (
+                isinstance(cf_block, dict)
+                and cf_block.get("schema_version") == CF_LTM_SCHEMA_VERSION
+                and (payload.get("info") or has_sec)
+            ):
+                stale_tickers.append(tk)
+
+    # Refrescar en paralelo hasta 6 snapshots desactualizados por llamada para no bloquear la respuesta
+    if stale_tickers:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            for sym, snap in pool.map(_fetch_snapshot_isolated, stale_tickers[:6]):
+                if snap is not None:
+                    cached_map[sym] = snap
 
     missing_from_universe = [t for t in SCREENER_UNIVERSE if t not in cached_map]
 
-    if len(cached_map) < 10 and missing_from_universe:
-        for sym in missing_from_universe[:bootstrap_limit]:
-            try:
-                snap = get_cached_market_snapshot(sym, db)
-                if snap and float(snap.get("price") or 0) > 0:
+    if len(cached_map) < 8 and missing_from_universe and bootstrap_limit > 0:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            for sym, snap in pool.map(_fetch_snapshot_isolated, missing_from_universe[:bootstrap_limit]):
+                if snap is not None:
                     cached_map[sym] = snap
-            except Exception:
-                continue
 
     items: list[dict[str, Any]] = []
     sectors_set: set[str] = set()
@@ -200,8 +218,7 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 12) -> dict[str, A
 
 def sync_screener_batch(db: Session, batch_size: int = 15) -> dict[str, Any]:
     """
-    Sincroniza en base de datos el siguiente lote de `batch_size` empresas del universo curado
-    que aún no están cacheadas.
+    Sincroniza en paralelo el siguiente lote de `batch_size` empresas del universo curado.
     """
     cached_tickers = {
         str(r.ticker).upper()
@@ -210,13 +227,12 @@ def sync_screener_batch(db: Session, batch_size: int = 15) -> dict[str, Any]:
     pending = [t for t in SCREENER_UNIVERSE if t not in cached_tickers]
 
     synced: list[str] = []
-    for sym in pending[:batch_size]:
-        try:
-            snap = get_cached_market_snapshot(sym, db)
-            if snap and float(snap.get("price") or 0) > 0:
-                synced.append(sym)
-        except Exception:
-            continue
+    batch = pending[:batch_size]
+    if batch:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            for sym, snap in pool.map(_fetch_snapshot_isolated, batch):
+                if snap is not None:
+                    synced.append(sym)
 
     result = get_screener_universe(db, bootstrap_limit=0)
     result["synced_now"] = synced

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 import json
 import math
@@ -23,9 +23,24 @@ from app.models.database import (
 
 MARKET_CACHE_TTL = timedelta(hours=4)
 ESTIMATES_CACHE_TTL = timedelta(hours=24)
-CF_LTM_SCHEMA_VERSION = 5
+CF_LTM_SCHEMA_VERSION = 6
 SEC_HEADERS = {"User-Agent": "MiTerminalFinanciera/1.0 (contacto@miterminal.local)"}
 WEB_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; VektorTerminal/1.0)"}
+
+MESES_ES = {
+    1: "Ene",
+    2: "Feb",
+    3: "Mar",
+    4: "Abr",
+    5: "May",
+    6: "Jun",
+    7: "Jul",
+    8: "Ago",
+    9: "Sep",
+    10: "Oct",
+    11: "Nov",
+    12: "Dic",
+}
 
 
 def _upsert_by_ticker(db: Session, model: Any, ticker_upper: str, values: dict[str, Any]) -> None:
@@ -192,6 +207,101 @@ def _translate_headline_es(title: str) -> str:
     except Exception:
         pass
     return clean
+
+
+def _parse_event_datetime(raw_val: Any) -> datetime | None:
+    if raw_val is None:
+        return None
+    if isinstance(raw_val, (list, tuple)):
+        if not raw_val:
+            return None
+        raw_val = raw_val[0]
+    if isinstance(raw_val, datetime):
+        return raw_val.replace(tzinfo=None)
+    if hasattr(raw_val, "year") and hasattr(raw_val, "month") and hasattr(raw_val, "day"):
+        return datetime(int(raw_val.year), int(raw_val.month), int(raw_val.day))
+    if isinstance(raw_val, (int, float)):
+        ts = float(raw_val)
+        if ts > 1e12:
+            ts = ts / 1000.0
+        if ts > 1_500_000_000:
+            try:
+                return datetime.fromtimestamp(ts, tz=timezone.utc).replace(tzinfo=None)
+            except Exception:
+                return None
+    if isinstance(raw_val, str) and raw_val.strip():
+        clean = raw_val.strip()
+        for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(clean[:19], fmt)
+            except ValueError:
+                continue
+    return None
+
+
+def _extract_upcoming_events(ticker_obj: yf.Ticker, info: dict[str, Any]) -> list[dict[str, str]]:
+    """
+    Extrae los próximos eventos corporativos reales (Presentación de Resultados,
+    Fecha Ex-Dividendo y Pago de Dividendo) desde Yahoo Finance.
+    """
+    now_date = datetime.utcnow().date()
+    cal_dict: dict[str, Any] = {}
+    try:
+        raw_cal: Any = ticker_obj.calendar
+        if isinstance(raw_cal, dict):
+            cal_dict = raw_cal
+        elif isinstance(raw_cal, pd.DataFrame) and not raw_cal.empty:
+            for idx in list(raw_cal.index):
+                cal_dict[str(idx)] = raw_cal.loc[idx].iloc[0]
+    except Exception:
+        cal_dict = {}
+
+    raw_candidates: list[tuple[datetime, str, str]] = []
+
+    earnings_dt = (
+        _parse_event_datetime(cal_dict.get("Earnings Date"))
+        or _parse_event_datetime(info.get("earningsTimestamp"))
+        or _parse_event_datetime(info.get("earningsTimestampStart"))
+    )
+    if earnings_dt and earnings_dt.date() >= (now_date - timedelta(days=2)):
+        is_confirmed = bool(info.get("isEarningsDateEstimate") is False)
+        raw_candidates.append(
+            (
+                earnings_dt,
+                "Presentación de Resultados (Earnings)",
+                "Confirmado" if is_confirmed else "Fecha estimada",
+            )
+        )
+
+    ex_div_dt = (
+        _parse_event_datetime(cal_dict.get("Ex-Dividend Date"))
+        or _parse_event_datetime(info.get("exDividendDate"))
+    )
+    if ex_div_dt and ex_div_dt.date() >= now_date:
+        raw_candidates.append(
+            (ex_div_dt, "Fecha Ex-Dividendo", "Corte de derecho a dividendo")
+        )
+
+    div_pay_dt = (
+        _parse_event_datetime(cal_dict.get("Dividend Date"))
+        or _parse_event_datetime(info.get("dividendDate"))
+    )
+    if div_pay_dt and div_pay_dt.date() >= now_date:
+        raw_candidates.append(
+            (div_pay_dt, "Pago de Dividendo en Efectivo", "Confirmado")
+        )
+
+    raw_candidates.sort(key=lambda item: item[0])
+    events_out: list[dict[str, str]] = []
+    for dt_val, title_str, status_str in raw_candidates[:4]:
+        events_out.append({
+            "month": MESES_ES.get(dt_val.month, str(dt_val.month)),
+            "day": f"{dt_val.day:02d}",
+            "date_iso": dt_val.strftime("%Y-%m-%d"),
+            "title": title_str,
+            "status": status_str,
+        })
+    return events_out
 
 
 def _parse_yf_news(raw_news: list[Any], translate_to_es: bool = True) -> list[dict[str, Any]]:
@@ -577,7 +687,6 @@ def _extract_sec_fundamental_fallbacks(ticker_upper: str, db: Session) -> dict[s
         if not r.get("is_header"):
             by_metric[str(r.get("Métrica") or "").strip()] = r
 
-    # Seleccionar el último año fiscal con datos reales (evita columnas vacías del año en curso)
     active_years = [
         y
         for y in year_keys
@@ -618,7 +727,6 @@ def _extract_sec_fundamental_fallbacks(ticker_upper: str, db: Session) -> dict[s
     ni_curr = _val_usd("Beneficio Neto", latest_yr)
     ni_prev = _val_usd("Beneficio Neto", prev_yr)
 
-    # Las acciones en circulación NO se multiplican por FX (son cantidad de títulos)
     shares_mm = None
     for sy in reversed(active_years):
         s_cand = _val_raw("Acciones en Circulación (Diluidas)", sy) or _val_raw(
@@ -704,12 +812,6 @@ def _extract_sec_fundamental_fallbacks(ticker_upper: str, db: Session) -> dict[s
 def _extract_ltm_cashflow_metrics(
     ticker_obj: yf.Ticker, info: dict[str, Any], fx_rate: float
 ) -> dict[str, Any]:
-    """
-    Calcula OCF LTM, CapEx LTM y FCF LTM (OCF - |CapEx|) sumando los últimos 4 trimestres
-    de `quarterly_cashflow` (o el último año de `cashflow` anual).
-    Incluye detección de escala cambiaria para ADRs (ej. BRL/ARS vs USD) para evitar doble
-    conversión cuando `quarterly_cashflow` ya viene expresado en USD.
-    """
     ocf_raw: float | None = None
     capex_raw: float | None = None
 
@@ -783,7 +885,7 @@ def _extract_ltm_cashflow_metrics(
 def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any]:
     """
     Obtiene datos de mercado (precio, cambio, acciones, deuda neta, fx_rate, cf_ltm, noticias,
-    respaldo fundamental SEC EDGAR e info) desde Neon usando upsert atómico para evitar colisiones.
+    eventos próximos, respaldo fundamental SEC EDGAR e info) desde Neon usando upsert atómico.
     """
     ticker_upper = ticker_symbol.upper()
     now = datetime.utcnow()
@@ -827,7 +929,6 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
     )
     prev_close = float(info.get("previousClose") or price)
 
-    # Fallback a fast_info e historial diario si Yahoo bloquea .info en servidor
     if price <= 0.0:
         try:
             fi = ticker.fast_info
@@ -847,7 +948,6 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         except Exception:
             pass
 
-    # Si este intento falló por completo pero existe un snapshot previo con precio > 0, conservarlo
     if price <= 0.0 and cached_row is not None and isinstance(cached_row.market_data, dict):
         if float(cached_row.market_data.get("price") or 0.0) > 0.0:
             return cached_row.market_data
@@ -859,6 +959,7 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
     sec_rep_curr = str(sec_fundamentals.get("reporting_currency") or "USD")
     fx_rate = _resolve_fx_rate_to_trade_currency(info, sec_currency=sec_rep_curr)
     market_1y_fallback = _extract_1y_market_fallbacks(ticker) if not info else {}
+    upcoming_events = _extract_upcoming_events(ticker, info)
 
     shares_raw = info.get("sharesOutstanding")
     if shares_raw:
@@ -913,13 +1014,13 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
         "shares_mm": shares_mm,
         "net_debt_mm": net_debt_mm,
         "news": news_list,
+        "upcoming_events": upcoming_events,
         "info": info,
         "cf_ltm": cf_ltm,
         "sec_fundamentals": sec_fundamentals,
         "market_1y_fallback": market_1y_fallback,
     }
 
-    # Evitar persistir snapshots fallidos con precio 0; upsert atómico contra concurrencia
     if price > 0.0:
         try:
             _upsert_by_ticker(
@@ -935,12 +1036,6 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
 
 
 def get_cached_estimates_and_guidance(ticker_symbol: str, db: Session) -> dict[str, Any]:
-    """
-    Obtiene y persiste en base de datos (`CompanyEstimatesCache`, TTL 24h):
-    - Consenso de ingresos (`revenue_estimate`), BPA (`earnings_estimate`) y crecimiento (`growth_estimates`).
-    - Clasificación sectorial (`sector`, `industry`, `sic`) para enrutamiento de modelos.
-    - Últimos formularios SEC 8-K con Ítem 2.02 (comunicados de resultados y guidance).
-    """
     ticker_upper = ticker_symbol.upper()
     now = datetime.utcnow()
 
@@ -1034,11 +1129,6 @@ def _build_summary_metrics(
     sec_fundamentals: dict[str, Any] | None = None,
     market_1y_fallback: dict[str, float | None] | None = None,
 ) -> dict[str, Any]:
-    """
-    Construye las 4 secciones del panel derecho estilo TIKR en 2 columnas
-    combinando `info` de Yahoo Finance con los estados contables de SEC EDGAR
-    (ya convertidos a USD) y series históricas de 1 año como respaldo automático.
-    """
     sec = sec_fundamentals if isinstance(sec_fundamentals, dict) else {}
     mkt_1y = market_1y_fallback if isinstance(market_1y_fallback, dict) else {}
 
@@ -1266,12 +1356,6 @@ def _build_summary_metrics(
 
 
 def get_company_profile(ticker_symbol: str, db: Session) -> dict:
-    """
-    Datos de mercado (precio, noticias, estructura de capital): Se leen desde CompanyMarketCache (TTL 4h)
-    con respaldo automático desde SEC EDGAR (convertido a USD) y series OHLCV.
-    Datos estáticos (descripción en español, web): Se persisten en Neon (`CompanyProfile`) usando
-    Yahoo Finance como fuente primaria y Wikipedia + SEC EDGAR como respaldo permanente.
-    """
     ticker_upper = ticker_symbol.upper()
 
     snapshot = get_cached_market_snapshot(ticker_upper, db)
@@ -1280,6 +1364,7 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
     change_pct = snapshot["change_pct"]
     fx_rate = float(snapshot.get("fx_rate") or 1.0)
     news_list = snapshot["news"]
+    upcoming_events = snapshot.get("upcoming_events") if isinstance(snapshot.get("upcoming_events"), list) else []
     raw_info = snapshot.get("info")
     info: dict[str, Any] = raw_info if isinstance(raw_info, dict) else {}
     raw_sec_fb = snapshot.get("sec_fundamentals")
@@ -1364,7 +1449,6 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
             translated_desc, ok = _translate_to_spanish(raw_description, ticker_upper)
             persist_permanent = ok or len(translated_desc) >= 60
         else:
-            # Respaldo 1: Reseña corporativa en español desde Wikipedia
             wiki_desc = _fetch_wikipedia_summary_es(str(name), ticker_upper)
             if wiki_desc:
                 translated_desc = wiki_desc
@@ -1381,7 +1465,6 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
             except Exception:
                 db.rollback()
         elif not translated_desc:
-            # Respaldo 2: Ficha institucional desde SEC EDGAR (transitoria, no congela CompanyProfile)
             exchanges = sec_sub_meta.get("exchanges") if isinstance(sec_sub_meta.get("exchanges"), list) else []
             exch_str = f" (cotiza en {', '.join(str(x) for x in exchanges[:2])})" if exchanges else ""
             sector_part = f" en el sector {sec_sic_desc}" if sec_sic_desc else ""
@@ -1401,6 +1484,7 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
         "description": translated_desc,
         "reporting_currency": str(sec_fundamentals.get("reporting_currency") or "USD"),
         "news": news_list,
+        "upcoming_events": upcoming_events,
         "summary_metrics": _build_summary_metrics(
             info=info,
             price=price,

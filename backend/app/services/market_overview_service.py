@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from typing import Any
 import yfinance as yf
@@ -82,6 +83,93 @@ def _fallback_benchmark_from_db(db: Session, cfg: dict[str, str]) -> dict[str, A
     }
 
 
+def _fetch_single_benchmark_yf(cfg: dict[str, str]) -> dict[str, Any] | None:
+    sym = cfg["symbol"]
+    try:
+        tk = yf.Ticker(sym)
+        hist = tk.history(period="1mo", interval="1d", auto_adjust=True)
+        closes = [float(c) for c in hist["Close"].dropna().tolist()] if (hist is not None and not hist.empty) else []
+
+        if len(closes) >= 2:
+            last_price = closes[-1]
+            prev_price = closes[-2]
+        elif len(closes) == 1:
+            last_price = closes[0]
+            prev_price = closes[0]
+        else:
+            fi = tk.fast_info
+            last_price = float(getattr(fi, "last_price", 0.0) or 0.0)
+            prev_price = float(getattr(fi, "previous_close", last_price) or last_price)
+
+        if last_price <= 0:
+            return None
+
+        change = last_price - prev_price if prev_price > 0 else 0.0
+        change_pct = (change / prev_price) * 100.0 if prev_price > 0 else 0.0
+
+        return {
+            "symbol": sym,
+            "name": cfg["name"],
+            "subtitle": cfg["subtitle"],
+            "unit": cfg["unit"],
+            "price": round(last_price, 2),
+            "change": round(change, 2),
+            "change_pct": round(change_pct, 2),
+            "sparkline": [round(v, 2) for v in closes[-22:]],
+        }
+    except Exception:
+        return None
+
+
+def _fetch_single_news_source(src: tuple[str, str], now_ts: int) -> list[dict[str, Any]]:
+    sym, category = src
+    items_out: list[dict[str, Any]] = []
+    try:
+        raw_news = yf.Ticker(sym).news or []
+        for item in raw_news[:4]:
+            content = item.get("content") if isinstance(item.get("content"), dict) else item
+            raw_title = str(content.get("title") or item.get("title") or "").strip()
+            if not raw_title:
+                continue
+
+            title_es = _translate_headline_es(raw_title)
+            provider_obj = content.get("provider")
+            publisher = (
+                provider_obj.get("displayName")
+                if isinstance(provider_obj, dict)
+                else (content.get("publisher") or item.get("publisher") or "Mercado")
+            )
+
+            canon_url = content.get("canonicalUrl")
+            link = (
+                canon_url.get("url")
+                if isinstance(canon_url, dict)
+                else (content.get("link") or item.get("link") or "")
+            )
+
+            pub_ts = int(item.get("providerPublishTime") or content.get("providerPublishTime") or 0)
+            if pub_ts <= 0:
+                pub_iso = content.get("pubDate") or content.get("displayTime")
+                if isinstance(pub_iso, str) and pub_iso:
+                    try:
+                        pub_ts = int(datetime.fromisoformat(pub_iso.replace("Z", "+00:00")).timestamp())
+                    except Exception:
+                        pub_ts = now_ts
+
+            items_out.append({
+                "title": title_es,
+                "publisher": str(publisher),
+                "link": str(link),
+                "category": category,
+                "related_ticker": sym,
+                "providerPublishTime": pub_ts,
+                "pubDate": str(content.get("pubDate") or ""),
+            })
+    except Exception:
+        pass
+    return items_out
+
+
 def _fetch_benchmarks_and_news(db: Session) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     now = datetime.utcnow()
     cached_ts = _OVERVIEW_CACHE.get("timestamp")
@@ -96,114 +184,47 @@ def _fetch_benchmarks_and_news(db: Session) -> tuple[list[dict[str, Any]], list[
         return prev_benchmarks, prev_news
 
     prev_by_sym = {b["symbol"]: b for b in prev_benchmarks if isinstance(b, dict) and float(b.get("price") or 0) > 0}
+    now_ts = int(now.timestamp())
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        bm_futures = [pool.submit(_fetch_single_benchmark_yf, cfg) for cfg in BENCHMARK_CONFIG]
+        news_futures = [pool.submit(_fetch_single_news_source, src, now_ts) for src in NEWS_SOURCES]
+        bm_results = [f.result() for f in bm_futures]
+        news_batches = [f.result() for f in news_futures]
 
     benchmarks_out: list[dict[str, Any]] = []
-    for cfg in BENCHMARK_CONFIG:
+    for cfg, fetched in zip(BENCHMARK_CONFIG, bm_results):
         sym = cfg["symbol"]
-        try:
-            tk = yf.Ticker(sym)
-            hist = tk.history(period="1mo", interval="1d", auto_adjust=True)
-            closes = [float(c) for c in hist["Close"].dropna().tolist()] if (hist is not None and not hist.empty) else []
-
-            if len(closes) >= 2:
-                last_price = closes[-1]
-                prev_price = closes[-2]
-            elif len(closes) == 1:
-                last_price = closes[0]
-                prev_price = closes[0]
+        if fetched is not None:
+            benchmarks_out.append(fetched)
+        elif sym in prev_by_sym:
+            benchmarks_out.append(prev_by_sym[sym])
+        else:
+            db_fb = _fallback_benchmark_from_db(db, cfg)
+            if db_fb:
+                benchmarks_out.append(db_fb)
             else:
-                fi = tk.fast_info
-                last_price = float(getattr(fi, "last_price", 0.0) or 0.0)
-                prev_price = float(getattr(fi, "previous_close", last_price) or last_price)
-
-            if last_price <= 0:
-                raise ValueError("Precio nulo desde YF")
-
-            change = last_price - prev_price if prev_price > 0 else 0.0
-            change_pct = (change / prev_price) * 100.0 if prev_price > 0 else 0.0
-
-            benchmarks_out.append({
-                "symbol": sym,
-                "name": cfg["name"],
-                "subtitle": cfg["subtitle"],
-                "unit": cfg["unit"],
-                "price": round(last_price, 2),
-                "change": round(change, 2),
-                "change_pct": round(change_pct, 2),
-                "sparkline": [round(v, 2) for v in closes[-22:]],
-            })
-        except Exception:
-            if sym in prev_by_sym:
-                benchmarks_out.append(prev_by_sym[sym])
-            else:
-                db_fb = _fallback_benchmark_from_db(db, cfg)
-                if db_fb:
-                    benchmarks_out.append(db_fb)
-                else:
-                    benchmarks_out.append({
-                        "symbol": sym,
-                        "name": cfg["name"],
-                        "subtitle": cfg["subtitle"],
-                        "unit": cfg["unit"],
-                        "price": 0.0,
-                        "change": 0.0,
-                        "change_pct": 0.0,
-                        "sparkline": [],
-                    })
+                benchmarks_out.append({
+                    "symbol": sym,
+                    "name": cfg["name"],
+                    "subtitle": cfg["subtitle"],
+                    "unit": cfg["unit"],
+                    "price": 0.0,
+                    "change": 0.0,
+                    "change_pct": 0.0,
+                    "sparkline": [],
+                })
 
     seen_titles: set[str] = set()
     news_out: list[dict[str, Any]] = []
+    for batch in news_batches:
+        for item in batch:
+            t_low = item["title"].lower()
+            if t_low in seen_titles:
+                continue
+            seen_titles.add(t_low)
+            news_out.append(item)
 
-    for sym, category in NEWS_SOURCES:
-        try:
-            raw_news = yf.Ticker(sym).news or []
-            for item in raw_news[:4]:
-                content = item.get("content") if isinstance(item.get("content"), dict) else item
-                raw_title = str(content.get("title") or item.get("title") or "").strip()
-                if not raw_title:
-                    continue
-
-                title_es = _translate_headline_es(raw_title)
-                if title_es.lower() in seen_titles:
-                    continue
-                seen_titles.add(title_es.lower())
-
-                provider_obj = content.get("provider")
-                publisher = (
-                    provider_obj.get("displayName")
-                    if isinstance(provider_obj, dict)
-                    else (content.get("publisher") or item.get("publisher") or "Mercado")
-                )
-
-                canon_url = content.get("canonicalUrl")
-                link = (
-                    canon_url.get("url")
-                    if isinstance(canon_url, dict)
-                    else (content.get("link") or item.get("link") or "")
-                )
-
-                pub_ts = int(item.get("providerPublishTime") or content.get("providerPublishTime") or 0)
-                if pub_ts <= 0:
-                    pub_iso = content.get("pubDate") or content.get("displayTime")
-                    if isinstance(pub_iso, str) and pub_iso:
-                        try:
-                            pub_ts = int(datetime.fromisoformat(pub_iso.replace("Z", "+00:00")).timestamp())
-                        except Exception:
-                            pub_ts = int(now.timestamp())
-
-                news_out.append({
-                    "title": title_es,
-                    "publisher": str(publisher),
-                    "link": str(link),
-                    "category": category,
-                    "related_ticker": sym,
-                    "providerPublishTime": pub_ts,
-                    "pubDate": str(content.get("pubDate") or ""),
-                })
-        except Exception:
-            continue
-
-    # Respaldo de noticias en español vía Google News RSS si YF devolvió pocas en Render
     if len(news_out) < 4:
         rss_queries = [
             ("Wall Street S&P 500 bolsa", "Global"),
@@ -247,12 +268,12 @@ def build_market_overview(db: Session) -> dict[str, Any]:
     """
     Construye el payload del Portal Inicial:
     - 4 índices/referencias macro con sparkline de 30 días.
-    - Radar de oportunidades extraído de la caché local (sin llamadas extra a YF).
+    - Radar de oportunidades extraído de la caché local (bootstrap acotado para evitar timeouts).
     - Titulares de mercado categorizados en español (Global, Tech & IA, LatAm).
     """
     benchmarks, news = _fetch_benchmarks_and_news(db)
     try:
-        universe = get_screener_universe(db, bootstrap_limit=8)
+        universe = get_screener_universe(db, bootstrap_limit=4)
     except Exception:
         db.rollback()
         universe = {"items": [], "total_cached": 0}

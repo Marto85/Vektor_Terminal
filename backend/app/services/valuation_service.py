@@ -563,8 +563,8 @@ def _compute_reverse_dcf(
         def eval_bank_price(roe_decimal: float, horizon_yrs: int) -> float:
             if bvps <= 0:
                 return 0.0
-            g1 = min(max(roe_decimal * retention, -0.05), 0.25)
-            g_term = min(max(g1, 0.01), 0.045)
+            g1 = min(max(roe_decimal * retention, -0.25), 0.25)
+            g_term = min(max(g1, 0.0), 0.045)
             if ke <= g_term:
                 return 0.0
             bv = bvps
@@ -584,7 +584,7 @@ def _compute_reverse_dcf(
                     "implied_roe_pct": None,
                     "note": "Datos patrimoniales insuficientes para resolver el modelo inverso.",
                 }
-            lo, hi = -0.05, 0.60
+            lo, hi = -0.35, 0.60
             p_lo = eval_bank_price(lo, horizon_yrs)
             p_hi = eval_bank_price(hi, horizon_yrs)
             if cur_price <= p_lo:
@@ -1077,7 +1077,15 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
 
     tangible_equity_mm = max(latest_equity_mm - latest_goodwill_ltm - latest_intangibles_ltm, 0.0)
 
-    bvps = round(latest_equity_mm / current_shares_mm, 2) if (current_shares_mm > 0 and latest_equity_mm > 0) else 0.0
+    if current_shares_mm > 0 and latest_equity_mm > 0:
+        bvps = round(latest_equity_mm / current_shares_mm, 2)
+    elif current_price > 0 and pb_ltm is not None and pb_ltm > 0:
+        bvps = round(current_price / pb_ltm, 2)
+    elif info.get("bookValue"):
+        bvps = round(float(info["bookValue"]) * yf_fx_rate, 2)
+    else:
+        bvps = 0.0
+
     tbvps = round(tangible_equity_mm / current_shares_mm, 2) if (current_shares_mm > 0 and tangible_equity_mm > 0) else bvps
 
     yf_roe = info.get("returnOnEquity")

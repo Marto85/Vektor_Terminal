@@ -100,12 +100,6 @@ def _discover_peer_tickers(ticker_upper: str, sector: str, industry: str) -> lis
 
 
 def _valuation_multiple(num: float | None, den: float | None) -> float | str | None:
-    """
-    Convención institucional para múltiplos de valoración:
-    - Si falta numerador o denominador -> None ('-')
-    - Si el denominador es <= 0 (pérdidas o FCF negativo) -> 'N/M' (Not Meaningful)
-    - Si ambos son > 0 -> redondeo a 2 decimales
-    """
     if num is None or den is None:
         return None
     if den <= 0:
@@ -173,9 +167,27 @@ def _extract_comparable_row(ticker_upper: str, db: Session, is_base: bool = Fals
     if p_fcf_ltm is None and fcf_mm is not None and float(fcf_mm) <= 0:
         p_fcf_ltm = "N/M"
 
+    raw_cls = est.get("classification")
+    cls_info: dict[str, Any] = raw_cls if isinstance(raw_cls, dict) else {}
+    sector_val = str(
+        cls_info.get("sector")
+        or info.get("sector")
+        or sec_fb.get("sic_description")
+        or ""
+    ).strip()
+    industry_val = str(
+        cls_info.get("industry")
+        or info.get("industry")
+        or cls_info.get("sic_description")
+        or sec_fb.get("sic_description")
+        or ""
+    ).strip()
+
     return {
         "ticker": ticker_upper,
         "name": info.get("shortName") or info.get("longName") or sec_fb.get("entity_name") or ticker_upper,
+        "sector": sector_val,
+        "industry": industry_val,
         "is_base": is_base,
         "price": round(price, 2),
         "market_cap_mm": mcap_mm,
@@ -201,11 +213,6 @@ def _extract_comparable_row(ticker_upper: str, db: Session, is_base: bool = Fals
 def _compute_group_stats(
     rows: list[dict[str, Any]], numeric_keys: list[str]
 ) -> tuple[dict[str, float | None], dict[str, float | None]]:
-    """
-    Calcula Promedio y Mediana ignorando strings ('N/M') y None.
-    En múltiplos de valoración, winsoriza/excluye outliers extremos (> 250x) del Promedio
-    para evitar distorsiones por ciclos de inversión, manteniendo la Mediana intacta.
-    """
     avg_out: dict[str, float | None] = {}
     med_out: dict[str, float | None] = {}
 
@@ -234,10 +241,11 @@ def _compute_group_stats(
 def build_peers_comparison(ticker_symbol: str, db: Session) -> dict[str, Any]:
     ticker_upper = ticker_symbol.upper()
     est = get_cached_estimates_and_guidance(ticker_upper, db)
-    classification = est.get("classification", {})
-    sector = classification.get("sector", "")
-    industry = classification.get("industry", "")
-    sic_desc = classification.get("sic_description", "")
+    raw_cls = est.get("classification")
+    classification: dict[str, Any] = raw_cls if isinstance(raw_cls, dict) else {}
+    sector = str(classification.get("sector") or "")
+    industry = str(classification.get("industry") or "")
+    sic_desc = str(classification.get("sic_description") or "")
     is_financial = any(
         k in f"{sector} {industry} {sic_desc}".lower()
         for k in ("financial", "bank", "depository", "insurance", "capital markets", "credit", "asset management")
@@ -316,10 +324,6 @@ def build_manual_comparison(tickers: list[str], db: Session) -> dict[str, Any]:
     for sym in cleaned:
         row = _extract_comparable_row(sym, db, is_base=False)
         if row is not None:
-            est = get_cached_estimates_and_guidance(sym, db)
-            cls_info = est.get("classification", {})
-            row["sector"] = cls_info.get("sector", "")
-            row["industry"] = cls_info.get("industry", "")
             companies.append(row)
         else:
             errors.append(sym)

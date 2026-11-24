@@ -120,6 +120,7 @@ function App() {
   const [showDropdown, setShowDropdown] = useState(false);
   const mainScrollRef = useRef(null);
   const companyReqIdRef = useRef(0);
+  const searchDebounceRef = useRef(null);
 
   // Estado Multi-Watchlist y Notificaciones (aislado por usuario)
   const [watchlistData, setWatchlistData] = useState(null);
@@ -174,6 +175,14 @@ function App() {
     }
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [showAlertsPopover, showUserMenu]);
+
+  useEffect(() => {
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
+  }, []);
 
   if (loadingAuth) {
     return (
@@ -391,16 +400,28 @@ function App() {
     executeSearch(currentTicker, newPeriod, false);
   };
 
-  const handleSearchChange = async (e) => {
+  const handleSearchChange = (e) => {
     const value = e.target.value;
     setTickerInput(value);
 
-    if (value.trim().length > 0) {
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setSearchResults([]);
+      setShowDropdown(false);
+      return;
+    }
+
+    searchDebounceRef.current = setTimeout(async () => {
       try {
         const response = await apiClient.get(
-          `/search?q=${encodeURIComponent(value)}`,
+          `/search?q=${encodeURIComponent(trimmed)}`,
+          { timeout: 10000 },
         );
-        const upperQ = value.trim().toUpperCase();
+        const upperQ = trimmed.toUpperCase();
         const rawList = Array.isArray(response.data) ? response.data : [];
         const sorted = [...rawList].sort((a, b) => {
           const aExact = String(a.ticker || "").toUpperCase() === upperQ ? 1 : 0;
@@ -415,13 +436,13 @@ function App() {
       } catch (err) {
         console.error("Error buscando tickers", err);
       }
-    } else {
-      setSearchResults([]);
-      setShowDropdown(false);
-    }
+    }, 250);
   };
 
   const handleSelectTicker = (selectedTicker) => {
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
     setTickerInput(selectedTicker);
     setShowDropdown(false);
     setSearchResults([]);
@@ -439,6 +460,9 @@ function App() {
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
       setShowDropdown(false);
       const shouldSwitch =
         activeSidebarTab === "Inicio" ||
@@ -589,6 +613,11 @@ function App() {
 
   const domain = getDomain(profileData?.website);
   const reportingCurrency = profileData?.reporting_currency || "USD";
+  const isFinancialSector = Boolean(
+    profileData?.summary_metrics &&
+      profileData.summary_metrics.efficiency?.gross_margin_pct === null &&
+      profileData.summary_metrics.efficiency?.roic_pct === null,
+  );
   const isCompanyContextTab =
     activeSidebarTab === "Resumen" ||
     activeSidebarTab === "Finanzas" ||
@@ -1279,24 +1308,38 @@ function App() {
                       </span>
                     </div>
                     <div className="p-4 space-y-3 text-sm">
-                      <div className="flex items-start">
-                        <div className="w-10 text-center mr-3">
-                          <span className="block text-[10px] font-bold text-gray-400 uppercase">
-                            Dic
-                          </span>
-                          <span className="block text-lg font-bold text-gray-800 leading-none">
-                            12
-                          </span>
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-800 text-xs">
-                            Junta Anual de Accionistas
-                          </p>
-                          <p className="text-[10px] text-gray-500">
-                            Confirmado
-                          </p>
-                        </div>
-                      </div>
+                      {profileData?.upcoming_events &&
+                      profileData.upcoming_events.length > 0 ? (
+                        profileData.upcoming_events.map((ev, i) => (
+                          <div
+                            key={i}
+                            className="flex items-start border-b border-gray-100 pb-2.5 last:border-0 last:pb-0"
+                          >
+                            <div className="w-10 text-center mr-3 shrink-0 bg-orange-50 border border-orange-200 rounded py-1">
+                              <span className="block text-[9px] font-bold text-orange-600 uppercase">
+                                {ev.month}
+                              </span>
+                              <span className="block text-base font-bold text-gray-900 leading-none mt-0.5">
+                                {ev.day}
+                              </span>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-gray-800 text-xs">
+                                {ev.title}
+                              </p>
+                              <p className="text-[10px] text-gray-500 mt-0.5">
+                                {ev.status}
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-gray-500">
+                          {isLoading
+                            ? "Sincronizando calendario corporativo..."
+                            : "No hay eventos corporativos próximos programados."}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1332,6 +1375,7 @@ function App() {
                     period={period}
                     onOpenInfo={openGlossary}
                     reportingCurrency={reportingCurrency}
+                    isFinancialSector={isFinancialSector}
                   />
                 )}
 

@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from io import StringIO
 from statistics import mean, median
@@ -74,7 +75,7 @@ def _fetch_fred_monthly(series_id: str) -> dict[str, float]:
         "Accept": "text/csv,text/plain,*/*",
     }
     try:
-        resp = requests.get(url, headers=headers, timeout=15)
+        resp = requests.get(url, headers=headers, timeout=8)
         if resp.status_code != 200 or not resp.text or "<html" in resp.text.lower():
             return {}
         df = pd.read_csv(StringIO(resp.text))
@@ -96,7 +97,7 @@ def _fetch_worldbank_us_indicator_monthly(
     """Respaldo oficial del Banco Mundial interpolado mensualmente si FRED falla en servidor."""
     url = f"https://api.worldbank.org/v2/country/US/indicator/{indicator_code}?format=json&per_page=100"
     try:
-        resp = requests.get(url, timeout=12)
+        resp = requests.get(url, timeout=8)
         if resp.status_code != 200:
             return {}
         payload = resp.json()
@@ -175,6 +176,46 @@ def _summarize_series(values: list[float]) -> dict[str, float | None]:
     }
 
 
+def _fetch_single_etf_valuation(item: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        tk = yf.Ticker(item["proxy"])
+        info = tk.info or {}
+        price = info.get("regularMarketPrice") or info.get("previousClose")
+        if not price:
+            price = getattr(tk.fast_info, "last_price", None)
+
+        pe_t = info.get("trailingPE")
+        pe_f = info.get("forwardPE")
+        div_y = info.get("dividendYield")
+
+        pe_t_val = round(float(pe_t), 2) if pe_t and float(pe_t) > 0 else None
+        pe_f_val = round(float(pe_f), 2) if pe_f and float(pe_f) > 0 else None
+
+        if pe_t_val is None and div_y is not None and float(div_y) > 0:
+            dy_norm = float(div_y) if float(div_y) > 1 else float(div_y) * 100.0
+            if dy_norm > 0:
+                pe_t_val = round(min(max(35.0 / dy_norm, 8.0), 45.0), 2)
+
+        ey_val = round((100.0 / pe_t_val), 2) if pe_t_val else None
+        dy_val = round(float(div_y) if float(div_y) > 1 else float(div_y) * 100.0, 2) if div_y is not None else None
+        px_val = round(float(price), 2) if price else None
+
+        if pe_t_val is None and px_val is None:
+            return None
+
+        return {
+            "index_code": item["code"],
+            "proxy_ticker": item["proxy"],
+            "price": px_val,
+            "pe_trailing": pe_t_val,
+            "pe_forward": pe_f_val,
+            "earnings_yield_pct": ey_val,
+            "dividend_yield_pct": dy_val,
+        }
+    except Exception:
+        return None
+
+
 def _update_daily_index_pe_snapshots(db: Session) -> dict[str, Any]:
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
     existing_today = (
@@ -184,53 +225,29 @@ def _update_daily_index_pe_snapshots(db: Session) -> dict[str, Any]:
     )
     existing_codes = {str(row.index_code) for row in existing_today}
 
-    for item in INDEX_ETFS:
-        code = item["code"]
-        if code in existing_codes:
-            continue
-        try:
-            tk = yf.Ticker(item["proxy"])
-            info = tk.info or {}
-            price = info.get("regularMarketPrice") or info.get("previousClose")
-            if not price:
-                price = getattr(tk.fast_info, "last_price", None)
-
-            pe_t = info.get("trailingPE")
-            pe_f = info.get("forwardPE")
-            div_y = info.get("dividendYield")
-
-            pe_t_val = round(float(pe_t), 2) if pe_t and float(pe_t) > 0 else None
-            pe_f_val = round(float(pe_f), 2) if pe_f and float(pe_f) > 0 else None
-
-            if pe_t_val is None and div_y is not None and float(div_y) > 0:
-                dy_norm = float(div_y) if float(div_y) > 1 else float(div_y) * 100.0
-                if dy_norm > 0:
-                    pe_t_val = round(min(max(35.0 / dy_norm, 8.0), 45.0), 2)
-
-            ey_val = round((100.0 / pe_t_val), 2) if pe_t_val else None
-            dy_val = round(float(div_y) if float(div_y) > 1 else float(div_y) * 100.0, 2) if div_y is not None else None
-            px_val = round(float(price), 2) if price else None
-
-            if pe_t_val is not None or px_val is not None:
-                db.add(
-                    IndexValuationSnapshot(
-                        snapshot_date=today_str,
-                        index_code=code,
-                        proxy_ticker=item["proxy"],
-                        price=px_val,
-                        pe_trailing=pe_t_val,
-                        pe_forward=pe_f_val,
-                        earnings_yield_pct=ey_val,
-                        dividend_yield_pct=dy_val,
-                    )
+    missing_items = [item for item in INDEX_ETFS if item["code"] not in existing_codes]
+    if missing_items:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            fetched_snaps = list(pool.map(_fetch_single_etf_valuation, missing_items))
+        for snap_data in fetched_snaps:
+            if not snap_data:
+                continue
+            db.add(
+                IndexValuationSnapshot(
+                    snapshot_date=today_str,
+                    index_code=snap_data["index_code"],
+                    proxy_ticker=snap_data["proxy_ticker"],
+                    price=snap_data["price"],
+                    pe_trailing=snap_data["pe_trailing"],
+                    pe_forward=snap_data["pe_forward"],
+                    earnings_yield_pct=snap_data["earnings_yield_pct"],
+                    dividend_yield_pct=snap_data["dividend_yield_pct"],
                 )
-                try:
-                    db.commit()
-                except IntegrityError:
-                    db.rollback()
-        except Exception:
-            db.rollback()
-            continue
+            )
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
 
     all_snaps = (
         db.query(IndexValuationSnapshot)
@@ -304,8 +321,22 @@ def build_macro_lab_payload(db: Session) -> dict[str, Any]:
                 base_payload = dict(payload_raw)
 
     if base_payload is None:
-        yf_data = {alias: _fetch_yf_single_monthly(sym) for alias, sym in YF_MACRO_TICKERS.items()}
-        fred_data = {k: _fetch_fred_monthly(sid) for k, sid in FRED_SERIES.items()}
+        yf_data: dict[str, dict[str, float]] = {}
+        fred_data: dict[str, dict[str, float]] = {}
+
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            yf_futures = {
+                alias: pool.submit(_fetch_yf_single_monthly, sym)
+                for alias, sym in YF_MACRO_TICKERS.items()
+            }
+            fred_futures = {
+                k: pool.submit(_fetch_fred_monthly, sid)
+                for k, sid in FRED_SERIES.items()
+            }
+            for alias, fut in yf_futures.items():
+                yf_data[alias] = fut.result()
+            for k, fut in fred_futures.items():
+                fred_data[k] = fut.result()
 
         if len(fred_data.get("cpi", {})) < 24:
             fred_data["cpi"] = _fetch_worldbank_us_indicator_monthly("FP.CPI.TOTL", scale_div=1.0, annual_growth=1.028)

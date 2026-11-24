@@ -115,8 +115,8 @@ function solveInteractiveReverseDcf({
     }
 
     const evalBank = (roeDec) => {
-      const g1 = Math.min(Math.max(roeDec * retention, -0.05), 0.25);
-      const gTerm = Math.min(Math.max(g1, 0.01), 0.045);
+      const g1 = Math.min(Math.max(roeDec * retention, -0.25), 0.25);
+      const gTerm = Math.min(Math.max(g1, 0.0), 0.045);
       if (ke <= gTerm) return 0;
       let bv = bvps;
       let pvExc = 0;
@@ -129,7 +129,7 @@ function solveInteractiveReverseDcf({
       return bvps + pvExc + tv / (1 + ke) ** horizonYears;
     };
 
-    let lo = -0.05;
+    let lo = -0.35;
     let hi = 0.6;
     if (curPrice <= evalBank(lo)) {
       return {
@@ -1669,7 +1669,7 @@ export default function ValuationTab({ ticker, onOpenInfo, onOpenValuationModels
                 <span className="inline-flex items-center gap-1.5">
                   <span className="w-3 h-3 rounded-xs bg-emerald-100 border border-emerald-300 inline-block" />
                   <span>
-                    <strong className="text-emerald-800">Más barato que su historia</strong> (múltiplo &lt; Med. 5Y, o FCF Yield &gt; Med. 5Y)
+                    <strong className="text-emerald-800">Más barato que su historia</strong> (múltiplo {'<'} Med. 5Y, o FCF Yield {'>'} Med. 5Y)
                   </span>
                 </span>
                 <span className="inline-flex items-center gap-1.5">
@@ -1681,7 +1681,7 @@ export default function ValuationTab({ ticker, onOpenInfo, onOpenValuationModels
                 <span className="inline-flex items-center gap-1.5">
                   <span className="w-3 h-3 rounded-xs bg-red-100 border border-red-300 inline-block" />
                   <span>
-                    <strong className="text-[#c5221f]">Más caro que su historia</strong> (múltiplo &gt; Med. 5Y, o FCF Yield &lt; Med. 5Y)
+                    <strong className="text-[#c5221f]">Más caro que su historia</strong> (múltiplo {'>'} Med. 5Y, o FCF Yield {'<'} Med. 5Y)
                   </span>
                 </span>
               </div>

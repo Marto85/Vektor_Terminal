@@ -88,6 +88,7 @@ export default function FinancialsQuickCards({
   period,
   onOpenInfo,
   reportingCurrency = "USD",
+  isFinancialSector = false,
 }) {
   if (
     !Array.isArray(financialData) ||
@@ -100,7 +101,6 @@ export default function FinancialsQuickCards({
   const periods = extractPeriodKeys(financialData);
   if (periods.length === 0) return null;
 
-  // Seleccionar el último período con datos contables reales (evita columnas vacías del año en curso)
   const coreProbeRows = financialData.filter(
     (r) =>
       !r.is_header &&
@@ -177,12 +177,13 @@ export default function FinancialsQuickCards({
       },
       {
         title: "Margen Bruto",
-        value: fmtPct(gmCurr),
-        sub:
-          gmDelta !== null
+        value: isFinancialSector ? "N/A (Banco)" : fmtPct(gmCurr),
+        sub: isFinancialSector
+          ? "No aplica margen bruto industrial"
+          : gmDelta !== null
             ? `${gmDelta >= 0 ? "+" : ""}${gmDelta.toFixed(1)} pp ${compLabel} · ${fmtMoney(gpCurr)}`
             : fmtMoney(gpCurr),
-        trend: gmDelta,
+        trend: isFinancialSector ? null : gmDelta,
         glossaryKey: "Margen bruto LTM",
       },
       {
@@ -219,6 +220,9 @@ export default function FinancialsQuickCards({
     const eqRow = findMetricRow(financialData, "Balance de Situación", [
       "Patrimonio neto",
     ]);
+    const assetsRow = findMetricRow(financialData, "Balance de Situación", [
+      "Total activo",
+    ]);
     const caRow = findMetricRow(financialData, "Balance de Situación", [
       "Total activo corriente",
     ]);
@@ -236,6 +240,12 @@ export default function FinancialsQuickCards({
     const eqCurr = numAt(eqRow, currP);
     const eqPrev = numAt(eqRow, prevP);
     const eqGrowth = calcGrowthPct(eqCurr, eqPrev);
+
+    const assetsCurr = numAt(assetsRow, currP);
+    const equityMultiplier =
+      assetsCurr !== null && eqCurr !== null && eqCurr > 0
+        ? assetsCurr / eqCurr
+        : null;
 
     const caCurr = numAt(caRow, currP);
     const clCurr = numAt(clRow, currP);
@@ -271,16 +281,24 @@ export default function FinancialsQuickCards({
         trend: eqGrowth,
         glossaryKey: "Patrimonio Neto (Book Value)",
       },
-      {
-        title: "Capital de Trabajo Neto",
-        value: fmtMoney(workingCap),
-        sub:
-          currRatio !== null
-            ? `Liquidez corriente: ${fmtMult(currRatio, "x")}`
-            : "Activo corriente - Pasivo corriente",
-        trend: workingCap !== null ? (workingCap >= 0 ? 1 : -1) : null,
-        glossaryKey: "Capital de Trabajo Neto (NWC)",
-      },
+      isFinancialSector
+        ? {
+            title: "Apalancamiento (Activos / PN)",
+            value: fmtMult(equityMultiplier, "x"),
+            sub: `Activos totales: ${fmtMoney(assetsCurr)}`,
+            trend: null,
+            glossaryKey: "Descomposición DuPont",
+          }
+        : {
+            title: "Capital de Trabajo Neto",
+            value: fmtMoney(workingCap),
+            sub:
+              currRatio !== null
+                ? `Liquidez corriente: ${fmtMult(currRatio, "x")}`
+                : "Activo corriente - Pasivo corriente",
+            trend: workingCap !== null ? (workingCap >= 0 ? 1 : -1) : null,
+            glossaryKey: "Capital de Trabajo Neto (NWC)",
+          },
     ];
   } else if (activeContentTab === "Estado de Flujo de Efectivo") {
     const cfoRow = findMetricRow(
@@ -401,29 +419,45 @@ export default function FinancialsQuickCards({
       },
       {
         title: "Ciclo Conversión Efectivo (CCC)",
-        value:
-          cccCurr !== null && cccCurr !== 0 ? `${cccCurr.toFixed(0)} días` : "-",
-        sub: "DSO + DIO − DPO (menor = más eficiente)",
+        value: isFinancialSector
+          ? "N/A (Banco)"
+          : cccCurr !== null && cccCurr !== 0
+            ? `${cccCurr.toFixed(0)} días`
+            : "-",
+        sub: isFinancialSector
+          ? "No aplica ciclo de inventarios/cuentas"
+          : "DSO + DIO − DPO (menor = más eficiente)",
         trend: null,
         glossaryKey: "Ciclo de conversión de efectivo (CCC) días",
       },
       {
         title: "Liquidez Corriente",
-        value: fmtMult(liqCurr, "x"),
-        sub: `Quick Ratio (prueba ácida): ${fmtMult(quickCurr, "x")}`,
-        trend:
-          liqCurr !== null ? (liqCurr >= 1.2 ? 1 : liqCurr < 1 ? -1 : 0) : null,
+        value: isFinancialSector ? "N/A (Banco)" : fmtMult(liqCurr, "x"),
+        sub: isFinancialSector
+          ? "Se evalúa por encajes y basilea"
+          : `Quick Ratio (prueba ácida): ${fmtMult(quickCurr, "x")}`,
+        trend: isFinancialSector
+          ? null
+          : liqCurr !== null
+            ? liqCurr >= 1.2
+              ? 1
+              : liqCurr < 1
+                ? -1
+                : 0
+            : null,
         glossaryKey: "Ratio de liquidez (x)",
       },
       {
         title: "Apalancamiento Deuda / EBITDA",
-        value: fmtMult(debtEbitdaCurr, "x"),
-        sub:
-          intCovCurr !== null && intCovCurr > 0
+        value: isFinancialSector ? "N/A (Banco)" : fmtMult(debtEbitdaCurr, "x"),
+        sub: isFinancialSector
+          ? "Fondeo financiero operativo"
+          : intCovCurr !== null && intCovCurr > 0
             ? `Cobertura intereses: ${fmtMult(intCovCurr, "x")}`
             : "Solvencia y carga financiera",
-        trend:
-          debtEbitdaCurr !== null
+        trend: isFinancialSector
+          ? null
+          : debtEbitdaCurr !== null
             ? debtEbitdaCurr <= 2.5
               ? 1
               : debtEbitdaCurr > 4
