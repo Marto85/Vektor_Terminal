@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import time
+import gc
 from typing import Any
 from sqlalchemy.orm import Session
 
@@ -10,7 +10,7 @@ from app.core.yf_client import (
     CF_LTM_SCHEMA_VERSION,
 )
 
-# Universo institucional curado (~150 emisores líderes globales y ADRs LatAm)
+# Universo institucional curado (~151 emisores líderes globales y ADRs LatAm)
 SCREENER_UNIVERSE: list[str] = [
     # Mega Cap Tech, IA Frontier, Software & Ciberseguridad (28)
     "MSFT", "AAPL", "GOOGL", "META", "AMZN", "NVDA", "AVGO", "ORCL", "CRM", "ADBE",
@@ -46,7 +46,7 @@ SCREENER_UNIVERSE: list[str] = [
 
 
 def _fetch_snapshot_isolated(ticker_sym: str) -> tuple[str, dict[str, Any] | None]:
-    """Ejecuta `get_cached_market_snapshot` con sesión SQLAlchemy aislada por hilo."""
+    """Ejecuta `get_cached_market_snapshot` con sesión SQLAlchemy aislada y liberación de memoria."""
     local_db = SessionLocal()
     try:
         snap = get_cached_market_snapshot(ticker_sym, local_db)
@@ -58,6 +58,7 @@ def _fetch_snapshot_isolated(ticker_sym: str) -> tuple[str, dict[str, Any] | Non
         return ticker_sym, None
     finally:
         local_db.close()
+        gc.collect()
 
 
 def _infer_sector_from_sic_desc(sic_desc: str) -> str:
@@ -176,7 +177,7 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
     missing_from_universe = [t for t in SCREENER_UNIVERSE if t not in cached_map]
 
     if len(cached_map) == 0 and missing_from_universe and bootstrap_limit > 0:
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=2) as pool:
             for sym, snap in pool.map(_fetch_snapshot_isolated, missing_from_universe[:bootstrap_limit]):
                 if snap is not None:
                     cached_map[sym] = snap
@@ -202,12 +203,12 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
     }
 
 
-def sync_screener_batch(db: Session, batch_size: int = 6) -> dict[str, Any]:
+def sync_screener_batch(db: Session, batch_size: int = 4) -> dict[str, Any]:
     """
-    Sincroniza en paralelo un lote acotado (máx. 6 emisores) con presupuesto de tiempo
-    de 22 segundos para evitar timeouts HTTP en Render.
+    Sincroniza en paralelo acotado (2 workers, máx. 4 emisores por llamada) con presupuesto
+    de 20s para evitar picos de memoria (502 OOM) o timeouts en Render.
     """
-    effective_batch = min(max(int(batch_size or 6), 1), 6)
+    effective_batch = min(max(int(batch_size or 4), 1), 4)
 
     cached_rows = db.query(CompanyMarketCache).all()
     up_to_date_tickers: set[str] = set()
@@ -228,10 +229,10 @@ def sync_screener_batch(db: Session, batch_size: int = 6) -> dict[str, Any]:
 
     synced: list[str] = []
     if targets:
-        pool = ThreadPoolExecutor(max_workers=len(targets))
+        pool = ThreadPoolExecutor(max_workers=2)
         futures = {pool.submit(_fetch_snapshot_isolated, sym): sym for sym in targets}
         try:
-            for fut in as_completed(futures, timeout=22.0):
+            for fut in as_completed(futures, timeout=20.0):
                 try:
                     sym, snap = fut.result()
                     if snap is not None:
@@ -242,6 +243,7 @@ def sync_screener_batch(db: Session, batch_size: int = 6) -> dict[str, Any]:
             pass
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
+            gc.collect()
 
     result = get_screener_universe(db, bootstrap_limit=0)
     result["synced_now"] = synced
