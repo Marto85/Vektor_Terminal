@@ -206,30 +206,24 @@ function App() {
     }
   };
 
-  const allGlobalNavItems = [
-    { id: "Inicio", name: "Inicio y Mercado", icon: Home, clientAllowed: true },
+  const globalNavItems = [
+    { id: "Inicio", name: "Inicio y Mercado", icon: Home },
     {
       id: "Carteras",
       name: isClient ? "Mi Cartera" : "Carteras y Clientes",
       icon: Briefcase,
-      clientAllowed: true,
     },
     {
       id: "Tablero",
       name: "Listas de Seguimiento",
       icon: Bookmark,
-      clientAllowed: true,
     },
-    { id: "Screener", name: "Screener", icon: Filter, clientAllowed: false },
-    { id: "Comparador", name: "Comparador", icon: Scale, clientAllowed: true },
-    { id: "Modelos", name: "Modelos de Valuación", icon: Calculator, clientAllowed: false },
-    { id: "MacroLab", name: "Macro Lab", icon: Globe, clientAllowed: true },
-    { id: "Tesis", name: "Tesis de Inversión", icon: Presentation, clientAllowed: true },
+    { id: "Screener", name: "Screener", icon: Filter },
+    { id: "Comparador", name: "Comparador", icon: Scale },
+    { id: "Modelos", name: "Modelos de Valuación", icon: Calculator },
+    { id: "MacroLab", name: "Macro Lab", icon: Globe },
+    { id: "Tesis", name: "Tesis de Inversión", icon: Presentation },
   ];
-
-  const globalNavItems = isClient
-    ? allGlobalNavItems.filter((item) => item.clientAllowed)
-    : allGlobalNavItems;
 
   const companyNavItems = [
     { id: "Resumen", name: "Resumen y noticias", icon: FileText },
@@ -364,7 +358,6 @@ function App() {
   };
 
   const handleOpenScreenerWithPreset = (presetId = "all") => {
-    if (isClient) return;
     setScreenerPresetId(presetId);
     setActiveSidebarTab("Screener");
     setMobileMenuOpen(false);
@@ -714,7 +707,7 @@ function App() {
         </nav>
       </div>
 
-      {/* Administración / Cartera (según rol) */}
+      {/* Administración / Cartera (solo asesor/admin) */}
       {isAdvisorOrAdmin && (
         <div>
           <div className="px-3 mb-2">
@@ -1125,22 +1118,20 @@ function App() {
                     </>
                   )}
                 </button>
-                {isAdvisorOrAdmin && (
-                  <button
-                    type="button"
-                    onClick={() => handleExportCompany("xlsx")}
-                    disabled={exportingFormat !== null}
-                    title="Descargar libro Excel multi-solapa (.xlsx)"
-                    className="flex items-center px-2.5 sm:px-3 py-1.5 border border-emerald-300 bg-emerald-50/70 rounded text-xs font-medium text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer shadow-sm disabled:opacity-50 shrink-0"
-                  >
-                    {exportingFormat === "xlsx" ? (
-                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                    ) : (
-                      <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
-                    )}
-                    Excel (.xlsx)
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => handleExportCompany("xlsx")}
+                  disabled={exportingFormat !== null}
+                  title="Descargar libro Excel multi-solapa (.xlsx)"
+                  className="flex items-center px-2.5 sm:px-3 py-1.5 border border-emerald-300 bg-emerald-50/70 rounded text-xs font-medium text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer shadow-sm disabled:opacity-50 shrink-0"
+                >
+                  {exportingFormat === "xlsx" ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
+                  )}
+                  Excel (.xlsx)
+                </button>
                 <button
                   type="button"
                   onClick={() => handleExportCompany("pdf")}
@@ -1411,16 +1402,14 @@ function App() {
                       <button className="p-1.5 text-gray-500 hover:text-gray-900 border border-gray-300 rounded bg-white cursor-pointer">
                         <Maximize2 className="w-3.5 h-3.5" />
                       </button>
-                      {isAdvisorOrAdmin && (
-                        <button
-                          type="button"
-                          onClick={() => handleExportCompany("xlsx")}
-                          disabled={exportingFormat !== null}
-                          className="flex items-center text-xs px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 cursor-pointer disabled:opacity-50"
-                        >
-                          <Download className="w-3.5 h-3.5 mr-1.5" /> Exportar
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleExportCompany("xlsx")}
+                        disabled={exportingFormat !== null}
+                        className="flex items-center text-xs px-2 py-1 border border-gray-300 rounded bg-white text-gray-700 hover:bg-gray-50 cursor-pointer disabled:opacity-50"
+                      >
+                        <Download className="w-3.5 h-3.5 mr-1.5" /> Exportar
+                      </button>
                     </div>
                   </div>
 
@@ -1588,15 +1577,11 @@ function App() {
                 <ValuationTab
                   ticker={currentTicker}
                   onOpenInfo={openGlossary}
-                  onOpenValuationModels={
-                    isAdvisorOrAdmin
-                      ? (sym) => {
-                          setCurrentTicker(sym);
-                          setHasLoadedCompany(true);
-                          setActiveSidebarTab("Modelos");
-                        }
-                      : undefined
-                  }
+                  onOpenValuationModels={(sym) => {
+                    setCurrentTicker(sym);
+                    setHasLoadedCompany(true);
+                    setActiveSidebarTab("Modelos");
+                  }}
                 />
               </Suspense>
             )}
@@ -1609,7 +1594,7 @@ function App() {
             )}
 
             {/* PESTAÑA: MODELOS DE VALUACIÓN (AUTOMÁTICO Y MANUAL) */}
-            {activeSidebarTab === "Modelos" && isAdvisorOrAdmin && (
+            {activeSidebarTab === "Modelos" && (
               <Suspense fallback={<TabFallback />}>
                 <ValuationModelsTab
                   initialTicker={hasLoadedCompany ? currentTicker : ""}
@@ -1655,7 +1640,7 @@ function App() {
             )}
 
             {/* PESTAÑA: SCREENER FUNDAMENTAL */}
-            {activeSidebarTab === "Screener" && isAdvisorOrAdmin && (
+            {activeSidebarTab === "Screener" && (
               <Suspense fallback={<TabFallback />}>
                 <ScreenerTab
                   key={screenerPresetId}

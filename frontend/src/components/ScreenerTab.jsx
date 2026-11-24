@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from "../api/client";
+import { useAuth } from "../context/authStore";
 import {
   Filter,
   RefreshCw,
@@ -164,6 +165,7 @@ function formatCell(val, type) {
 }
 
 export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }) {
+  const { isAdvisorOrAdmin } = useAuth();
   const startingPreset = PRESETS.find((p) => p.id === initialPresetId) || PRESETS[0];
 
   const [universeData, setUniverseData] = useState(null);
@@ -224,7 +226,7 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
     setSyncing(true);
     setError(null);
     try {
-      const res = await apiClient.post('/screener/sync?batch_size=15');
+      const res = await apiClient.post('/screener/sync?batch_size=4');
       setUniverseData(res.data);
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al sincronizar lote de empresas');
@@ -424,6 +426,9 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
     return PRESETS.find((p) => p.id === basePresetId) || PRESETS[0];
   }, [basePresetId]);
 
+  const pendingSyncCount = universeData?.pending_sync || 0;
+  const staleCount = universeData?.stale_count || 0;
+
   if (loading && !universeData) {
     return (
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm py-20 flex flex-col items-center justify-center text-orange-500">
@@ -453,7 +458,7 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {(universeData?.pending_sync || 0) > 0 && (
+            {isAdvisorOrAdmin && (pendingSyncCount > 0 || staleCount > 0) && (
               <button
                 type="button"
                 onClick={handleSyncMore}
@@ -463,7 +468,9 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
                 <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
                 {syncing
                   ? 'Sincronizando lote...'
-                  : `Sincronizar +15 emisores (${universeData.pending_sync} pendientes)`}
+                  : pendingSyncCount > 0
+                  ? `Sincronizar +4 emisores (${pendingSyncCount} pendientes)`
+                  : `Actualizar +4 emisores (${staleCount} desactualizados)`}
               </button>
             )}
 

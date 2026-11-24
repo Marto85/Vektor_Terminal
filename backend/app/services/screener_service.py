@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
 import gc
 from typing import Any
 from sqlalchemy.orm import Session
@@ -9,6 +10,8 @@ from app.core.yf_client import (
     _build_summary_metrics,
     CF_LTM_SCHEMA_VERSION,
 )
+
+SCREENER_REFRESH_TTL = timedelta(hours=12)
 
 # Universo institucional curado (~151 emisores líderes globales y ADRs LatAm)
 SCREENER_UNIVERSE: list[str] = [
@@ -165,14 +168,19 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
     en refrescos masivos de red. El refresco de esquemas/nuevos emisores se realiza
     vía `POST /screener/sync`.
     """
+    now = datetime.utcnow()
     cached_rows = db.query(CompanyMarketCache).all()
     cached_map: dict[str, dict[str, Any]] = {}
+    stale_count = 0
 
     for row in cached_rows:
         tk = str(row.ticker).upper()
         payload: Any = row.market_data
         if isinstance(payload, dict) and float(payload.get("price") or 0) > 0:
             cached_map[tk] = payload
+            updated_at: Any = row.last_updated
+            if isinstance(updated_at, datetime) and (now - updated_at) >= SCREENER_REFRESH_TTL:
+                stale_count += 1
 
     missing_from_universe = [t for t in SCREENER_UNIVERSE if t not in cached_map]
 
@@ -199,6 +207,7 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
         "total_cached": len(items),
         "universe_size": len(SCREENER_UNIVERSE),
         "pending_sync": pending_count,
+        "stale_count": stale_count,
         "sectors": sorted(sectors_set),
     }
 
@@ -206,26 +215,36 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
 def sync_screener_batch(db: Session, batch_size: int = 4) -> dict[str, Any]:
     """
     Sincroniza en paralelo acotado (2 workers, máx. 4 emisores por llamada) con presupuesto
-    de 20s para evitar picos de memoria (502 OOM) o timeouts en Render.
+    de 20s:
+    1) Incorpora primero emisores nuevos faltantes del universo de 151.
+    2) Actualiza emisores con esquema anterior.
+    3) Cuando ya están los 151 cargados, rota refrescando los que superan 12h (más antiguos primero).
     """
+    now = datetime.utcnow()
     effective_batch = min(max(int(batch_size or 4), 1), 4)
 
     cached_rows = db.query(CompanyMarketCache).all()
-    up_to_date_tickers: set[str] = set()
-    stale_tickers: list[str] = []
+    cached_valid_tickers: set[str] = set()
+    schema_outdated: list[str] = []
+    ttl_expired_pairs: list[tuple[datetime, str]] = []
 
     for r in cached_rows:
         tk = str(r.ticker).upper()
         payload: Any = r.market_data
         if isinstance(payload, dict) and float(payload.get("price") or 0) > 0:
+            cached_valid_tickers.add(tk)
             cf_block = payload.get("cf_ltm")
-            if isinstance(cf_block, dict) and cf_block.get("schema_version") == CF_LTM_SCHEMA_VERSION:
-                up_to_date_tickers.add(tk)
-            else:
-                stale_tickers.append(tk)
+            updated_at: Any = r.last_updated
+            if not (isinstance(cf_block, dict) and cf_block.get("schema_version") == CF_LTM_SCHEMA_VERSION):
+                schema_outdated.append(tk)
+            elif isinstance(updated_at, datetime) and (now - updated_at) >= SCREENER_REFRESH_TTL:
+                ttl_expired_pairs.append((updated_at, tk))
 
-    pending_new = [t for t in SCREENER_UNIVERSE if t not in up_to_date_tickers and t not in stale_tickers]
-    targets = (pending_new + stale_tickers)[:effective_batch]
+    ttl_expired_pairs.sort(key=lambda pair: pair[0])
+    ttl_expired = [tk for _, tk in ttl_expired_pairs]
+
+    pending_new = [t for t in SCREENER_UNIVERSE if t not in cached_valid_tickers]
+    targets = (pending_new + schema_outdated + ttl_expired)[:effective_batch]
 
     synced: list[str] = []
     if targets:
