@@ -1,4 +1,5 @@
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 from typing import Any
 from sqlalchemy.orm import Session
 
@@ -174,7 +175,6 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
 
     missing_from_universe = [t for t in SCREENER_UNIVERSE if t not in cached_map]
 
-    # Solo hacer bootstrap si la base está completamente vacía
     if len(cached_map) == 0 and missing_from_universe and bootstrap_limit > 0:
         with ThreadPoolExecutor(max_workers=4) as pool:
             for sym, snap in pool.map(_fetch_snapshot_isolated, missing_from_universe[:bootstrap_limit]):
@@ -202,10 +202,13 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
     }
 
 
-def sync_screener_batch(db: Session, batch_size: int = 10) -> dict[str, Any]:
+def sync_screener_batch(db: Session, batch_size: int = 6) -> dict[str, Any]:
     """
-    Sincroniza en paralelo el siguiente lote de empresas faltantes o con esquema anterior.
+    Sincroniza en paralelo un lote acotado (máx. 6 emisores) con presupuesto de tiempo
+    de 22 segundos para evitar timeouts HTTP en Render.
     """
+    effective_batch = min(max(int(batch_size or 6), 1), 6)
+
     cached_rows = db.query(CompanyMarketCache).all()
     up_to_date_tickers: set[str] = set()
     stale_tickers: list[str] = []
@@ -221,14 +224,24 @@ def sync_screener_batch(db: Session, batch_size: int = 10) -> dict[str, Any]:
                 stale_tickers.append(tk)
 
     pending_new = [t for t in SCREENER_UNIVERSE if t not in up_to_date_tickers and t not in stale_tickers]
-    targets = (pending_new + stale_tickers)[:batch_size]
+    targets = (pending_new + stale_tickers)[:effective_batch]
 
     synced: list[str] = []
     if targets:
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            for sym, snap in pool.map(_fetch_snapshot_isolated, targets):
-                if snap is not None:
-                    synced.append(sym)
+        pool = ThreadPoolExecutor(max_workers=len(targets))
+        futures = {pool.submit(_fetch_snapshot_isolated, sym): sym for sym in targets}
+        try:
+            for fut in as_completed(futures, timeout=22.0):
+                try:
+                    sym, snap = fut.result()
+                    if snap is not None:
+                        synced.append(sym)
+                except Exception:
+                    continue
+        except TimeoutError:
+            pass
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     result = get_screener_universe(db, bootstrap_limit=0)
     result["synced_now"] = synced
