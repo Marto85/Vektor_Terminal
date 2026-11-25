@@ -17,6 +17,7 @@ import {
   Presentation,
   Users,
   Maximize2,
+  Minimize2,
   Loader2,
   ExternalLink,
   ChevronUp,
@@ -31,9 +32,14 @@ import {
   Menu,
   MoreHorizontal,
   Heart,
+  Sun,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 import apiClient from "./api/client";
 import { useAuth } from "./context/authStore";
+import { useTheme } from "./context/ThemeContext";
 import LoginScreen from "./components/auth/LoginScreen";
 import BrandLogo from "./components/BrandLogo";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -94,6 +100,9 @@ function App() {
     isAdvisorOrAdmin,
     isClient,
   } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isFinancialsExpanded, setIsFinancialsExpanded] = useState(false);
 
   const [activeSidebarTab, setActiveSidebarTab] = useState("Inicio");
   const [tableroInitialSubView, setTableroInitialSubView] = useState("lists");
@@ -754,11 +763,13 @@ function App() {
     <div className="flex-1 overflow-y-auto py-4 space-y-5">
       {/* Sección Global */}
       <div>
-        <div className="px-3 mb-2">
-          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-            Mercado y Descubrimiento
-          </p>
-        </div>
+        {!sidebarCollapsed && (
+          <div className="px-3 mb-2">
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+              Mercado y Descubrimiento
+            </p>
+          </div>
+        )}
         <nav className="space-y-0.5 px-2">
           {globalNavItems.map((item) => {
             const Icon = item.icon;
@@ -767,6 +778,7 @@ function App() {
             return (
               <button
                 key={item.id}
+                title={item.name}
                 onClick={() => {
                   if (item.id === "Screener") {
                     handleOpenScreenerWithPreset("all");
@@ -777,17 +789,17 @@ function App() {
                     setMobileMenuOpen(false);
                   }
                 }}
-                className={`w-full flex items-center justify-between px-3 py-2 md:py-1.5 text-xs rounded transition-colors ${
+                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-2" : "justify-between px-3"} py-2 md:py-1.5 text-xs rounded transition-colors ${
                   isActive
                     ? "bg-orange-500/10 text-orange-500 font-medium cursor-default"
                     : "text-gray-400 hover:bg-gray-800 hover:text-gray-200 cursor-pointer"
                 }`}
               >
                 <span className="flex items-center">
-                  <Icon className="w-3.5 h-3.5 mr-2" />
-                  {item.name}
+                  <Icon className={`w-3.5 h-3.5 ${sidebarCollapsed ? "" : "mr-2"}`} />
+                  {!sidebarCollapsed && item.name}
                 </span>
-                {item.id === "Tablero" && unreadNotifCount > 0 && (
+                {!sidebarCollapsed && item.id === "Tablero" && unreadNotifCount > 0 && (
                   <span className="px-1.5 py-0.2 rounded-full bg-orange-500 text-white text-[10px] font-bold">
                     {unreadNotifCount}
                   </span>
@@ -800,11 +812,13 @@ function App() {
 
       {/* Sección Empresa Activa */}
       <div>
-        <div className="px-3 mb-2">
-          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-            {currentTicker} Fundamental Analysis
-          </p>
-        </div>
+        {!sidebarCollapsed && (
+          <div className="px-3 mb-2">
+            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+              {currentTicker} · Análisis
+            </p>
+          </div>
+        )}
         <nav className="space-y-0.5 px-2">
           {companyNavItems.map((item) => {
             const Icon = item.icon;
@@ -813,15 +827,16 @@ function App() {
             return (
               <button
                 key={item.id}
+                title={item.name}
                 onClick={() => handleOpenCompanyTab(item.id)}
-                className={`w-full flex items-center px-3 py-2 md:py-1.5 text-xs rounded transition-colors ${
+                className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-2" : "px-3"} py-2 md:py-1.5 text-xs rounded transition-colors ${
                   isActive
                     ? "bg-orange-500/10 text-orange-500 font-medium cursor-default"
                     : "text-gray-400 hover:bg-gray-800 hover:text-gray-200 cursor-pointer"
                 }`}
               >
-                <Icon className="w-3.5 h-3.5 mr-2" />
-                {item.name}
+                <Icon className={`w-3.5 h-3.5 ${sidebarCollapsed ? "" : "mr-2"}`} />
+                {!sidebarCollapsed && item.name}
               </button>
             );
           })}
@@ -831,24 +846,26 @@ function App() {
       {/* Administración / Cartera (solo asesor/admin) */}
       {isAdvisorOrAdmin && (
         <div>
-          <div className="px-3 mb-2">
-            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
-              Gestión & Accesos
-            </p>
-          </div>
+          {!sidebarCollapsed && (
+            <div className="px-3 mb-2">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                Gestión & Accesos
+              </p>
+            </div>
+          )}
           <nav className="space-y-0.5 px-2">
             <button
               type="button"
+              title={user?.role === "superadmin" ? "Usuarios y Roles" : "Mis Clientes"}
               onClick={() => {
                 setMobileMenuOpen(false);
                 setShowUserMgmtModal(true);
               }}
-              className="w-full flex items-center px-3 py-2 md:py-1.5 text-xs rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors cursor-pointer"
+              className={`w-full flex items-center ${sidebarCollapsed ? "justify-center px-2" : "px-3"} py-2 md:py-1.5 text-xs rounded text-gray-400 hover:bg-gray-800 hover:text-gray-200 transition-colors cursor-pointer`}
             >
-              <Users className="w-3.5 h-3.5 mr-2" />
-              {user?.role === "superadmin"
-                ? "Usuarios y Roles"
-                : "Mis Clientes"}
+              <Users className={`w-3.5 h-3.5 ${sidebarCollapsed ? "" : "mr-2"}`} />
+              {!sidebarCollapsed &&
+                (user?.role === "superadmin" ? "Usuarios y Roles" : "Mis Clientes")}
             </button>
           </nav>
         </div>
@@ -859,15 +876,31 @@ function App() {
   return (
     <div className="fixed inset-0 md:static md:h-dvh flex bg-[#1e1e1e] font-sans text-gray-200 overflow-hidden overscroll-none">
       {/* SIDEBAR ESCRITORIO (oculto en mobile < 768px) */}
-      <aside className="hidden md:flex w-56 bg-[#252526] border-r border-gray-700 flex-col shrink-0">
-        <button
-          type="button"
-          onClick={() => setActiveSidebarTab("Inicio")}
-          title="Volver a Inicio y Mercado"
-          className="h-12 flex items-center px-4 border-b border-gray-700 bg-[#1e1e1e] hover:bg-[#232325] transition-colors cursor-pointer text-left"
-        >
-          <BrandLogo size="md" />
-        </button>
+      <aside className={`hidden md:flex ${sidebarCollapsed ? "w-14" : "w-56"} bg-[#252526] border-r border-gray-700 flex-col shrink-0 transition-all duration-150`}>
+        <div className="h-12 flex items-center justify-between px-3 border-b border-gray-700 bg-[#1e1e1e]">
+          {!sidebarCollapsed && (
+            <button
+              type="button"
+              onClick={() => setActiveSidebarTab("Inicio")}
+              title="Volver a Inicio y Mercado"
+              className="flex items-center hover:opacity-90 transition-opacity cursor-pointer text-left"
+            >
+              <BrandLogo size="md" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setSidebarCollapsed((prev) => !prev)}
+            title={sidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
+            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-[#333333] cursor-pointer transition-colors mx-auto"
+          >
+            {sidebarCollapsed ? (
+              <PanelLeftOpen className="w-4 h-4" />
+            ) : (
+              <PanelLeftClose className="w-4 h-4" />
+            )}
+          </button>
+        </div>
 
         {renderSidebarNavigation()}
       </aside>
@@ -965,6 +998,15 @@ function App() {
           </div>
 
           <div className="flex items-center space-x-1.5 sm:space-x-3 text-gray-400 shrink-0">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              title={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+              className="p-1.5 rounded hover:text-white hover:bg-[#333333] cursor-pointer transition-colors"
+            >
+              {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
+            </button>
+
             {screenerSyncState.running && (
               <button
                 type="button"
@@ -1535,7 +1577,7 @@ function App() {
                   />
                 )}
 
-                <div className="bg-white rounded-lg border border-gray-200 shadow-sm min-h-100 flex flex-col overflow-hidden">
+                <div className={isFinancialsExpanded ? "fixed inset-3 sm:inset-5 z-50 bg-white rounded-xl border border-gray-200 shadow-2xl flex flex-col overflow-hidden" : "bg-white rounded-lg border border-gray-200 shadow-sm min-h-100 flex flex-col overflow-hidden"}>
                   <div className="flex flex-wrap justify-between items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-gray-200 bg-gray-50">
                     <div className="flex space-x-2">
                       <div className="flex border border-gray-300 rounded overflow-hidden">
@@ -1557,8 +1599,13 @@ function App() {
                       Cifras en millones de {reportingCurrency} (salvo métricas por acción)
                     </div>
                     <div className="flex space-x-2">
-                      <button className="p-1.5 text-gray-500 hover:text-gray-900 border border-gray-300 rounded bg-white cursor-pointer">
-                        <Maximize2 className="w-3.5 h-3.5" />
+                      <button
+                        type="button"
+                        onClick={() => setIsFinancialsExpanded((prev) => !prev)}
+                        title={isFinancialsExpanded ? "Restaurar vista normal" : "Ampliar tabla"}
+                        className="p-1.5 text-gray-500 hover:text-gray-900 border border-gray-300 rounded bg-white cursor-pointer"
+                      >
+                        {isFinancialsExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
                       </button>
                       <button
                         type="button"
@@ -1667,7 +1714,7 @@ function App() {
                                             )
                                           }
                                           title="Ver explicación y rangos de referencia"
-                                          className="text-gray-400 hover:text-orange-500 transition-colors cursor-pointer shrink-0"
+                                          className="p-1 -m-1 text-gray-400 hover:text-orange-500 transition-colors cursor-pointer shrink-0"
                                         >
                                           <Info className="w-3.5 h-3.5" />
                                         </button>

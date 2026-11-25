@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../api/client';
+import { useTheme } from '../context/ThemeContext';
 import * as LightweightCharts from 'lightweight-charts';
 import {
   ChevronDown,
@@ -13,10 +14,7 @@ import {
   Eye,
   EyeOff,
   TrendingUp,
-  Type,
-  Slash,
   Move,
-  Ruler,
   Crosshair,
   SlidersHorizontal,
   Info,
@@ -171,6 +169,7 @@ function formatMetricValue(val, metric) {
 }
 
 export default function StockChart({ ticker, companyName }) {
+  const { isDark } = useTheme();
   const chartContainerRef = useRef(null);
   const subChartContainerRef = useRef(null);
   const chartInstanceRef = useRef(null);
@@ -393,14 +392,14 @@ export default function StockChart({ ticker, companyName }) {
       width: container.clientWidth,
       height: mainHeight,
       layout: {
-        background: { type: 'solid', color: '#ffffff' },
-        textColor: '#6b7280',
+        background: { type: 'solid', color: isDark ? '#202024' : '#ffffff' },
+        textColor: isDark ? '#a1a1aa' : '#6b7280',
         fontFamily: 'Inter, system-ui, sans-serif',
         fontSize: 11,
       },
       grid: {
         vertLines: { visible: false },
-        horzLines: { color: '#f3f4f6', style: 2 },
+        horzLines: { color: isDark ? '#27272a' : '#f3f4f6', style: 2 },
       },
       crosshair: {
         mode:
@@ -561,14 +560,14 @@ export default function StockChart({ ticker, companyName }) {
         width: subContainer.clientWidth,
         height: 92,
         layout: {
-          background: { type: 'solid', color: '#fafafa' },
-          textColor: '#6b7280',
+          background: { type: 'solid', color: isDark ? '#18181b' : '#fafafa' },
+          textColor: isDark ? '#a1a1aa' : '#6b7280',
           fontFamily: 'Inter, system-ui, sans-serif',
           fontSize: 10,
         },
         grid: {
           vertLines: { visible: false },
-          horzLines: { color: '#e5e7eb', style: 2 },
+          horzLines: { color: isDark ? '#27272a' : '#e5e7eb', style: 2 },
         },
         rightPriceScale: {
           borderVisible: false,
@@ -722,6 +721,7 @@ export default function StockChart({ ticker, companyName }) {
     isIntraday,
     modeAnalysis,
     isExpanded,
+    isDark,
   ]);
 
   const handleResetZoom = () => {
@@ -1069,30 +1069,6 @@ export default function StockChart({ ticker, companyName }) {
               <div className="w-5 border-t border-gray-200 my-0.5" />
 
               <button
-                onClick={() => setActiveTool('text')}
-                title="Anotación de texto"
-                className={`w-7 h-7 rounded flex items-center justify-center cursor-pointer transition-colors ${
-                  activeTool === 'text'
-                    ? 'bg-gray-200/80 text-gray-900'
-                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
-                }`}
-              >
-                <Type className="w-3.5 h-3.5" />
-              </button>
-
-              <button
-                onClick={() => setActiveTool('trendline')}
-                title="Línea de tendencia"
-                className={`w-7 h-7 rounded flex items-center justify-center cursor-pointer transition-colors ${
-                  activeTool === 'trendline'
-                    ? 'bg-gray-200/80 text-gray-900'
-                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
-                }`}
-              >
-                <Slash className="w-3.5 h-3.5" />
-              </button>
-
-              <button
                 onClick={handleResetZoom}
                 title="Centrar y ajustar escala"
                 className="w-7 h-7 rounded flex items-center justify-center text-gray-500 hover:bg-gray-100 hover:text-gray-800 cursor-pointer transition-colors"
@@ -1110,18 +1086,6 @@ export default function StockChart({ ticker, companyName }) {
                 }`}
               >
                 {showVolume ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              </button>
-
-              <button
-                onClick={() => setActiveTool('measure')}
-                title="Regla de medición"
-                className={`w-7 h-7 rounded flex items-center justify-center cursor-pointer transition-colors ${
-                  activeTool === 'measure'
-                    ? 'bg-gray-200/80 text-gray-900'
-                    : 'text-gray-500 hover:bg-gray-100 hover:text-gray-800'
-                }`}
-              >
-                <Ruler className="w-3.5 h-3.5" />
               </button>
 
               <button
@@ -1341,22 +1305,8 @@ export default function StockChart({ ticker, companyName }) {
 
         {/* Barra inferior del gráfico */}
         <div className="px-4 py-2.5 mt-auto border-t border-gray-100 flex items-center justify-between gap-2 bg-[#fcfcfc] rounded-bl-lg">
-          <div className="relative flex-1 max-w-72.5">
-            <input
-              type="text"
-              placeholder={
-                chartType === 'candle'
-                  ? 'Las comparaciones no están disponibles en vista de velas'
-                  : 'Compara con un competidor, índice o ETF...'
-              }
-              disabled={chartType === 'candle'}
-              className={`w-full pl-3 pr-7 py-1.5 border border-gray-300 rounded shadow-xs text-xs focus:outline-none focus:border-orange-500 ${
-                chartType === 'candle'
-                  ? 'bg-gray-100 text-gray-400 placeholder-gray-300'
-                  : 'bg-white text-gray-700'
-              }`}
-            />
-            <ChevronDown className="w-3.5 h-3.5 absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
+          <div className="text-[11px] text-gray-500 truncate">
+            {ticker} · {selectedMetric} ({interval})
           </div>
 
           <div className="flex space-x-1.5 shrink-0">

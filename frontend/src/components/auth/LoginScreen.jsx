@@ -281,10 +281,9 @@ export default function LoginScreen() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8">
         <div className="flex flex-col items-center text-center mb-6">
-          <BrandLogo className="w-11 h-11 mb-3" />
-          <h1 className="text-xl font-bold tracking-tight text-slate-100">
-            VektorTerminal
-          </h1>
+          <div className="mb-2">
+            <BrandLogo size="lg" />
+          </div>
           <p className="text-xs text-slate-400 mt-1">
             Plataforma de Análisis Fundamental & Gestión de Carteras
           </p>
@@ -298,7 +297,7 @@ export default function LoginScreen() {
               onClick={() => switchMode("login")}
               className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
                 mode === "login"
-                  ? "bg-emerald-600 text-white shadow"
+                  ? "bg-orange-500 text-white shadow"
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >
@@ -309,7 +308,7 @@ export default function LoginScreen() {
               onClick={() => switchMode("register")}
               className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
                 mode === "register"
-                  ? "bg-emerald-600 text-white shadow"
+                  ? "bg-orange-500 text-white shadow"
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >

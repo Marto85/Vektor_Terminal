@@ -4,7 +4,13 @@ export default function MetricInfoDrawer({ entry, currentValue, onClose }) {
   if (!entry) return null;
 
   return (
-    <aside className="fixed top-12 right-0 bottom-0 w-96 max-w-full bg-white border-l border-gray-200 shadow-2xl z-40 flex flex-col animate-in slide-in-from-right duration-150">
+    <>
+      <div
+        className="fixed inset-0 bg-black/25 z-40"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <aside className="fixed top-12 right-0 bottom-0 w-96 max-w-full bg-white dark:bg-[#202024] dark:text-zinc-100 border-l border-gray-200 dark:border-zinc-700 shadow-2xl z-50 flex flex-col animate-in slide-in-from-right duration-150">
       {/* Cabecera */}
       <div className="px-5 py-4 border-b border-gray-200 bg-[#fafafa] flex items-start justify-between">
         <div className="pr-3">
@@ -85,6 +91,7 @@ export default function MetricInfoDrawer({ entry, currentValue, onClose }) {
           <p className="text-xs text-blue-950 leading-relaxed">{entry.example}</p>
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

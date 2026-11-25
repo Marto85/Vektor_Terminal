@@ -203,6 +203,7 @@ export default function ScreenerTab({
 
   const [visibleColumns, setVisibleColumns] = useState(() => new Set(ALL_COLUMN_KEYS));
   const [showColumnMenu, setShowColumnMenu] = useState(false);
+  const [showFiltersPanel, setShowFiltersPanel] = useState(true);
   const columnMenuRef = useRef(null);
 
   useEffect(() => {
@@ -524,6 +525,19 @@ export default function ScreenerTab({
 
             <button
               type="button"
+              onClick={() => setShowFiltersPanel((prev) => !prev)}
+              className={`flex items-center text-xs px-3 py-1.5 rounded border font-medium transition-colors cursor-pointer ${
+                showFiltersPanel
+                  ? 'border-orange-300 bg-orange-50/70 text-orange-700 hover:bg-orange-100'
+                  : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <Filter className="w-3.5 h-3.5 mr-1.5" />
+              {showFiltersPanel ? 'Ocultar filtros' : 'Mostrar filtros'}
+            </button>
+
+            <button
+              type="button"
               onClick={() => setGroupByIndustry((prev) => !prev)}
               className={`flex items-center text-xs px-3 py-1.5 rounded border font-medium transition-colors cursor-pointer ${
                 groupByIndustry
@@ -705,6 +719,7 @@ export default function ScreenerTab({
         </div>
 
         {/* Matriz de filtros paramétricos acumulables */}
+        {showFiltersPanel && (
         <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3 text-xs">
           <div>
             <label className="block text-[11px] font-semibold text-gray-600 mb-1">Sector</label>
@@ -880,6 +895,7 @@ export default function ScreenerTab({
             />
           </div>
         </div>
+        )}
       </div>
 
       {syncState.running && (

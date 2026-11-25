@@ -104,7 +104,15 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
     );
   }
 
-  if (error || !healthData) {
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-5 text-xs text-red-700 font-medium">
+        {error}
+      </div>
+    );
+  }
+
+  if (!healthData) {
     return null;
   }
 
