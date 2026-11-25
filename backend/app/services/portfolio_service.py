@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import re
 import secrets
 from typing import Optional
 from fastapi import HTTPException, status
+import pandas as pd
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 import yfinance as yf
@@ -150,10 +151,55 @@ def fetch_live_quotes(tickers: list[str], target_currency: str = "USD") -> dict[
     return quotes
 
 
+def _fetch_historical_close_map(
+    symbols: list[str],
+    start_date: str,
+    end_date: str,
+) -> dict[str, dict[str, float]]:
+    """
+    Obtiene cierres diarios históricos por símbolo para valuar tenencias en fechas
+    intermedias de flujos externos del TWR. Ante error de red o ausencia de datos,
+    devuelve un mapa vacío para hacer fallback limpio al último precio operado.
+    """
+    if not symbols or not start_date or not end_date or start_date >= end_date:
+        return {}
+    result: dict[str, dict[str, float]] = {}
+    for sym in symbols:
+        try:
+            hist = yf.Ticker(sym).history(start=start_date, end=end_date, interval="1d", auto_adjust=False)
+            if hist is not None and not hist.empty and "Close" in hist.columns:
+                date_map: dict[str, float] = {}
+                for idx, val in hist["Close"].items():
+                    if pd.notna(val) and float(val) > 0:
+                        date_map[idx.strftime("%Y-%m-%d")] = float(val)
+                if date_map:
+                    result[sym] = date_map
+        except Exception:
+            continue
+    return result
+
+
+def _lookup_historical_price(
+    sym: str,
+    target_date: str,
+    historical_prices_by_sym: dict[str, dict[str, float]] | None,
+    fallback_price: float,
+) -> float:
+    if historical_prices_by_sym and sym in historical_prices_by_sym:
+        series = historical_prices_by_sym[sym]
+        if target_date in series:
+            return series[target_date]
+        prior_dates = [dt for dt in series.keys() if dt <= target_date]
+        if prior_dates:
+            return series[max(prior_dates)]
+    return fallback_price
+
+
 def _compute_twr_metrics(
     ordered_txs: list[PortfolioTransaction],
     ending_holdings_value: float,
     net_external_deposits: float,
+    historical_prices_by_sym: dict[str, dict[str, float]] | None = None,
 ) -> dict:
     """
     Calcula el Time-Weighted Return (TWR) encadenando sub-períodos delimitados
@@ -224,7 +270,13 @@ def _compute_twr_metrics(
                 sim_cash += qty * price - comm
 
         holdings_val_before = sum(
-            qty_by_sym.get(s, 0.0) * last_known_price.get(s, 0.0)
+            qty_by_sym.get(s, 0.0)
+            * _lookup_historical_price(
+                s,
+                d,
+                historical_prices_by_sym,
+                last_known_price.get(s, 0.0),
+            )
             for s in qty_by_sym
         )
         equity_before_flow = holdings_val_before + max(0.0, cash)
@@ -471,10 +523,19 @@ def compute_portfolio_positions(
     )
     total_equity = total_market_value + max(0.0, cash_balance)
 
+    historical_prices_by_sym: dict[str, dict[str, float]] | None = None
+    if quotes_map is None and ordered:
+        tx_symbols = sorted({(t.ticker or "").strip().upper() for t in ordered if t.ticker})
+        tx_dates = sorted({(t.tx_date or "").strip() for t in ordered if t.tx_date})
+        if tx_symbols and len(tx_dates) > 1:
+            end_dt = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+            historical_prices_by_sym = _fetch_historical_close_map(tx_symbols, tx_dates[0], end_dt)
+
     twr_metrics = _compute_twr_metrics(
         ordered_txs=ordered,
         ending_holdings_value=total_market_value,
         net_external_deposits=net_external_deposits,
+        historical_prices_by_sym=historical_prices_by_sym,
     )
 
     return {

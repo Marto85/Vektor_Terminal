@@ -151,6 +151,42 @@ def _extract_yf_statements_fallback(ticker_upper: str) -> dict[str, Any]:
     }
 
 
+def _compact_sec_companyfacts(raw_facts: dict[str, Any]) -> dict[str, Any]:
+    """
+    Reduce el tamaño de SEC companyfacts conservando únicamente metadatos clave,
+    taxonomía `dei` y los conceptos XBRL realmente utilizados por `financial_parser`.
+    """
+    if not isinstance(raw_facts, dict) or not raw_facts:
+        return {}
+
+    from app.services.financial_parser import SUPPORTED_XBRL_TAGS
+
+    compacted: dict[str, Any] = {}
+    for meta_key in ("cik", "entityName", "sic", "sicDescription"):
+        if meta_key in raw_facts and raw_facts[meta_key] is not None:
+            compacted[meta_key] = raw_facts[meta_key]
+
+    facts_in = raw_facts.get("facts")
+    if isinstance(facts_in, dict):
+        facts_out: dict[str, Any] = {}
+        if isinstance(facts_in.get("dei"), dict):
+            facts_out["dei"] = facts_in["dei"]
+        for tax in ("us-gaap", "ifrs-full"):
+            tax_dict = facts_in.get(tax)
+            if isinstance(tax_dict, dict):
+                filtered_tax = {
+                    tag: payload
+                    for tag, payload in tax_dict.items()
+                    if tag in SUPPORTED_XBRL_TAGS
+                }
+                if filtered_tax:
+                    facts_out[tax] = filtered_tax
+        if facts_out:
+            compacted["facts"] = facts_out
+
+    return compacted
+
+
 def get_raw_financials(ticker: str, db: Session, is_quarterly: bool = False) -> dict:
     """
     Obtiene los datos financieros crudos (SEC CompanyFacts + respaldo normalizado de yfinance)
@@ -176,7 +212,7 @@ def get_raw_financials(ticker: str, db: Session, is_quarterly: bool = False) -> 
     fetched_raw_facts: dict[str, Any] = {}
     try:
         cik = get_cik_from_ticker(ticker_upper)
-        fetched_raw_facts = get_company_facts(cik) or {}
+        fetched_raw_facts = _compact_sec_companyfacts(get_company_facts(cik) or {})
     except Exception:
         fetched_raw_facts = {}
 

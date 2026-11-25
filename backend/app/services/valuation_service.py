@@ -1029,7 +1029,7 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
             {"key": "ev_ebitda", "label": "EV / EBITDA (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
             {"key": "ev_ebit", "label": "EV / EBIT (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
             {"key": "ev_gp", "label": "EV / Beneficio Bruto (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
-            {"key": "ev_fcf", "label": "EV / Flujo de Caja Libre (Unlevered)", "suffix": "x", "section": "Trailing Multiples (EV)"},
+            {"key": "ev_fcf", "label": "EV / Flujo de Caja Libre (LTM)", "suffix": "x", "section": "Trailing Multiples (EV)"},
             {"key": "ps", "label": "Precio / Ventas (P/S)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
             {"key": "pe", "label": "Precio / Beneficio (P/E)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
             {"key": "pb", "label": "Precio / Valor Libros (P/BV)", "suffix": "x", "section": "Trailing Multiples (Equity)"},
@@ -1076,9 +1076,34 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
     raw_exit = adj_ev_fcf or med_ev_ebitda or med_by_key.get("ev_fcf") or 20.0
     exit_ev_fcf_default = min(max(float(raw_exit), 12.0), 28.0)
 
+    rf_pct = 4.25
+    try:
+        from app.models.database import MacroSeriesCache
+
+        macro_row = db.query(MacroSeriesCache).filter(MacroSeriesCache.cache_key == "macro_lab_v1").first()
+        macro_payload = getattr(macro_row, "payload", None) if macro_row else None
+        if isinstance(macro_payload, dict):
+            tl = macro_payload.get("timeline") or []
+            for pt in reversed(tl):
+                u10 = pt.get("ust_10y") if isinstance(pt, dict) else None
+                if isinstance(u10, (int, float)) and 1.5 <= float(u10) <= 9.0:
+                    rf_pct = round(float(u10), 2)
+                    break
+    except Exception:
+        rf_pct = 4.25
+
     beta_val = float(info.get("beta") or 1.0)
-    suggested_wacc_pct = round(min(max(4.25 + beta_val * 4.5, 7.2), 12.5), 1)
-    cost_of_equity_pct = round(min(max(4.25 + beta_val * 5.0, 8.0), 14.5), 1)
+    cost_of_equity_pct = round(min(max(rf_pct + beta_val * 5.0, 8.0), 14.5), 1)
+    total_debt_mm = max(float(latest_total_debt or 0.0), 0.0)
+    total_cap_mm = current_mcap_mm + total_debt_mm
+    if current_mcap_mm > 0 and total_cap_mm > 0:
+        w_e = current_mcap_mm / total_cap_mm
+        w_d = total_debt_mm / total_cap_mm
+        kd_after_tax = max(rf_pct + 1.5, 4.0) * (1.0 - min(max(eff_tax_rate, 0.0), 0.35))
+        raw_wacc = w_e * cost_of_equity_pct + w_d * kd_after_tax
+    else:
+        raw_wacc = rf_pct + beta_val * 4.5
+    suggested_wacc_pct = round(min(max(raw_wacc, 7.2), 12.5), 1)
 
     tangible_equity_mm = max(latest_equity_mm - latest_goodwill_ltm - latest_intangibles_ltm, 0.0)
 

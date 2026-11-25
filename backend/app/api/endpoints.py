@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field
+import math
+from pydantic import BaseModel, Field, field_validator
 from typing import Any
 from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
@@ -62,6 +63,20 @@ class WatchlistReorderPayload(BaseModel):
     tickers: list[str] = Field(..., max_length=200)
 
 
+def _validate_finite_payload(value: Any) -> Any:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("No se permiten valores numéricos NaN o infinitos")
+    if isinstance(value, str) and len(value) > 5000:
+        raise ValueError("Campo de texto excede el máximo permitido")
+    if isinstance(value, dict):
+        if len(value) > 50:
+            raise ValueError("Objeto excede el máximo de claves permitidas")
+        return {k: _validate_finite_payload(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_validate_finite_payload(item) for item in value]
+    return value
+
+
 class WatchlistItemPayload(BaseModel):
     ticker: str = Field(..., min_length=1, max_length=20)
     buy_target_price: float | None = Field(None, ge=0, le=1e12, allow_inf_nan=False)
@@ -69,11 +84,21 @@ class WatchlistItemPayload(BaseModel):
     thesis_note: str | None = Field("", max_length=5000)
     alerts: list[dict[str, Any]] = Field(default_factory=list, max_length=30)
 
+    @field_validator("alerts")
+    @classmethod
+    def _validate_alerts(cls, v: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return _validate_finite_payload(v)
+
 
 class CustomSegmentsPayload(BaseModel):
     business_segments: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
     geo_segments: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
     key_clients_notes: str = Field("", max_length=10000)
+
+    @field_validator("business_segments", "geo_segments")
+    @classmethod
+    def _validate_segments(cls, v: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return _validate_finite_payload(v)
 
 
 def get_db():
@@ -507,7 +532,7 @@ def get_company_peers(ticker: str, db: Session = Depends(get_db)):
 
 @router.get("/compare")
 def compare_companies(
-    tickers: str = Query(..., description="Lista de hasta 5 tickers separados por coma"),
+    tickers: str = Query(..., min_length=1, max_length=80, description="Lista de hasta 5 tickers separados por coma"),
     db: Session = Depends(get_db),
 ):
     try:
@@ -539,6 +564,7 @@ def post_screener_sync(
 
 
 _SEARCH_CACHE_TTL = timedelta(minutes=10)
+_SEARCH_CACHE_MAX = 256
 _SEARCH_CACHE: dict[str, tuple[datetime, list[dict[str, Any]]]] = {}
 
 
@@ -581,7 +607,7 @@ def _local_search_fallback(q_clean: str, db: Session, limit: int = 8) -> list[di
 
 
 @router.get("/search")
-def search_ticker(q: str, db: Session = Depends(get_db)):
+def search_ticker(q: str = Query(..., min_length=1, max_length=100), db: Session = Depends(get_db)):
     """
     Busca coincidencias parciales de tickers y nombres de empresas usando la API pública de YF,
     con caché corto y respaldo automático sobre la base local y el universo curado.
@@ -636,6 +662,15 @@ def search_ticker(q: str, db: Session = Depends(get_db)):
             break
 
     if merged:
+        if len(_SEARCH_CACHE) >= _SEARCH_CACHE_MAX:
+            expired_keys = [
+                k for k, (ts, _) in _SEARCH_CACHE.items() if (now_utc - ts) >= _SEARCH_CACHE_TTL
+            ]
+            for k in expired_keys:
+                _SEARCH_CACHE.pop(k, None)
+            while len(_SEARCH_CACHE) >= _SEARCH_CACHE_MAX:
+                oldest_key = min(_SEARCH_CACHE, key=lambda k: _SEARCH_CACHE[k][0])
+                _SEARCH_CACHE.pop(oldest_key, None)
         _SEARCH_CACHE[cache_key] = (now_utc, merged)
     return merged
 

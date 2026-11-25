@@ -121,6 +121,13 @@ FINANCIAL_STATEMENTS = {
 ANNUAL_FORMS = ["10-K", "10-K/A", "20-F", "20-F/A", "40-F"]
 QUARTERLY_FORMS = ["10-Q", "10-K", "10-Q/A", "10-K/A", "20-F", "20-F/A", "6-K"]
 
+SUPPORTED_XBRL_TAGS: set[str] = {
+    tag
+    for section in FINANCIAL_STATEMENTS.values()
+    for tags in section.values()
+    for tag in tags
+}
+
 
 def _get_taxonomy_data(raw_facts: dict) -> dict:
     facts = raw_facts.get("facts", {})

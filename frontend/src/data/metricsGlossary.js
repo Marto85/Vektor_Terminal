@@ -717,6 +717,7 @@ const GLOSSARY_ALIAS_MAP = {
   'EV / Ingresos LTM': 'EV / Ventas (LTM)',
   'EV / EBITDA LTM': 'EV / EBITDA (LTM)',
   'EV / Beneficio bruto LTM': 'EV / Beneficio Bruto (LTM)',
+  'EV / Flujo de Caja Libre (LTM)': 'EV / Flujo de Caja Libre (Unlevered)',
   'NTM P / E': 'NTM Price / Earnings (P/E)',
   'P / E LTM': 'Precio / Beneficio (P/E)',
   'LTM P / BV': 'Precio / Valor Libros (P/BV)',

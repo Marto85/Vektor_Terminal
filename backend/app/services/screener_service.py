@@ -171,11 +171,10 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
     vía `POST /screener/sync`.
     """
     now = datetime.utcnow()
-    cached_rows = db.query(CompanyMarketCache).all()
     cached_map: dict[str, dict[str, Any]] = {}
     stale_count = 0
 
-    for row in cached_rows:
+    for row in db.query(CompanyMarketCache).yield_per(25):
         tk = str(row.ticker).upper()
         payload: Any = row.market_data
         if isinstance(payload, dict) and float(payload.get("price") or 0) > 0:
@@ -183,6 +182,7 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
             updated_at: Any = row.last_updated
             if isinstance(updated_at, datetime) and (now - updated_at) >= SCREENER_REFRESH_TTL:
                 stale_count += 1
+        db.expunge(row)
 
     missing_from_universe = [t for t in SCREENER_UNIVERSE if t not in cached_map]
 
@@ -225,12 +225,11 @@ def sync_screener_batch(db: Session, batch_size: int = 4) -> dict[str, Any]:
     now = datetime.utcnow()
     effective_batch = min(max(int(batch_size or 4), 1), 4)
 
-    cached_rows = db.query(CompanyMarketCache).all()
     cached_valid_tickers: set[str] = set()
     schema_outdated: list[str] = []
     ttl_expired_pairs: list[tuple[datetime, str]] = []
 
-    for r in cached_rows:
+    for r in db.query(CompanyMarketCache).yield_per(25):
         tk = str(r.ticker).upper()
         payload: Any = r.market_data
         if isinstance(payload, dict) and float(payload.get("price") or 0) > 0:
@@ -241,6 +240,8 @@ def sync_screener_batch(db: Session, batch_size: int = 4) -> dict[str, Any]:
                 schema_outdated.append(tk)
             elif isinstance(updated_at, datetime) and (now - updated_at) >= SCREENER_REFRESH_TTL:
                 ttl_expired_pairs.append((updated_at, tk))
+        db.expunge(r)
+    gc.collect()
 
     ttl_expired_pairs.sort(key=lambda pair: pair[0])
     ttl_expired = [tk for _, tk in ttl_expired_pairs]
