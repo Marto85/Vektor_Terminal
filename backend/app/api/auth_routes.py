@@ -3,7 +3,7 @@ from urllib.parse import quote
 from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import RedirectResponse
-from pydantic import AfterValidator, BaseModel
+from pydantic import AfterValidator, BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import (
@@ -53,18 +53,18 @@ VektorEmail = Annotated[str, AfterValidator(_validate_vektor_email)]
 
 
 class LoginRequest(BaseModel):
-    identifier: Optional[str] = None
-    email: Optional[str] = None  # Compatibilidad retroactiva
-    password: str
+    identifier: Optional[str] = Field(None, max_length=255)
+    email: Optional[str] = Field(None, max_length=255)  # Compatibilidad retroactiva
+    password: str = Field(..., max_length=128)
 
 
 class RegisterRequest(BaseModel):
-    username: str
+    username: str = Field(..., max_length=32)
     email: VektorEmail
-    full_name: str
-    password: str
+    full_name: str = Field(..., min_length=1, max_length=120)
+    password: str = Field(..., max_length=128)
     advisor_id: Optional[int] = None
-    invite_code: Optional[str] = None
+    invite_code: Optional[str] = Field(None, max_length=128)
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -72,32 +72,32 @@ class ForgotPasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
-    token: str
-    new_password: str
+    token: str = Field(..., max_length=256)
+    new_password: str = Field(..., max_length=128)
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: Optional[str] = None
-    new_password: str
+    current_password: Optional[str] = Field(None, max_length=128)
+    new_password: str = Field(..., max_length=128)
 
 
 class CreateUserRequest(BaseModel):
-    username: Optional[str] = None
+    username: Optional[str] = Field(None, max_length=32)
     email: VektorEmail
-    full_name: str
-    password: str
-    role: str = "client"
+    full_name: str = Field(..., min_length=1, max_length=120)
+    password: str = Field(..., max_length=128)
+    role: str = Field("client", max_length=20)
     advisor_id: Optional[int] = None
     must_change_password: bool = True
 
 
 class UpdateUserRequest(BaseModel):
-    full_name: Optional[str] = None
-    role: Optional[str] = None
+    full_name: Optional[str] = Field(None, max_length=120)
+    role: Optional[str] = Field(None, max_length=20)
     is_active: Optional[bool] = None
     advisor_id: Optional[int] = None
     clear_advisor: bool = False
-    reset_password: Optional[str] = None
+    reset_password: Optional[str] = Field(None, max_length=128)
 
 
 @auth_router.get("/auth/providers")

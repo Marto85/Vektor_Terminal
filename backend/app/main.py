@@ -1,5 +1,8 @@
-from fastapi import FastAPI
+import math
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.api.endpoints import router
 from app.api.auth_routes import auth_router
 from app.api.portfolio_routes import portfolio_router
@@ -12,6 +15,24 @@ run_schema_migrations()
 ensure_default_superadmin()
 
 app = FastAPI(title="Terminal Financiera API")
+
+
+def _sanitize_validation_obj(obj):
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return str(obj)
+    if isinstance(obj, dict):
+        return {k: _sanitize_validation_obj(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize_validation_obj(v) for v in obj]
+    return obj
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"detail": _sanitize_validation_obj(exc.errors())},
+    )
 
 app.add_middleware(
     CORSMiddleware,

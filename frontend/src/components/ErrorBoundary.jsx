@@ -20,6 +20,30 @@ export default class ErrorBoundary extends Component {
 
   render() {
     if (this.state.hasError) {
+      if (this.props.compact) {
+        return (
+          <div className="bg-white border border-amber-200 rounded-xl p-8 text-center space-y-3 shadow-sm my-4">
+            <div className="w-10 h-10 rounded-full bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <h2 className="text-sm font-bold text-gray-900">
+              No se pudo renderizar esta sección
+            </h2>
+            <p className="text-xs text-gray-500 max-w-md mx-auto">
+              {this.state.errorMessage}
+            </p>
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false, errorMessage: "" })}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Reintentar vista
+            </button>
+          </div>
+        );
+      }
+
       return (
         <div className="min-h-screen bg-[#1e1e1e] text-gray-200 flex items-center justify-center p-6">
           <div className="max-w-md w-full bg-[#262626] border border-gray-700 rounded-xl p-6 text-center space-y-4 shadow-xl">

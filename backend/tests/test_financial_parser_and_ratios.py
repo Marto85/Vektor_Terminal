@@ -150,6 +150,21 @@ def test_extract_quarterly_does_not_dump_fy_into_q4_without_prior_quarters():
     assert rev_row.get(f"{curr_y}-Q4", 0.0) == 0.0
 
 
+def test_adr_share_normalization_only_applies_to_foreign_filers():
+    from app.services.financial_parser import is_foreign_adr_filer, normalize_historical_shares
+
+    facts_20f = {"facts": {"us-gaap": {"Revenues": {"units": {"USD": [{"form": "20-F"}]}}}}}
+    facts_10k = {"facts": {"us-gaap": {"Revenues": {"units": {"USD": [{"form": "10-K"}]}}}}}
+
+    assert is_foreign_adr_filer(facts_20f) is True
+    assert is_foreign_adr_filer(facts_10k) is False
+
+    # BMA (20-F, 10:1): 639 MM ordinarias vs 63.9 MM ADRs -> normaliza a 63.9 MM
+    assert normalize_historical_shares(639.0, 1.0, 63.9, is_foreign_adr=True) == pytest.approx(63.9, abs=0.01)
+    # Empresa US (10-K) con recompras fuertes: NO divide por ratio ADR
+    assert normalize_historical_shares(300.0, 1.0, 100.0, is_foreign_adr=False) == 300.0
+
+
 def test_ratios_and_financial_health_report_manufacturing_vs_bank(db_session):
     raw = _build_synthetic_sec_facts()
     annual_rows = extract_annual_metrics(raw)

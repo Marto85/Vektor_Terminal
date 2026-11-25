@@ -201,9 +201,6 @@ def _fetch_single_etf_valuation(item: dict[str, Any]) -> dict[str, Any] | None:
         pe_t_val = round(float(pe_t), 2) if pe_t and float(pe_t) > 0 else None
         pe_f_val = round(float(pe_f), 2) if pe_f and float(pe_f) > 0 else None
 
-        if pe_t_val is None and dy_val is not None and dy_val > 0:
-            pe_t_val = round(min(max(35.0 / dy_val, 8.0), 45.0), 2)
-
         ey_val = round((100.0 / pe_t_val), 2) if pe_t_val else None
         px_val = round(float(price), 2) if price else None
 

@@ -24,6 +24,8 @@ from app.services.financial_parser import (
     detect_reporting_currency,
     extract_annual_metrics,
     extract_quarterly_metrics,
+    is_foreign_adr_filer,
+    normalize_historical_shares,
 )
 from app.services.ratios_calculator import calculate_ratios, build_financial_health_report
 from app.services.peers_service import build_peers_comparison, build_manual_comparison
@@ -53,25 +55,25 @@ router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 class WatchlistNamePayload(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=60)
 
 
 class WatchlistReorderPayload(BaseModel):
-    tickers: list[str]
+    tickers: list[str] = Field(..., max_length=200)
 
 
 class WatchlistItemPayload(BaseModel):
-    ticker: str
-    buy_target_price: float | None = Field(None, allow_inf_nan=False)
-    sell_target_price: float | None = Field(None, allow_inf_nan=False)
-    thesis_note: str | None = ""
-    alerts: list[dict[str, Any]] = []
+    ticker: str = Field(..., min_length=1, max_length=20)
+    buy_target_price: float | None = Field(None, ge=0, le=1e12, allow_inf_nan=False)
+    sell_target_price: float | None = Field(None, ge=0, le=1e12, allow_inf_nan=False)
+    thesis_note: str | None = Field("", max_length=5000)
+    alerts: list[dict[str, Any]] = Field(default_factory=list, max_length=30)
 
 
 class CustomSegmentsPayload(BaseModel):
-    business_segments: list[dict[str, Any]] = []
-    geo_segments: list[dict[str, Any]] = []
-    key_clients_notes: str = ""
+    business_segments: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    geo_segments: list[dict[str, Any]] = Field(default_factory=list, max_length=50)
+    key_clients_notes: str = Field("", max_length=10000)
 
 
 def get_db():
@@ -738,6 +740,7 @@ def get_company_history(
             raw_facts = getattr(comp_row, "raw_facts", None) if comp_row else None
             if isinstance(raw_facts, dict) and raw_facts:
                 ann_rows = extract_annual_metrics(raw_facts)
+                is_foreign_adr = is_foreign_adr_filer(raw_facts)
                 sec_curr = detect_reporting_currency(raw_facts)
                 sec_fx = _lookup_fx_multiplier(sec_curr, trade_currency) if sec_curr != trade_currency else 1.0
                 candle_years = sorted({dt.strftime("%Y") for dt in hist[date_col]})
@@ -748,14 +751,12 @@ def get_company_history(
                     sh_bas = float(by_metric.get("Acciones en Circulación (Básicas)", {}).get(yr) or 0.0)
                     sh_raw = sh_dil if sh_dil > 0 else sh_bas
                     if sh_raw > 0:
-                        sh_adj = sh_raw * float(split_factors.get(yr, 1.0))
-                        if shares_mm > 0:
-                            if sh_adj > shares_mm * 2.5:
-                                adr_ratio = round(sh_adj / shares_mm)
-                                sh_adj = (sh_adj / adr_ratio) if adr_ratio >= 2 else shares_mm
-                            elif sh_adj < shares_mm * 0.15:
-                                sh_adj = shares_mm
-                        shares_by_year[yr] = sh_adj
+                        shares_by_year[yr] = normalize_historical_shares(
+                            shares_raw=sh_raw,
+                            split_factor=float(split_factors.get(yr, 1.0)),
+                            current_shares_mm=shares_mm,
+                            is_foreign_adr=is_foreign_adr,
+                        )
                     debt_y = (
                         float(by_metric.get("Deuda a corto plazo", {}).get(yr) or 0.0)
                         + float(by_metric.get("Deuda a largo plazo", {}).get(yr) or 0.0)

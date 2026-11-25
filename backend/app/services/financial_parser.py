@@ -136,6 +136,51 @@ def _get_taxonomy_data(raw_facts: dict) -> dict:
     return merged
 
 
+def is_foreign_adr_filer(raw_facts: dict) -> bool:
+    """
+    Detecta si el emisor reporta ante la SEC como extranjero (IFRS o formularios 20-F / 40-F),
+    donde las acciones en circulación suelen expresarse en ordinarias locales y no en ADRs.
+    """
+    facts = raw_facts.get("facts") or {}
+    if isinstance(facts.get("ifrs-full"), dict) and facts["ifrs-full"]:
+        return True
+    us_gaap = facts.get("us-gaap") or {}
+    for tag in ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "Assets", "NetIncomeLoss"):
+        tag_obj = us_gaap.get(tag)
+        if not isinstance(tag_obj, dict):
+            continue
+        for entries in (tag_obj.get("units") or {}).values():
+            for entry in entries:
+                form = str(entry.get("form") or "").upper()
+                if form in ("20-F", "20-F/A", "40-F"):
+                    return True
+                if form in ("10-K", "10-K/A"):
+                    return False
+    return False
+
+
+def normalize_historical_shares(
+    shares_raw: float,
+    split_factor: float,
+    current_shares_mm: float,
+    is_foreign_adr: bool,
+) -> float:
+    """
+    Ajusta acciones históricas por splits y, solo en emisores extranjeros (20-F/40-F/IFRS),
+    normaliza la relación ordinaria/ADR cuando supera 2.5x respecto a las acciones ADR actuales.
+    """
+    if shares_raw <= 0:
+        return current_shares_mm
+    shares = float(shares_raw) * float(split_factor or 1.0)
+    if current_shares_mm > 0:
+        if is_foreign_adr and shares > (current_shares_mm * 2.5):
+            adr_ratio = round(shares / current_shares_mm)
+            return (shares / adr_ratio) if adr_ratio >= 2 else current_shares_mm
+        if shares < (current_shares_mm * 0.15):
+            return current_shares_mm
+    return shares
+
+
 def detect_reporting_currency(raw_facts: dict) -> str:
     """
     Detecta la moneda original en la que están expresados los estados financieros de SEC EDGAR

@@ -217,5 +217,26 @@ def test_ppp_calculation_and_portfolio_rbac(mock_quotes):
             json={"target_currency": "ARS"},
         )
         assert bad_profile_curr.status_code == 400
+
+        # 11. Rechazar NaN crudo, desbordamiento numérico y ticker > 24 chars con 422 (nunca 500)
+        raw_nan = client.post(
+            f"/api/v1/portfolios/{client_id}/transactions",
+            headers={**cli_headers, "Content-Type": "application/json"},
+            content='{"tx_type":"BUY","ticker":"MSFT","tx_date":"2026-03-11","quantity":NaN,"unit_price":100}',
+        )
+        assert raw_nan.status_code == 422
+
+        overflow_res = client.post(
+            f"/api/v1/portfolios/{client_id}/transactions",
+            headers=cli_headers,
+            json={
+                "tx_type": "BUY",
+                "ticker": "X" * 100,
+                "tx_date": "2026-03-11",
+                "quantity": 1e308,
+                "unit_price": 100.0,
+            },
+        )
+        assert overflow_res.status_code == 422
     finally:
         _cleanup()

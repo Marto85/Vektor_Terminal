@@ -36,6 +36,7 @@ import apiClient from "./api/client";
 import { useAuth } from "./context/authStore";
 import LoginScreen from "./components/auth/LoginScreen";
 import BrandLogo from "./components/BrandLogo";
+import ErrorBoundary from "./components/ErrorBoundary";
 import HomeOverview from "./components/HomeOverview";
 import { ALERTABLE_METRICS } from "./data/watchlistConstants";
 import StockChart from "./components/StockChart";
@@ -114,6 +115,7 @@ function App() {
   const [profileData, setProfileData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [exportingFormat, setExportingFormat] = useState(null);
+  const [exportError, setExportError] = useState(null);
   const [error, setError] = useState(null);
   const [recentTickers, setRecentTickers] = useState(loadRecentTickers);
 
@@ -329,6 +331,7 @@ function App() {
   const handleExportCompany = async (format) => {
     if (!currentTicker || exportingFormat) return;
     setExportingFormat(format);
+    setExportError(null);
     try {
       const url =
         format === "xlsx"
@@ -351,7 +354,7 @@ function App() {
       window.URL.revokeObjectURL(blobUrl);
     } catch (err) {
       console.error(`Error exportando ${format.toUpperCase()}:`, err);
-      setError(
+      setExportError(
         err?.response?.data?.detail ||
           `No se pudo exportar el archivo ${format.toUpperCase()}. Intentá nuevamente.`
       );
@@ -1175,6 +1178,20 @@ function App() {
           className="flex-1 overflow-y-auto overscroll-y-contain pb-[calc(3.75rem+env(safe-area-inset-bottom))] md:pb-0"
         >
           <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-6">
+            {exportError && (
+              <div className="mb-4 flex items-center justify-between gap-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3.5 py-2.5">
+                <span>{exportError}</span>
+                <button
+                  type="button"
+                  onClick={() => setExportError(null)}
+                  className="text-red-500 hover:text-red-700 cursor-pointer shrink-0"
+                  aria-label="Cerrar aviso de exportación"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
             {/* VISTA PORTAL INICIAL */}
             {activeSidebarTab === "Inicio" && (
               <HomeOverview
@@ -1189,24 +1206,28 @@ function App() {
 
             {/* VISTA CRM DE CLIENTES Y CARTERAS (PPP + TWR) */}
             {activeSidebarTab === "Carteras" && (
-              <Suspense fallback={<TabFallback />}>
-                <PortfoliosCRMTab
-                  onSelectCompany={(sym) => executeSearch(sym, period, true)}
-                />
-              </Suspense>
+              <ErrorBoundary key="Carteras" compact>
+                <Suspense fallback={<TabFallback />}>
+                  <PortfoliosCRMTab
+                    onSelectCompany={(sym) => executeSearch(sym, period, true)}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             )}
 
             {/* VISTA LISTAS DE SEGUIMIENTO Y CENTRO DE NOTIFICACIONES */}
             {activeSidebarTab === "Tablero" && (
-              <Suspense fallback={<TabFallback />}>
-                <WatchlistTab
-                  key={tableroInitialSubView}
-                  initialSubView={tableroInitialSubView}
-                  watchlistData={watchlistData}
-                  onWatchlistUpdated={(updated) => setWatchlistData(updated)}
-                  onSelectCompany={(sym) => executeSearch(sym, period, true)}
-                />
-              </Suspense>
+              <ErrorBoundary key="Tablero" compact>
+                <Suspense fallback={<TabFallback />}>
+                  <WatchlistTab
+                    key={tableroInitialSubView}
+                    initialSubView={tableroInitialSubView}
+                    watchlistData={watchlistData}
+                    onWatchlistUpdated={(updated) => setWatchlistData(updated)}
+                    onSelectCompany={(sym) => executeSearch(sym, period, true)}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             )}
 
             {/* BLOQUE GLOBAL EMPRESA: Gráfico (Izq) y Panel de Datos 2 Columnas (Der) */}
@@ -1606,81 +1627,95 @@ function App() {
 
             {/* PESTAÑA: VALORACIÓN */}
             {activeSidebarTab === "Valoracion" && (
-              <Suspense fallback={<TabFallback />}>
-                <ValuationTab
-                  ticker={currentTicker}
-                  onOpenInfo={openGlossary}
-                  onOpenValuationModels={(sym) => {
-                    setCurrentTicker(sym);
-                    setHasLoadedCompany(true);
-                    setActiveSidebarTab("Modelos");
-                  }}
-                />
-              </Suspense>
+              <ErrorBoundary key={`Valoracion-${currentTicker}`} compact>
+                <Suspense fallback={<TabFallback />}>
+                  <ValuationTab
+                    ticker={currentTicker}
+                    onOpenInfo={openGlossary}
+                    onOpenValuationModels={(sym) => {
+                      setCurrentTicker(sym);
+                      setHasLoadedCompany(true);
+                      setActiveSidebarTab("Modelos");
+                    }}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             )}
 
             {/* PESTAÑA: PROPIEDAD INSTITUCIONAL (13F) E INSIDERS (FORM 4) */}
             {activeSidebarTab === "Propiedad" && (
-              <Suspense fallback={<TabFallback />}>
-                <OwnershipInsidersTab ticker={currentTicker} />
-              </Suspense>
+              <ErrorBoundary key={`Propiedad-${currentTicker}`} compact>
+                <Suspense fallback={<TabFallback />}>
+                  <OwnershipInsidersTab ticker={currentTicker} />
+                </Suspense>
+              </ErrorBoundary>
             )}
 
             {/* PESTAÑA: MODELOS DE VALUACIÓN (AUTOMÁTICO Y MANUAL) */}
             {activeSidebarTab === "Modelos" && (
-              <Suspense fallback={<TabFallback />}>
-                <ValuationModelsTab
-                  initialTicker={hasLoadedCompany ? currentTicker : ""}
-                  recentTickers={recentTickers}
-                  onOpenInfo={openGlossary}
-                  onSelectGlobalTicker={(sym) => {
-                    setCurrentTicker(sym);
-                    setHasLoadedCompany(true);
-                  }}
-                />
-              </Suspense>
+              <ErrorBoundary key="Modelos" compact>
+                <Suspense fallback={<TabFallback />}>
+                  <ValuationModelsTab
+                    initialTicker={hasLoadedCompany ? currentTicker : ""}
+                    recentTickers={recentTickers}
+                    onOpenInfo={openGlossary}
+                    onSelectGlobalTicker={(sym) => {
+                      setCurrentTicker(sym);
+                      setHasLoadedCompany(true);
+                    }}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             )}
 
             {/* PESTAÑA: MACRO LAB & PERSPECTIVA HISTÓRICA GLOBAL */}
             {activeSidebarTab === "MacroLab" && (
-              <Suspense fallback={<TabFallback />}>
-                <MacroLabTab />
-              </Suspense>
+              <ErrorBoundary key="MacroLab" compact>
+                <Suspense fallback={<TabFallback />}>
+                  <MacroLabTab />
+                </Suspense>
+              </ErrorBoundary>
             )}
 
             {/* PESTAÑA: TESIS DE INVERSIÓN (ONE-PAGER EJECUTIVO PARA CLIENTES) */}
             {activeSidebarTab === "Tesis" && (
-              <Suspense fallback={<TabFallback />}>
-                <InvestmentThesisTab
-                  initialTicker={hasLoadedCompany ? currentTicker : ""}
-                  recentTickers={recentTickers}
-                  onSelectGlobalTicker={(sym) => {
-                    setCurrentTicker(sym);
-                    setHasLoadedCompany(true);
-                  }}
-                />
-              </Suspense>
+              <ErrorBoundary key="Tesis" compact>
+                <Suspense fallback={<TabFallback />}>
+                  <InvestmentThesisTab
+                    initialTicker={hasLoadedCompany ? currentTicker : ""}
+                    recentTickers={recentTickers}
+                    onSelectGlobalTicker={(sym) => {
+                      setCurrentTicker(sym);
+                      setHasLoadedCompany(true);
+                    }}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             )}
 
             {/* PESTAÑA: COMPARADOR MANUAL (HASTA 5 EMPRESAS) */}
             {activeSidebarTab === "Comparador" && (
-              <Suspense fallback={<TabFallback />}>
-                <ComparatorTab
-                  currentTicker={currentTicker}
-                  onOpenInfo={openGlossary}
-                />
-              </Suspense>
+              <ErrorBoundary key="Comparador" compact>
+                <Suspense fallback={<TabFallback />}>
+                  <ComparatorTab
+                    currentTicker={currentTicker}
+                    onOpenInfo={openGlossary}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             )}
 
             {/* PESTAÑA: SCREENER FUNDAMENTAL */}
             {activeSidebarTab === "Screener" && (
-              <Suspense fallback={<TabFallback />}>
-                <ScreenerTab
-                  key={screenerPresetId}
-                  initialPresetId={screenerPresetId}
-                  onSelectCompany={(sym) => executeSearch(sym, period, true)}
-                />
-              </Suspense>
+              <ErrorBoundary key="Screener" compact>
+                <Suspense fallback={<TabFallback />}>
+                  <ScreenerTab
+                    key={screenerPresetId}
+                    initialPresetId={screenerPresetId}
+                    onSelectCompany={(sym) => executeSearch(sym, period, true)}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             )}
           </div>
         </div>

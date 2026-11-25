@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.models.database import PriceHistoryCache, is_sqlite
 from app.services.company_service import get_raw_financials
-from app.services.financial_parser import extract_annual_metrics
+from app.services.financial_parser import (
+    extract_annual_metrics,
+    is_foreign_adr_filer,
+    normalize_historical_shares,
+)
 from app.core.yf_client import (
     get_cached_market_snapshot,
     get_cached_estimates_and_guidance,
@@ -804,6 +808,7 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
     ticker_upper = ticker_symbol.upper()
 
     raw_facts = get_raw_financials(ticker_upper, db)
+    is_foreign_adr = is_foreign_adr_filer(raw_facts)
     try:
         annual_rows = extract_annual_metrics(raw_facts)
     except ValueError:
@@ -878,16 +883,12 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         shares_raw_y = get_m("Acciones en Circulación (Diluidas)", y)
         if shares_raw_y <= 0:
             shares_raw_y = get_m("Acciones en Circulación (Básicas)", y)
-        if shares_raw_y > 0:
-            shares = shares_raw_y * split_factors.get(y, 1.0)
-            if current_shares_mm > 0:
-                if shares > (current_shares_mm * 2.5):
-                    adr_ratio = round(shares / current_shares_mm)
-                    shares = (shares / adr_ratio) if adr_ratio >= 2 else current_shares_mm
-                elif shares < (current_shares_mm * 0.15):
-                    shares = current_shares_mm
-        else:
-            shares = current_shares_mm
+        shares = normalize_historical_shares(
+            shares_raw=shares_raw_y,
+            split_factor=split_factors.get(y, 1.0),
+            current_shares_mm=current_shares_mm,
+            is_foreign_adr=is_foreign_adr,
+        )
 
         price_y = annual_prices.get(y)
 

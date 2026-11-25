@@ -18,32 +18,32 @@ portfolio_router = APIRouter(prefix="/portfolios", tags=["CRM y Carteras"])
 
 
 class CreateManagedClientRequest(BaseModel):
-    full_name: str
-    email: Optional[str] = None
-    phone: Optional[str] = None
-    risk_profile: str = "moderado"
-    investment_horizon: str = "largo_plazo"
-    target_currency: str = "USD"
-    notes: Optional[str] = None
+    full_name: str = Field(..., min_length=1, max_length=120)
+    email: Optional[str] = Field(None, max_length=255)
+    phone: Optional[str] = Field(None, max_length=50)
+    risk_profile: str = Field("moderado", max_length=30)
+    investment_horizon: str = Field("largo_plazo", max_length=30)
+    target_currency: str = Field("USD", max_length=10)
+    notes: Optional[str] = Field(None, max_length=5000)
 
 
 class UpdateClientProfileRequest(BaseModel):
-    risk_profile: Optional[str] = None
-    investment_horizon: Optional[str] = None
-    target_currency: Optional[str] = None
-    phone: Optional[str] = None
-    notes: Optional[str] = None
+    risk_profile: Optional[str] = Field(None, max_length=30)
+    investment_horizon: Optional[str] = Field(None, max_length=30)
+    target_currency: Optional[str] = Field(None, max_length=10)
+    phone: Optional[str] = Field(None, max_length=50)
+    notes: Optional[str] = Field(None, max_length=5000)
 
 
 class CreateTransactionRequest(BaseModel):
-    tx_type: str
-    ticker: Optional[str] = None
-    tx_date: str
-    quantity: float = Field(..., allow_inf_nan=False)
-    unit_price: float = Field(..., allow_inf_nan=False)
-    commission: float = Field(0.0, allow_inf_nan=False)
-    currency: str = "USD"
-    notes: Optional[str] = None
+    tx_type: str = Field(..., max_length=20)
+    ticker: Optional[str] = Field(None, max_length=24)
+    tx_date: str = Field(..., max_length=10)
+    quantity: float = Field(..., gt=0, le=1e12, allow_inf_nan=False)
+    unit_price: float = Field(..., ge=0, le=1e12, allow_inf_nan=False)
+    commission: float = Field(0.0, ge=0, le=1e12, allow_inf_nan=False)
+    currency: str = Field("USD", max_length=10)
+    notes: Optional[str] = Field(None, max_length=2000)
 
 
 @portfolio_router.get("/clients")
