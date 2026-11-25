@@ -3,6 +3,8 @@
 ## 1. Descripción General
 **VektorTerminal** es una plataforma de investigación fundamental, análisis técnico interactivo, valoración de acciones globales y ADRs, y gestión de carteras de inversión. Integra estados contables oficiales de la SEC (EDGAR), series macroeconómicas, estimaciones de consenso y cotizaciones de mercado en una interfaz unificada *responsive* (instalable como aplicación PWA en Android, iOS y escritorio) con autenticación multi-usuario y persistencia en la nube.
 
+> Para ver capturas de pantalla paso a paso y una guía práctica de cómo interpretar cada métrica y sección, consultá la [Guía Visual de Uso e Interpretación](GUIA_VISUAL.md).
+
 ---
 
 ## 2. Acceso, Registro y Gestión de Cuenta

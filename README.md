@@ -7,7 +7,7 @@ Plataforma web full-stack *responsive* (instalable como **PWA** en Android, iOS 
 - **Frontend:** Vercel (`Root Directory: frontend`, proxy `/api/:path*` hacia Render mediante `frontend/vercel.json`).
 - **Backend:** Render (`[https://vektor-terminal.onrender.com](https://vektor-terminal.onrender.com)`, chequeo de salud en `/health`).
 - **Base de Datos:** PostgreSQL gestionada en Neon (`DATABASE_URL` normalizada automáticamente a `postgresql+psycopg2://`).
-- **Acceso Móvil (PWA):** Se accede desde la misma URL de producción en Vercel y puede instalarse localmente como aplicación independiente en Android e iOS (ver sección 3 del *Manual de Usuario*).
+- **Acceso Móvil (PWA):** Se accede desde la misma URL de producción en Vercel y puede instalarse localmente como aplicación independiente en Android e iOS (ver sección 3 del [Manual de Usuario](docs/MANUAL_USUARIO.md) y la [Guía Visual con Capturas e Interpretación](docs/GUIA_VISUAL.md)).
 
 ## Ejecución Local (Git Bash)
 
