@@ -13,6 +13,7 @@ from deep_translator import GoogleTranslator, MyMemoryTranslator
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
+from app.core.config import SEC_USER_AGENT
 from app.models.database import (
     CompanyData,
     CompanyProfile,
@@ -24,7 +25,7 @@ from app.models.database import (
 MARKET_CACHE_TTL = timedelta(hours=4)
 ESTIMATES_CACHE_TTL = timedelta(hours=24)
 CF_LTM_SCHEMA_VERSION = 6
-SEC_HEADERS = {"User-Agent": "MiTerminalFinanciera/1.0 (contacto@miterminal.local)"}
+SEC_HEADERS = {"User-Agent": SEC_USER_AGENT}
 WEB_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; VektorTerminal/1.0)"}
 
 MESES_ES = {

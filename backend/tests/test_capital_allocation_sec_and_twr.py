@@ -198,10 +198,12 @@ def test_sec_filing_alert_detection_and_deduplication():
         },
     ]
 
-    with patch("app.services.watchlist_service.get_recent_sec_filings", return_value=mock_filings):
+    with patch("app.services.watchlist_service.get_recent_sec_filings", return_value=mock_filings) as mock_sec:
         payload_1 = get_all_watchlists_payload(db, user_id=1)
-        # Segunda ejecución para confirmar que no duplica notificaciones
+        # Segunda ejecución debe usar caché de 12h sin volver a consultar SEC ni duplicar notificaciones
         payload_2 = get_all_watchlists_payload(db, user_id=1)
+
+    assert mock_sec.call_count == 1
 
     sec_notifs = [n for n in payload_2["notifications"] if n["alert_type"] == "sec_filing"]
     assert len(sec_notifs) == 1

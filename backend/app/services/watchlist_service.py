@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.models.database import (
@@ -10,6 +12,8 @@ from app.models.database import (
     CompanyEstimatesCache,
     CompanyProfile,
     CompanyData,
+    MacroSeriesCache,
+    is_sqlite,
 )
 from app.core.yf_client import get_company_profile
 from app.core.sec_client import get_cik_from_ticker, get_recent_sec_filings
@@ -17,6 +21,7 @@ from app.core.sec_client import get_cik_from_ticker, get_recent_sec_filings
 MAX_WATCHLISTS = 10
 ARG_TZ = timezone(timedelta(hours=-3))
 SEC_FILING_LOOKBACK_DAYS = 30
+SEC_FILING_CACHE_TTL = timedelta(hours=12)
 
 METRIC_LABELS: dict[str, str] = {
     "price": "Precio (US$)",
@@ -180,22 +185,58 @@ def _check_recent_sec_filings_for_ticker(
 ) -> list[dict[str, Any]]:
     """
     Detecta filings SEC recientes (10-K, 10-Q, 20-F, 6-K) presentados en los últimos 30 días
-    para los tickers en seguimiento y devuelve alertas nuevas.
+    para los tickers en seguimiento y devuelve alertas nuevas, usando caché de 12h en DB.
     """
     sym = ticker.upper().strip()
-    comp_row = db.query(CompanyData).filter(CompanyData.ticker == sym).first()
-    cik = str(getattr(comp_row, "cik", "") or "").strip() if comp_row else ""
+    cache_key = f"sec_filings:{sym}"
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
 
-    if not cik:
+    filings: list[dict[str, Any]] | None = None
+    cached_row = db.query(MacroSeriesCache).filter(MacroSeriesCache.cache_key == cache_key).first()
+    if cached_row is not None:
+        updated_at = getattr(cached_row, "last_updated", None)
+        payload = getattr(cached_row, "payload", None)
+        if (
+            isinstance(updated_at, datetime)
+            and (now_utc - updated_at) < SEC_FILING_CACHE_TTL
+            and isinstance(payload, dict)
+            and isinstance(payload.get("filings"), list)
+        ):
+            filings = payload["filings"]
+
+    if filings is None:
+        comp_row = db.query(CompanyData).filter(CompanyData.ticker == sym).first()
+        cik = str(getattr(comp_row, "cik", "") or "").strip() if comp_row else ""
+
+        if not cik:
+            try:
+                cik = get_cik_from_ticker(sym)
+            except Exception:
+                cik = ""
+
+        if cik:
+            try:
+                filings = get_recent_sec_filings(cik, limit=3)
+            except Exception:
+                filings = []
+        else:
+            filings = []
+
         try:
-            cik = get_cik_from_ticker(sym)
+            insert_fn = sqlite_insert if is_sqlite else pg_insert
+            stmt = insert_fn(MacroSeriesCache).values(
+                cache_key=cache_key,
+                payload={"filings": filings},
+                last_updated=now_utc,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["cache_key"],
+                set_={"payload": {"filings": filings}, "last_updated": now_utc},
+            )
+            db.execute(stmt)
+            db.commit()
         except Exception:
-            return []
-
-    try:
-        filings = get_recent_sec_filings(cik, limit=3)
-    except Exception:
-        return []
+            db.rollback()
 
     cutoff_date = (datetime.now(timezone.utc) - timedelta(days=SEC_FILING_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
     alerts_out: list[dict[str, Any]] = []
