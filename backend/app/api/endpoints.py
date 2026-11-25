@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 from typing import Any
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 import pandas as pd
 import yfinance as yf
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 import requests
 
 from app.core.security import get_current_user, require_roles
-from app.models.database import CompanyData, PriceHistoryCache, SessionLocal, User, is_sqlite
+from app.models.database import CompanyData, CompanyProfile, PriceHistoryCache, SessionLocal, User, is_sqlite
 from app.core.yf_client import (
     _lookup_fx_multiplier,
     get_company_profile,
@@ -26,7 +27,7 @@ from app.services.financial_parser import (
 )
 from app.services.ratios_calculator import calculate_ratios, build_financial_health_report
 from app.services.peers_service import build_peers_comparison, build_manual_comparison
-from app.services.screener_service import get_screener_universe, sync_screener_batch
+from app.services.screener_service import SCREENER_UNIVERSE, get_screener_universe, sync_screener_batch
 from app.services.market_overview_service import build_market_overview
 from app.services.macro_lab_service import build_macro_lab_payload
 from app.services.watchlist_service import (
@@ -535,29 +536,106 @@ def post_screener_sync(
         raise HTTPException(status_code=500, detail=f"Error sincronizando lote de screener: {str(e)}")
 
 
-@router.get("/search")
-def search_ticker(q: str):
-    """
-    Busca coincidencias parciales de tickers y nombres de empresas usando la API pública de YF.
-    """
-    url = f"https://query2.finance.yahoo.com/v1/finance/search?q={q}&" + "quotesCount=6&newsCount=0"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        resp = requests.get(url, headers=headers, timeout=5)
-        data = resp.json()
-        quotes = data.get("quotes", [])
+_SEARCH_CACHE_TTL = timedelta(minutes=10)
+_SEARCH_CACHE: dict[str, tuple[datetime, list[dict[str, Any]]]] = {}
 
-        results = [
-            {
-                "ticker": item.get("symbol"),
-                "name": item.get("shortname", item.get("longname", "N/A")),
-                "type": item.get("quoteType", "")
-            }
-            for item in quotes if item.get("symbol")
-        ]
-        return results
+
+def _local_search_fallback(q_clean: str, db: Session, limit: int = 8) -> list[dict[str, Any]]:
+    upper_q = q_clean.upper()
+    results: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    try:
+        rows = (
+            db.query(CompanyProfile)
+            .filter(
+                (CompanyProfile.ticker.ilike(f"{upper_q}%"))
+                | (CompanyProfile.name.ilike(f"%{q_clean}%"))
+            )
+            .limit(limit)
+            .all()
+        )
+        for r in rows:
+            sym = str(r.ticker or "").upper()
+            if sym and sym not in seen:
+                seen.add(sym)
+                results.append({
+                    "ticker": sym,
+                    "name": str(r.name or sym),
+                    "type": "EQUITY",
+                })
     except Exception:
+        pass
+
+    for sym in SCREENER_UNIVERSE:
+        if sym.startswith(upper_q) and sym not in seen:
+            seen.add(sym)
+            results.append({"ticker": sym, "name": sym, "type": "EQUITY"})
+            if len(results) >= limit:
+                break
+
+    results.sort(key=lambda item: (0 if item["ticker"] == upper_q else 1, len(item["ticker"]), item["ticker"]))
+    return results[:limit]
+
+
+@router.get("/search")
+def search_ticker(q: str, db: Session = Depends(get_db)):
+    """
+    Busca coincidencias parciales de tickers y nombres de empresas usando la API pública de YF,
+    con caché corto y respaldo automático sobre la base local y el universo curado.
+    """
+    clean_q = (q or "").strip()
+    if not clean_q:
         return []
+
+    cache_key = clean_q.upper()
+    now_utc = datetime.now(timezone.utc)
+    cached_entry = _SEARCH_CACHE.get(cache_key)
+    if cached_entry and (now_utc - cached_entry[0]) < _SEARCH_CACHE_TTL:
+        return cached_entry[1]
+
+    url = (
+        f"https://query2.finance.yahoo.com/v1/finance/search?q={quote(clean_q, safe='')}"
+        "&quotesCount=10&newsCount=0"
+    )
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+    }
+
+    yf_results: list[dict[str, Any]] = []
+    try:
+        resp = requests.get(url, headers=headers, timeout=4)
+        if resp.status_code == 200:
+            data = resp.json()
+            quotes = data.get("quotes", [])
+            yf_results = [
+                {
+                    "ticker": item.get("symbol"),
+                    "name": item.get("shortname") or item.get("longname") or "N/A",
+                    "type": item.get("quoteType", ""),
+                }
+                for item in quotes
+                if item.get("symbol")
+            ]
+    except Exception:
+        yf_results = []
+
+    local_results = _local_search_fallback(clean_q, db, limit=8)
+    merged: list[dict[str, Any]] = []
+    seen_tickers: set[str] = set()
+
+    for item in yf_results + local_results:
+        sym = str(item.get("ticker") or "").upper()
+        if sym and sym not in seen_tickers:
+            seen_tickers.add(sym)
+            merged.append(item)
+        if len(merged) >= 8:
+            break
+
+    if merged:
+        _SEARCH_CACHE[cache_key] = (now_utc, merged)
+    return merged
 
 
 @router.get("/company/{ticker}/history")

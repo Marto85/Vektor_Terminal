@@ -121,6 +121,7 @@ function App() {
   const [showDropdown, setShowDropdown] = useState(false);
   const mainScrollRef = useRef(null);
   const companyReqIdRef = useRef(0);
+  const searchReqIdRef = useRef(0);
   const searchDebounceRef = useRef(null);
 
   // Estado Multi-Watchlist y Notificaciones (aislado por usuario)
@@ -413,17 +414,20 @@ function App() {
 
     const trimmed = value.trim();
     if (!trimmed) {
+      searchReqIdRef.current += 1;
       setSearchResults([]);
       setShowDropdown(false);
       return;
     }
 
+    const reqId = ++searchReqIdRef.current;
     searchDebounceRef.current = setTimeout(async () => {
       try {
         const response = await apiClient.get(
           `/search?q=${encodeURIComponent(trimmed)}`,
           { timeout: 10000 },
         );
+        if (reqId !== searchReqIdRef.current) return;
         const upperQ = trimmed.toUpperCase();
         const rawList = Array.isArray(response.data) ? response.data : [];
         const sorted = [...rawList].sort((a, b) => {
@@ -437,12 +441,15 @@ function App() {
         setSearchResults(sorted);
         setShowDropdown(true);
       } catch (err) {
-        console.error("Error buscando tickers", err);
+        if (reqId === searchReqIdRef.current) {
+          console.error("Error buscando tickers", err);
+        }
       }
     }, 250);
   };
 
   const handleSelectTicker = (selectedTicker) => {
+    searchReqIdRef.current += 1;
     if (searchDebounceRef.current) {
       clearTimeout(searchDebounceRef.current);
     }

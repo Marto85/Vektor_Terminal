@@ -205,3 +205,30 @@ def test_company_history_uses_price_history_cache(monkeypatch, db_session):
         assert res.json()["capitalStructureSource"] == "sec_historical"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_search_ticker_falls_back_to_local_universe_when_yahoo_fails(monkeypatch, db_session):
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    def fail_requests_get(*_args, **_kwargs):
+        raise RuntimeError("Yahoo timeout simulado")
+
+    endpoints._SEARCH_CACHE.clear()
+    app.dependency_overrides[endpoints.get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=1, username="tester", email="tester@vektor.local", full_name="Tester", role="superadmin", is_active=True
+    )
+    monkeypatch.setattr(endpoints.requests, "get", fail_requests_get)
+    client = TestClient(app)
+
+    try:
+        res = client.get("/api/v1/search?q=AAP")
+        assert res.status_code == 200
+        tickers = [item["ticker"] for item in res.json()]
+        assert "AAPL" in tickers
+    finally:
+        app.dependency_overrides.clear()

@@ -79,6 +79,8 @@ export default function HomeOverview({
   const [heroQuery, setHeroQuery] = useState("");
   const [heroResults, setHeroResults] = useState([]);
   const [showHeroDropdown, setShowHeroDropdown] = useState(false);
+  const heroSearchDebounceRef = useRef(null);
+  const heroSearchReqIdRef = useRef(0);
 
   const [radarTab, setRadarTab] = useState("upside");
   const [newsFilter, setNewsFilter] = useState("ALL");
@@ -106,23 +108,34 @@ export default function HomeOverview({
     };
   }, []);
 
-  const handleHeroSearchChange = async (e) => {
+  const handleHeroSearchChange = (e) => {
     const val = e.target.value;
     setHeroQuery(val);
-    if (val.trim().length > 0) {
+    if (heroSearchDebounceRef.current) {
+      clearTimeout(heroSearchDebounceRef.current);
+    }
+    const trimmed = val.trim();
+    if (trimmed.length === 0) {
+      heroSearchReqIdRef.current += 1;
+      setHeroResults([]);
+      setShowHeroDropdown(false);
+      return;
+    }
+    const reqId = ++heroSearchReqIdRef.current;
+    heroSearchDebounceRef.current = setTimeout(async () => {
       try {
         const res = await apiClient.get(
-          `/search?q=${encodeURIComponent(val.trim())}`
+          `/search?q=${encodeURIComponent(trimmed)}`
         );
+        if (reqId !== heroSearchReqIdRef.current) return;
         setHeroResults(res.data || []);
         setShowHeroDropdown(true);
       } catch {
-        setHeroResults([]);
+        if (reqId === heroSearchReqIdRef.current) {
+          setHeroResults([]);
+        }
       }
-    } else {
-      setHeroResults([]);
-      setShowHeroDropdown(false);
-    }
+    }, 250);
   };
 
   const handleHeroKeyDown = (e) => {
