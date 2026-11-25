@@ -4,6 +4,15 @@ Esta guía complementa al [Manual de Usuario](MANUAL_USUARIO.md) mostrando **qu�
 
 ---
 
+## 0. Pantalla de Bienvenida (Portal Público)
+
+![Pantalla de Bienvenida](images/00_landing.png)
+
+- **Qué se hace acá:**
+  - Conocer las capacidades de **VektorTerminal**, explorar capturas interactivas de los módulos principales y acceder a **Iniciar Sesión** o **Crear Cuenta**.
+
+---
+
 ## 1. Acceso, Registro y Roles
 
 ![Pantalla de acceso](images/01_login.png)

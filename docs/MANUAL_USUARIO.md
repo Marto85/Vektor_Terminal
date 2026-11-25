@@ -7,7 +7,10 @@
 
 ---
 
-## 2. Acceso, Registro y Gestión de Cuenta
+## 2. Pantalla de Bienvenida, Acceso y Gestión de Cuenta
+
+### Pantalla de Bienvenida
+- Al ingresar por primera vez sin sesión activa, la plataforma presenta una **página de bienvenida** con el resumen de funcionalidades, recorrido visual interactivo y accesos directos a **Iniciar Sesión** y **Crear Cuenta**.
 
 ### Inicio de Sesión
 - Podés ingresar escribiendo tu **nombre de usuario** o tu **correo electrónico** junto con tu contraseña.

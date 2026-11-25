@@ -1,12 +1,7 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { ThemeContext } from "./themeStore";
 
 const THEME_STORAGE_KEY = "vektor_theme";
-const ThemeContext = createContext({
-  theme: "light",
-  isDark: false,
-  toggleTheme: () => {},
-  setTheme: () => {},
-});
 
 export function ThemeProvider({ children }) {
   const [theme, setTheme] = useState(() => {
@@ -48,8 +43,4 @@ export function ThemeProvider({ children }) {
       {children}
     </ThemeContext.Provider>
   );
-}
-
-export function useTheme() {
-  return useContext(ThemeContext);
 }

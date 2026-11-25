@@ -39,8 +39,9 @@ import {
 } from "lucide-react";
 import apiClient from "./api/client";
 import { useAuth } from "./context/authStore";
-import { useTheme } from "./context/ThemeContext";
+import { useTheme } from "./context/themeStore";
 import LoginScreen from "./components/auth/LoginScreen";
+import LandingPage from "./components/LandingPage";
 import BrandLogo from "./components/BrandLogo";
 import ErrorBoundary from "./components/ErrorBoundary";
 import HomeOverview from "./components/HomeOverview";
@@ -99,7 +100,9 @@ function App() {
     logout,
     isAdvisorOrAdmin,
     isClient,
+    pendingResetToken,
   } = useAuth();
+  const [unauthView, setUnauthView] = useState("landing");
   const { isDark, toggleTheme } = useTheme();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isFinancialsExpanded, setIsFinancialsExpanded] = useState(false);
@@ -220,7 +223,20 @@ function App() {
   }
 
   if (!isAuthenticated) {
-    return <LoginScreen />;
+    if (unauthView === "landing" && !pendingResetToken) {
+      return (
+        <LandingPage
+          onGoToLogin={() => setUnauthView("login")}
+          onGoToRegister={() => setUnauthView("register")}
+        />
+      );
+    }
+    return (
+      <LoginScreen
+        initialMode={unauthView === "register" ? "register" : "login"}
+        onBackToLanding={() => setUnauthView("landing")}
+      />
+    );
   }
 
   const openGlossary = (metricKey, formattedVal = null) => {

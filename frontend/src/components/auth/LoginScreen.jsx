@@ -56,7 +56,7 @@ function GitHubIcon() {
   );
 }
 
-export default function LoginScreen() {
+export default function LoginScreen({ initialMode = "login", onBackToLanding = null }) {
   const {
     login,
     registerPublic,
@@ -70,7 +70,7 @@ export default function LoginScreen() {
 
   // "login" | "register" | "recover"
   const [mode, setMode] = useState(() =>
-    pendingResetToken ? "recover" : "login"
+    pendingResetToken ? "recover" : initialMode
   );
 
   // Estado Login
@@ -280,6 +280,15 @@ export default function LoginScreen() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8">
+        {onBackToLanding && (
+          <button
+            type="button"
+            onClick={onBackToLanding}
+            className="mb-4 text-xs text-slate-400 hover:text-orange-400 transition-colors cursor-pointer"
+          >
+            ← Volver a la página principal
+          </button>
+        )}
         <div className="flex flex-col items-center text-center mb-6">
           <div className="mb-2">
             <BrandLogo size="lg" />

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import apiClient from '../api/client';
-import { useTheme } from '../context/ThemeContext';
+import { useTheme } from '../context/themeStore';
 import * as LightweightCharts from 'lightweight-charts';
 import {
   ChevronDown,

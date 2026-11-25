@@ -1094,9 +1094,16 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
 
     beta_val = float(info.get("beta") or 1.0)
     cost_of_equity_pct = round(min(max(rf_pct + beta_val * 5.0, 8.0), 14.5), 1)
-    total_debt_mm = max(float(latest_total_debt or 0.0), 0.0)
-    total_cap_mm = current_mcap_mm + total_debt_mm
-    if current_mcap_mm > 0 and total_cap_mm > 0:
+    latest_y_for_debt = valid_years[-1] if valid_years else None
+    debt_from_bs = (
+        (get_m("Deuda a corto plazo", latest_y_for_debt) + get_m("Deuda a largo plazo", latest_y_for_debt))
+        if latest_y_for_debt
+        else 0.0
+    )
+    total_debt_mm = max(float(sec_fb.get("total_debt_mm") or debt_from_bs or 0.0), 0.0)
+    eff_tax_rate = float(sec_fb.get("effective_tax_rate") or 0.21)
+    if current_mcap_mm is not None and current_mcap_mm > 0:
+        total_cap_mm = current_mcap_mm + total_debt_mm
         w_e = current_mcap_mm / total_cap_mm
         w_d = total_debt_mm / total_cap_mm
         kd_after_tax = max(rf_pct + 1.5, 4.0) * (1.0 - min(max(eff_tax_rate, 0.0), 0.35))
