@@ -126,7 +126,7 @@ Se divide en dos subsecciones:
 
 ### I. Screener
 Buscador cuantitativo sobre un universo curado de emisores globales y ADRs:
-1. **Sincronización por lotes:** el botón **Sincronizar +15 emisores** incorpora progresivamente nuevas empresas a la base de datos.
+1. **Actualización continua en segundo plano (1 clic):** el botón **Completar base (N)** o **Actualizar base (N)** inicia una sincronización automática en lotes de 4 emisores para cuidar la memoria del servidor. Mientras avanza, muestra el progreso en el banner y en una píldora superior (`Screener X/N`), permitiéndote navegar y usar libremente el resto de la plataforma o pausar cuando quieras con **Detener** (el avance ya guardado se conserva y se retoma desde donde quedó).
 2. **Estrategias Predefinidas:** aplica con un clic filtros institucionales (*Universo Completo*, *Value Contrarian*, *Quality Compounders*, *Alto FCF Yield* y *GARP*) acompañados de una ficha explicativa sincronizada con su tesis y criterios.
 3. **Refinamiento en cascada:** podés combinar cualquier estrategia con filtros adicionales por **Sector**, **Industria / Rubro**, capitalización, múltiplos máximos, rentabilidad mínima, endeudamiento o potencial de Wall Street.
 4. **Agrupación y Personalización:**

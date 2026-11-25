@@ -164,15 +164,36 @@ function formatCell(val, type) {
   return isNeg ? `(${f}${suffix})` : `${f}${suffix}`;
 }
 
-export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }) {
+export default function ScreenerTab({
+  onSelectCompany,
+  initialPresetId = 'all',
+  universeData: universeDataProp,
+  onUniverseDataChange,
+  syncState: syncStateProp,
+  onStartSync,
+  onStopSync,
+  onClearSyncFeedback,
+}) {
   const { isAdvisorOrAdmin } = useAuth();
   const startingPreset = PRESETS.find((p) => p.id === initialPresetId) || PRESETS[0];
 
-  const [universeData, setUniverseData] = useState(null);
+  const [localUniverseData, setLocalUniverseData] = useState(null);
+  const universeData = universeDataProp !== undefined ? universeDataProp : localUniverseData;
+  const setUniverseData = onUniverseDataChange || setLocalUniverseData;
+
   const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [syncFeedback, setSyncFeedback] = useState(null);
+  const [localSyncing, setLocalSyncing] = useState(false);
+  const [localSyncFeedback, setLocalSyncFeedback] = useState(null);
   const [error, setError] = useState(null);
+
+  const syncState = syncStateProp || {
+    running: localSyncing,
+    stopping: false,
+    totalTarget: 0,
+    syncedInRun: 0,
+    feedback: localSyncFeedback,
+    error: null,
+  };
 
   const [basePresetId, setBasePresetId] = useState(startingPreset.id);
   const [isRefined, setIsRefined] = useState(false);
@@ -197,6 +218,7 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
   }, [showColumnMenu]);
 
   useEffect(() => {
+    if (universeDataProp) return;
     let cancelled = false;
     const loadUniverse = async () => {
       setLoading(true);
@@ -221,25 +243,36 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [universeDataProp, setUniverseData]);
 
   const handleSyncMore = async () => {
-    setSyncing(true);
+    const totalToSync = pendingSyncCount + staleCount;
+    if (onStartSync) {
+      if (syncState.running) {
+        onStopSync?.();
+      } else {
+        setError(null);
+        onStartSync(totalToSync);
+      }
+      return;
+    }
+
+    setLocalSyncing(true);
     setError(null);
-    setSyncFeedback(null);
+    setLocalSyncFeedback(null);
     try {
       const res = await apiClient.post('/screener/sync?batch_size=4');
       setUniverseData(res.data);
       const syncedNow = Array.isArray(res.data?.synced_now) ? res.data.synced_now : [];
       if (syncedNow.length > 0) {
-        setSyncFeedback(`Sincronización completada (${syncedNow.length}): ${syncedNow.join(', ')}.`);
+        setLocalSyncFeedback(`Sincronización completada (${syncedNow.length}): ${syncedNow.join(', ')}.`);
       } else {
-        setSyncFeedback('No se completaron nuevos emisores en este lote (pueden haber quedado en espera temporal); volvé a intentar para avanzar.');
+        setLocalSyncFeedback('No se completaron nuevos emisores en este lote (pueden haber quedado en espera temporal); volvé a intentar para avanzar.');
       }
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al sincronizar lote de empresas');
     } finally {
-      setSyncing(false);
+      setLocalSyncing(false);
     }
   };
 
@@ -466,19 +499,26 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {isAdvisorOrAdmin && (pendingSyncCount > 0 || staleCount > 0) && (
+            {isAdvisorOrAdmin && (syncState.running || pendingSyncCount > 0 || staleCount > 0) && (
               <button
                 type="button"
                 onClick={handleSyncMore}
-                disabled={syncing}
-                className="flex items-center text-xs px-3 py-1.5 rounded border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 font-medium cursor-pointer disabled:opacity-60"
+                disabled={syncState.stopping}
+                title="Actualiza toda la base en segundo plano con un solo clic (en lotes de 4 emisores)"
+                className={`flex items-center text-xs px-3 py-1.5 rounded border font-medium cursor-pointer transition-colors disabled:opacity-60 ${
+                  syncState.running
+                    ? 'border-orange-500 bg-orange-500 text-white hover:bg-orange-600'
+                    : 'border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100'
+                }`}
               >
-                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncing ? 'animate-spin' : ''}`} />
-                {syncing
-                  ? 'Sincronizando lote...'
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${syncState.running ? 'animate-spin' : ''}`} />
+                {syncState.stopping
+                  ? 'Deteniendo...'
+                  : syncState.running
+                  ? `Sincronizando ${syncState.syncedInRun}/${syncState.totalTarget || pendingSyncCount + staleCount} · Detener`
                   : pendingSyncCount > 0
-                  ? `Sincronizar +4 emisores (${pendingSyncCount} pendientes)`
-                  : `Actualizar +4 emisores (${staleCount} desactualizados)`}
+                  ? `Completar base (${pendingSyncCount})`
+                  : `Actualizar base (${staleCount})`}
               </button>
             )}
 
@@ -842,12 +882,32 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
         </div>
       </div>
 
-      {syncFeedback && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-800 font-medium flex items-center justify-between gap-3">
-          <span>{syncFeedback}</span>
+      {syncState.running && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-xs text-orange-900 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin text-orange-600 shrink-0" />
+            <span>
+              <strong>Actualizando base en segundo plano</strong> ({syncState.syncedInRun} de{' '}
+              {syncState.totalTarget || pendingSyncCount + staleCount} procesados en lotes de 4). Podés seguir navegando y usando la plataforma con normalidad mientras finaliza.
+            </span>
+          </div>
           <button
             type="button"
-            onClick={() => setSyncFeedback(null)}
+            onClick={handleSyncMore}
+            disabled={syncState.stopping}
+            className="text-orange-700 hover:text-orange-900 font-semibold cursor-pointer shrink-0 disabled:opacity-60"
+          >
+            {syncState.stopping ? 'Deteniendo...' : 'Detener'}
+          </button>
+        </div>
+      )}
+
+      {syncState.feedback && !syncState.running && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-800 font-medium flex items-center justify-between gap-3">
+          <span>{syncState.feedback}</span>
+          <button
+            type="button"
+            onClick={() => (onClearSyncFeedback ? onClearSyncFeedback() : setLocalSyncFeedback(null))}
             className="text-emerald-600 hover:text-emerald-800 cursor-pointer shrink-0"
           >
             Cerrar
@@ -855,9 +915,9 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
         </div>
       )}
 
-      {error && (
+      {(syncState.error || error) && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700 font-medium">
-          {error}
+          {syncState.error || error}
         </div>
       )}
 

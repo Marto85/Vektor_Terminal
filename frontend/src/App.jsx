@@ -104,6 +104,17 @@ function App() {
   const [showChart, setShowChart] = useState(true);
   const [activeGlossaryInfo, setActiveGlossaryInfo] = useState(null);
   const [screenerPresetId, setScreenerPresetId] = useState("all");
+  const [screenerUniverseData, setScreenerUniverseData] = useState(null);
+  const [screenerSyncState, setScreenerSyncState] = useState({
+    running: false,
+    stopping: false,
+    totalTarget: 0,
+    syncedInRun: 0,
+    feedback: null,
+    error: null,
+  });
+  const screenerSyncCancelRef = useRef(false);
+  const screenerSyncRunningRef = useRef(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const [tickerInput, setTickerInput] = useState("");
@@ -375,6 +386,95 @@ function App() {
     setScreenerPresetId(presetId);
     setActiveSidebarTab("Screener");
     setMobileMenuOpen(false);
+  };
+
+  const handleStopScreenerSync = () => {
+    screenerSyncCancelRef.current = true;
+    setScreenerSyncState((prev) => (prev.running ? { ...prev, stopping: true } : prev));
+  };
+
+  const handleStartScreenerSync = async (initialTarget = 0) => {
+    if (screenerSyncRunningRef.current) return;
+    screenerSyncRunningRef.current = true;
+    screenerSyncCancelRef.current = false;
+
+    let syncedInRun = 0;
+    let totalTarget = Math.max(0, Number(initialTarget) || 0);
+    let consecutiveEmpty = 0;
+    let remaining = totalTarget;
+
+    setScreenerSyncState({
+      running: true,
+      stopping: false,
+      totalTarget,
+      syncedInRun: 0,
+      feedback: null,
+      error: null,
+    });
+
+    try {
+      while (!screenerSyncCancelRef.current) {
+        const res = await apiClient.post("/screener/sync?batch_size=4");
+        const data = res.data;
+        setScreenerUniverseData(data);
+
+        const syncedNow = Array.isArray(data?.synced_now) ? data.synced_now : [];
+        remaining = (data?.pending_sync ?? data?.pending_sync_count ?? 0) + (data?.stale_count || 0);
+
+        syncedInRun += syncedNow.length;
+        if (totalTarget < syncedInRun + remaining) {
+          totalTarget = syncedInRun + remaining;
+        }
+
+        if (syncedNow.length === 0) {
+          consecutiveEmpty += 1;
+        } else {
+          consecutiveEmpty = 0;
+        }
+
+        setScreenerSyncState((prev) => ({
+          ...prev,
+          totalTarget,
+          syncedInRun,
+        }));
+
+        if (remaining <= 0 || consecutiveEmpty >= 2 || screenerSyncCancelRef.current) {
+          break;
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+
+      let feedbackMsg = `Base actualizada: ${syncedInRun} emisores sincronizados.`;
+      if (screenerSyncCancelRef.current) {
+        feedbackMsg = `Sincronización detenida (${syncedInRun} emisores actualizados). Podés reanudarla cuando quieras.`;
+      } else if (consecutiveEmpty >= 2 && remaining > 0) {
+        feedbackMsg = `Sincronización pausada tras ${syncedInRun} emisores: los ${remaining} restantes quedaron en espera temporal por respuestas de Yahoo Finance.`;
+      }
+      setScreenerSyncState({
+        running: false,
+        stopping: false,
+        totalTarget: 0,
+        syncedInRun,
+        feedback: feedbackMsg,
+        error: null,
+      });
+    } catch (err) {
+      setScreenerSyncState({
+        running: false,
+        stopping: false,
+        totalTarget: 0,
+        syncedInRun,
+        feedback:
+          syncedInRun > 0
+            ? `Se sincronizaron ${syncedInRun} emisores antes de interrumpirse.`
+            : null,
+        error: err.response?.data?.detail || "Error al sincronizar lote de empresas",
+      });
+    } finally {
+      screenerSyncRunningRef.current = false;
+      screenerSyncCancelRef.current = false;
+    }
   };
 
   const handleOpenTablero = (sub = "lists") => {
@@ -865,6 +965,23 @@ function App() {
           </div>
 
           <div className="flex items-center space-x-1.5 sm:space-x-3 text-gray-400 shrink-0">
+            {screenerSyncState.running && (
+              <button
+                type="button"
+                onClick={() => setActiveSidebarTab("Screener")}
+                title="Sincronización de Screener en curso (clic para ver progreso)"
+                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-orange-500/15 border border-orange-500/40 text-orange-300 hover:bg-orange-500/25 text-[11px] font-medium cursor-pointer transition-colors"
+              >
+                <Loader2 className="w-3 h-3 animate-spin text-orange-400" />
+                <span>
+                  Screener {screenerSyncState.syncedInRun}
+                  {screenerSyncState.totalTarget > 0
+                    ? `/${screenerSyncState.totalTarget}`
+                    : ""}
+                </span>
+              </button>
+            )}
+
             {/* Campana de notificaciones persistentes (aisladas por usuario) */}
             <div className="relative" ref={alertsPopoverRef}>
               <button
@@ -1030,6 +1147,8 @@ function App() {
                       type="button"
                       onClick={() => {
                         setShowUserMenu(false);
+                        screenerSyncCancelRef.current = true;
+                        setScreenerUniverseData(null);
                         setWatchlistData(null);
                         logout();
                       }}
@@ -1713,6 +1832,14 @@ function App() {
                     key={screenerPresetId}
                     initialPresetId={screenerPresetId}
                     onSelectCompany={(sym) => executeSearch(sym, period, true)}
+                    universeData={screenerUniverseData}
+                    onUniverseDataChange={setScreenerUniverseData}
+                    syncState={screenerSyncState}
+                    onStartSync={handleStartScreenerSync}
+                    onStopSync={handleStopScreenerSync}
+                    onClearSyncFeedback={() =>
+                      setScreenerSyncState((prev) => ({ ...prev, feedback: null, error: null }))
+                    }
                   />
                 </Suspense>
               </ErrorBoundary>

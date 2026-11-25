@@ -122,7 +122,7 @@ Terminal Financiera/
         │   ├── OwnershipInsidersTab.jsx   # Tenedores institucionales (13F) y operaciones de insiders (Form 4)
         │   ├── InvestmentThesisTab.jsx    # One-Pager ejecutivo de tesis de inversión y segmentos editables
         │   ├── ComparatorTab.jsx          # Comparador manual lado a lado (hasta 5 empresas)
-        │   ├── ScreenerTab.jsx            # Buscador fundamental con presets, agrupación y CSV
+        │   ├── ScreenerTab.jsx            # Buscador fundamental con presets, sync continuo en 2do plano, agrupación y CSV
         │   └── MetricInfoDrawer.jsx       # Glosario lateral de definiciones y rangos
         ├── __tests__/                     # Suite de pruebas automatizadas con Vitest
         ├── data/metricsGlossary.js

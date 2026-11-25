@@ -119,7 +119,7 @@ Esta guía complementa al [Manual de Usuario](MANUAL_USUARIO.md) mostrando **qu�
 
 - **Qué se hace acá:**
   - Filtrar un universo curado de acciones globales y ADRs LatAm por sector, industria, tamaño, valoración, rentabilidad, deuda y crecimiento, o aplicar estrategias predefinidas.
-  - Sincronizar lotes en segundo plano cuando hay emisores pendientes o vencidos.
+  - Actualizar o completar toda la base con **un solo clic** (`Completar base (N)` / `Actualizar base (N)`): procesa en segundo plano en lotes de 4 emisores mientras muestra el progreso en pantalla y en la píldora superior `Screener X/N`, permitiendo seguir usando toda la plataforma o frenar en cualquier momento con **Detener**.
 - **Qué información brinda:**
   - Tabla ordenable con 16 métricas clave (`P/E LTM/NTM`, `EV/EBITDA`, `P/FCF`, `FCF Yield %`, `Margen EBIT`, `ROIC`, `ROE`, `DN/EBITDA`, `Crec. Ventas`, `Potencial WS`).
 - **Cómo interpretarlo:**
