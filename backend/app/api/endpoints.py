@@ -671,8 +671,13 @@ def get_company_history(
                     sh_raw = sh_dil if sh_dil > 0 else sh_bas
                     if sh_raw > 0:
                         sh_adj = sh_raw * float(split_factors.get(yr, 1.0))
-                        if shares_mm <= 0 or sh_adj >= shares_mm * 0.15:
-                            shares_by_year[yr] = sh_adj
+                        if shares_mm > 0:
+                            if sh_adj > shares_mm * 2.5:
+                                adr_ratio = round(sh_adj / shares_mm)
+                                sh_adj = (sh_adj / adr_ratio) if adr_ratio >= 2 else shares_mm
+                            elif sh_adj < shares_mm * 0.15:
+                                sh_adj = shares_mm
+                        shares_by_year[yr] = sh_adj
                     debt_y = (
                         float(by_metric.get("Deuda a corto plazo", {}).get(yr) or 0.0)
                         + float(by_metric.get("Deuda a largo plazo", {}).get(yr) or 0.0)

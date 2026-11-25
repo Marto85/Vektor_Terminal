@@ -326,9 +326,9 @@ def _analyze_trajectory_and_margins(
                 "rev_high_mm": round((float(rev_high_raw) * fx_rate) / 1_000_000.0, 2) if rev_high_raw is not None else None,
                 "rev_growth_pct": round(float(rev_g_raw) * 100.0, 2) if rev_g_raw is not None else None,
                 "rev_analysts": r_row.get("numberOfAnalysts"),
-                "eps_avg": round(float(e_row["avg"]), 2) if e_row.get("avg") is not None else None,
-                "eps_low": round(float(e_row["low"]), 2) if e_row.get("low") is not None else None,
-                "eps_high": round(float(e_row["high"]), 2) if e_row.get("high") is not None else None,
+                "eps_avg": round(float(e_row["avg"]) * fx_rate, 2) if e_row.get("avg") is not None else None,
+                "eps_low": round(float(e_row["low"]) * fx_rate, 2) if e_row.get("low") is not None else None,
+                "eps_high": round(float(e_row["high"]) * fx_rate, 2) if e_row.get("high") is not None else None,
                 "eps_growth_pct": round(float(eps_g_raw) * 100.0, 2) if eps_g_raw is not None else None,
                 "eps_analysts": e_row.get("numberOfAnalysts"),
             })
@@ -880,8 +880,12 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
             shares_raw_y = get_m("Acciones en Circulación (Básicas)", y)
         if shares_raw_y > 0:
             shares = shares_raw_y * split_factors.get(y, 1.0)
-            if current_shares_mm > 0 and shares < (current_shares_mm * 0.15):
-                shares = current_shares_mm
+            if current_shares_mm > 0:
+                if shares > (current_shares_mm * 2.5):
+                    adr_ratio = round(shares / current_shares_mm)
+                    shares = (shares / adr_ratio) if adr_ratio >= 2 else current_shares_mm
+                elif shares < (current_shares_mm * 0.15):
+                    shares = current_shares_mm
         else:
             shares = current_shares_mm
 

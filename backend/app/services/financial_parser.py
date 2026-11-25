@@ -474,7 +474,7 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
             if q4_val == 0.0 and fy_val != 0.0:
                 if cat == "Balance de Situación":
                     df_pivot.at[idx, q4_col] = fy_val
-                else:
+                elif sum(1 for v in (q1_val, q2_val, q3_val) if v != 0.0) >= 2:
                     calc_q4 = fy_val - (q1_val + q2_val + q3_val)
                     df_pivot.at[idx, q4_col] = calc_q4
 

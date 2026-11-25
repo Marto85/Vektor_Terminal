@@ -256,8 +256,24 @@ export function buildTechnicalExplanation({
   activeIndicators,
   intervalLabel,
   computed,
+  selectedMetric = 'Price',
 }) {
   if (!candles || candles.length < 2) return null;
+
+  const isMM = selectedMetric === 'Market Cap' || selectedMetric === 'Enterprise Value';
+  const isPct =
+    selectedMetric === '% Change' ||
+    selectedMetric === 'Total Return' ||
+    selectedMetric === 'Drawdowns';
+  const fmtVal = (val) => {
+    if (isMM) {
+      return `US$ ${Number(val).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MM`;
+    }
+    if (isPct) {
+      return `${Number(val).toFixed(2)}%`;
+    }
+    return `$${Number(val).toFixed(2)}`;
+  };
 
   const last = candles[candles.length - 1];
   const prev = candles[candles.length - 2];
@@ -286,7 +302,7 @@ export function buildTechnicalExplanation({
     const v = computed.sma20[computed.sma20.length - 1].value;
     items.push({
       name: 'SMA 20 (Tendencia Corto Plazo)',
-      detail: `Cotización ${last.close >= v ? 'por encima' : 'por debajo'} de la media de 20 períodos ($${v.toFixed(2)}), actuando como ${last.close >= v ? 'soporte dinámico' : 'resistencia dinámica'} inmediata.`,
+      detail: `Cotización ${last.close >= v ? 'por encima' : 'por debajo'} de la media de 20 períodos (${fmtVal(v)}), actuando como ${last.close >= v ? 'soporte dinámico' : 'resistencia dinámica'} inmediata.`,
     });
   }
 
@@ -294,7 +310,7 @@ export function buildTechnicalExplanation({
     const v = computed.sma50[computed.sma50.length - 1].value;
     items.push({
       name: 'SMA 50 (Tendencia Intermedia)',
-      detail: `Precio ${last.close >= v ? 'sobre' : 'bajo'} la SMA 50 ($${v.toFixed(2)}). Es la referencia institucional estándar para medir salud de tendencia intermedia.`,
+      detail: `Precio ${last.close >= v ? 'sobre' : 'bajo'} la SMA 50 (${fmtVal(v)}). Es la referencia institucional estándar para medir salud de tendencia intermedia.`,
     });
   }
 
@@ -302,7 +318,7 @@ export function buildTechnicalExplanation({
     const v = computed.sma200[computed.sma200.length - 1].value;
     items.push({
       name: 'SMA 200 (Régimen Primario)',
-      detail: `Activo operando ${last.close >= v ? 'en régimen alcista estructural' : 'en régimen bajista estructural'} respecto a la media de 200 períodos ($${v.toFixed(2)}).`,
+      detail: `Activo operando ${last.close >= v ? 'en régimen alcista estructural' : 'en régimen bajista estructural'} respecto a la media de 200 períodos (${fmtVal(v)}).`,
     });
   }
 
@@ -310,7 +326,7 @@ export function buildTechnicalExplanation({
     const v = computed.ema21[computed.ema21.length - 1].value;
     items.push({
       name: 'EMA 21 (Impulso Exponencial)',
-      detail: `Pondera más las últimas velas ($${v.toFixed(2)}); útil para seguir retrocesos cortos en tendencias activas.`,
+      detail: `Pondera más las últimas velas (${fmtVal(v)}); útil para seguir retrocesos cortos en tendencias activas.`,
     });
   }
 
@@ -326,7 +342,7 @@ export function buildTechnicalExplanation({
         : 'dentro del canal de ±2 desvíos estándar';
     items.push({
       name: 'Bandas de Bollinger (20, 2)',
-      detail: `Canal entre $${l.toFixed(2)} y $${u.toFixed(2)} (amplitud ${widthPct.toFixed(1)}%). Precio ${pos}.`,
+      detail: `Canal entre ${fmtVal(l)} y ${fmtVal(u)} (amplitud ${widthPct.toFixed(1)}%). Precio ${pos}.`,
     });
   }
 
@@ -334,7 +350,7 @@ export function buildTechnicalExplanation({
     const v = computed.vwap[computed.vwap.length - 1].value;
     items.push({
       name: 'VWAP (Precio Promedio Ponderado por Volumen)',
-      detail: `Referencia en $${v.toFixed(2)}. Compradores tienen control promedio mientras el precio se sostenga por encima.`,
+      detail: `Referencia en ${fmtVal(v)}. Compradores tienen control promedio mientras el precio se sostenga por encima.`,
     });
   }
 

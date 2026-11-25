@@ -130,6 +130,26 @@ def test_extract_quarterly_reconstructs_q4_from_fy():
     assert rev_row[f"{curr_y}-Q4"] == 33_000.0
 
 
+def test_extract_quarterly_does_not_dump_fy_into_q4_without_prior_quarters():
+    curr_y = datetime.now().year - 1
+    raw = {
+        "facts": {
+            "us-gaap": {
+                "Revenues": {
+                    "units": {
+                        "USD": [
+                            {"fy": curr_y, "fp": "FY", "form": "20-F", "start": f"{curr_y}-01-01", "end": f"{curr_y}-12-31", "val": 11_500_000_000},
+                        ]
+                    }
+                }
+            }
+        }
+    }
+    rows = extract_quarterly_metrics(raw)
+    rev_row = next(r for r in rows if r["Métrica"] == "Ingresos Totales")
+    assert rev_row.get(f"{curr_y}-Q4", 0.0) == 0.0
+
+
 def test_ratios_and_financial_health_report_manufacturing_vs_bank(db_session):
     raw = _build_synthetic_sec_facts()
     annual_rows = extract_annual_metrics(raw)

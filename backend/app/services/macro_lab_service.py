@@ -186,18 +186,25 @@ def _fetch_single_etf_valuation(item: dict[str, Any]) -> dict[str, Any] | None:
 
         pe_t = info.get("trailingPE")
         pe_f = info.get("forwardPE")
+        div_rate = info.get("dividendRate")
+        trailing_dy = info.get("trailingAnnualDividendYield")
         div_y = info.get("dividendYield")
+
+        dy_val: float | None = None
+        if div_rate is not None and price and float(price) > 0:
+            dy_val = round((float(div_rate) / float(price)) * 100.0, 2)
+        elif trailing_dy is not None:
+            dy_val = round(float(trailing_dy) * 100.0, 2)
+        elif div_y is not None:
+            dy_val = round(float(div_y), 2)
 
         pe_t_val = round(float(pe_t), 2) if pe_t and float(pe_t) > 0 else None
         pe_f_val = round(float(pe_f), 2) if pe_f and float(pe_f) > 0 else None
 
-        if pe_t_val is None and div_y is not None and float(div_y) > 0:
-            dy_norm = float(div_y) if float(div_y) > 1 else float(div_y) * 100.0
-            if dy_norm > 0:
-                pe_t_val = round(min(max(35.0 / dy_norm, 8.0), 45.0), 2)
+        if pe_t_val is None and dy_val is not None and dy_val > 0:
+            pe_t_val = round(min(max(35.0 / dy_val, 8.0), 45.0), 2)
 
         ey_val = round((100.0 / pe_t_val), 2) if pe_t_val else None
-        dy_val = round(float(div_y) if float(div_y) > 1 else float(div_y) * 100.0, 2) if div_y is not None else None
         px_val = round(float(price), 2) if price else None
 
         if pe_t_val is None and px_val is None:

@@ -1286,13 +1286,19 @@ def _build_summary_metrics(
     sector_str = str(info.get("sector") or sec.get("sic_description") or "").lower()
     is_bank_sector = any(k in sector_str for k in ("financial", "bank", "depository", "insurance"))
     gross_margin_out = None if is_bank_sector else gross_margin_yf
+    ebitda_margin_out = None if is_bank_sector else ebitda_margin_pct
     roic_out = None if is_bank_sector else roic_pct
 
+    raw_div_rate = info.get("dividendRate")
+    raw_trailing_dy = info.get("trailingAnnualDividendYield")
     raw_div_yield = info.get("dividendYield")
     div_yield_pct: float | None = None
-    if raw_div_yield is not None:
-        val_dy = float(raw_div_yield)
-        div_yield_pct = round(val_dy if val_dy > 1 else val_dy * 100.0, 2)
+    if raw_div_rate is not None and price and price > 0:
+        div_yield_pct = round((float(raw_div_rate) / float(price)) * 100.0, 2)
+    elif raw_trailing_dy is not None:
+        div_yield_pct = round(float(raw_trailing_dy) * 100.0, 2)
+    elif raw_div_yield is not None:
+        div_yield_pct = round(float(raw_div_yield), 2)
     elif dividends_sec_mm is not None and market_cap_mm is not None and market_cap_mm > 0:
         div_yield_pct = round((dividends_sec_mm / market_cap_mm) * 100.0, 2)
 
@@ -1340,7 +1346,7 @@ def _build_summary_metrics(
         "growth_cashflow": {
             "revenue_growth_yoy_pct": rev_growth_yoy,
             "earnings_growth_yoy_pct": earn_growth_yoy,
-            "ebitda_margin_pct": ebitda_margin_pct,
+            "ebitda_margin_pct": ebitda_margin_out,
             "ocf_ltm_mm": ocf_mm,
             "fcf_ltm_mm": fcf_mm,
             "total_cash_mm": total_cash_mm,

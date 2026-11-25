@@ -1554,15 +1554,30 @@ function App() {
                         </table>
                       </div>
                     ) : financialData.length > 0 ? (
-                      <div className="flex-1 flex flex-col items-center justify-center text-gray-400 py-20">
+                      <div className="flex-1 flex flex-col items-center justify-center text-gray-400 py-20 px-4 text-center">
                         <PieChart className="w-10 h-10 mb-3 text-gray-300" />
-                        <p className="text-sm font-medium text-gray-500">
-                          No hay datos disponibles para la pestaña de{" "}
-                          <span className="text-orange-500">
-                            {activeContentTab}
-                          </span>
-                          .
-                        </p>
+                        {activeContentTab === "Ratios" && period === "quarterly" ? (
+                          <>
+                            <p className="text-sm font-medium text-gray-600">
+                              Los ratios históricos (ROIC, ROE, DuPont y Solvencia) se calculan sobre ejercicios anuales cerrados.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => handlePeriodChange("annual")}
+                              className="mt-3 px-3.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                            >
+                              Cambiar a vista Anual
+                            </button>
+                          </>
+                        ) : (
+                          <p className="text-sm font-medium text-gray-500">
+                            No hay datos disponibles para la pestaña de{" "}
+                            <span className="text-orange-500">
+                              {activeContentTab}
+                            </span>
+                            .
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <div className="flex-1 flex flex-col items-center justify-center text-gray-400 py-20">

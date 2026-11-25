@@ -358,8 +358,9 @@ export default function StockChart({ ticker, companyName }) {
       activeIndicators: indicators,
       intervalLabel: intervalObj ? intervalObj.label : interval,
       computed: computedIndicators,
+      selectedMetric,
     });
-  }, [activeCandles, indicators, interval, computedIndicators]);
+  }, [activeCandles, indicators, interval, computedIndicators, selectedMetric]);
 
   useEffect(() => {
     const container = chartContainerRef.current;
