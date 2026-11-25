@@ -232,3 +232,29 @@ def test_search_ticker_falls_back_to_local_universe_when_yahoo_fails(monkeypatch
         assert "AAPL" in tickers
     finally:
         app.dependency_overrides.clear()
+
+
+def test_screener_sync_cooldown_advances_past_failing_tickers(monkeypatch, db_session):
+    from app.services import screener_service
+
+    screener_service._FAILED_SYNC_COOLDOWN.clear()
+    monkeypatch.setattr(screener_service, "SCREENER_UNIVERSE", ["FAIL1", "OK1", "OK2"])
+
+    attempted = []
+
+    def fake_fetch(sym: str):
+        attempted.append(sym)
+        if sym == "FAIL1":
+            return sym, None
+        return sym, {"price": 100.0, "info": {"shortName": sym}}
+
+    monkeypatch.setattr(screener_service, "_fetch_snapshot_isolated", fake_fetch)
+
+    res1 = screener_service.sync_screener_batch(db_session, batch_size=1)
+    assert res1["synced_now"] == []
+    assert "FAIL1" in screener_service._FAILED_SYNC_COOLDOWN
+
+    # Segundo intento debe saltear FAIL1 (en cooldown) y avanzar a OK1
+    res2 = screener_service.sync_screener_batch(db_session, batch_size=1)
+    assert res2["synced_now"] == ["OK1"]
+    assert attempted == ["FAIL1", "OK1"]

@@ -12,6 +12,8 @@ from app.core.yf_client import (
 )
 
 SCREENER_REFRESH_TTL = timedelta(hours=12)
+_FAILED_COOLDOWN_TTL = timedelta(minutes=30)
+_FAILED_SYNC_COOLDOWN: dict[str, datetime] = {}
 
 # Universo institucional curado (~151 emisores líderes globales y ADRs LatAm)
 SCREENER_UNIVERSE: list[str] = [
@@ -244,23 +246,44 @@ def sync_screener_batch(db: Session, batch_size: int = 4) -> dict[str, Any]:
     ttl_expired = [tk for _, tk in ttl_expired_pairs]
 
     pending_new = [t for t in SCREENER_UNIVERSE if t not in cached_valid_tickers]
-    targets = (pending_new + schema_outdated + ttl_expired)[:effective_batch]
+    all_candidates = pending_new + schema_outdated + ttl_expired
+
+    active_candidates = [
+        t
+        for t in all_candidates
+        if t not in _FAILED_SYNC_COOLDOWN or (now - _FAILED_SYNC_COOLDOWN[t]) >= _FAILED_COOLDOWN_TTL
+    ]
+    if not active_candidates and all_candidates:
+        _FAILED_SYNC_COOLDOWN.clear()
+        active_candidates = all_candidates
+
+    targets = active_candidates[:effective_batch]
 
     synced: list[str] = []
     if targets:
         pool = ThreadPoolExecutor(max_workers=2)
         futures = {pool.submit(_fetch_snapshot_isolated, sym): sym for sym in targets}
+        completed_syms: set[str] = set()
         try:
             for fut in as_completed(futures, timeout=20.0):
+                sym_hint = futures[fut]
+                completed_syms.add(sym_hint)
                 try:
                     sym, snap = fut.result()
                     if snap is not None:
                         synced.append(sym)
+                        _FAILED_SYNC_COOLDOWN.pop(sym, None)
+                    else:
+                        _FAILED_SYNC_COOLDOWN[sym] = now
                 except Exception:
+                    _FAILED_SYNC_COOLDOWN[sym_hint] = now
                     continue
         except TimeoutError:
             pass
         finally:
+            for sym_t in targets:
+                if sym_t not in completed_syms:
+                    _FAILED_SYNC_COOLDOWN[sym_t] = now
             pool.shutdown(wait=False, cancel_futures=True)
             gc.collect()
 

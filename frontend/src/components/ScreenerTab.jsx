@@ -171,6 +171,7 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
   const [universeData, setUniverseData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState(null);
   const [error, setError] = useState(null);
 
   const [basePresetId, setBasePresetId] = useState(startingPreset.id);
@@ -225,9 +226,16 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
   const handleSyncMore = async () => {
     setSyncing(true);
     setError(null);
+    setSyncFeedback(null);
     try {
       const res = await apiClient.post('/screener/sync?batch_size=4');
       setUniverseData(res.data);
+      const syncedNow = Array.isArray(res.data?.synced_now) ? res.data.synced_now : [];
+      if (syncedNow.length > 0) {
+        setSyncFeedback(`Sincronización completada (${syncedNow.length}): ${syncedNow.join(', ')}.`);
+      } else {
+        setSyncFeedback('No se completaron nuevos emisores en este lote (pueden haber quedado en espera temporal); volvé a intentar para avanzar.');
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Error al sincronizar lote de empresas');
     } finally {
@@ -833,6 +841,19 @@ export default function ScreenerTab({ onSelectCompany, initialPresetId = 'all' }
           </div>
         </div>
       </div>
+
+      {syncFeedback && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-800 font-medium flex items-center justify-between gap-3">
+          <span>{syncFeedback}</span>
+          <button
+            type="button"
+            onClick={() => setSyncFeedback(null)}
+            className="text-emerald-600 hover:text-emerald-800 cursor-pointer shrink-0"
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-xs text-red-700 font-medium">
