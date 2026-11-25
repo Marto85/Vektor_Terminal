@@ -33,13 +33,25 @@ function consumeInitialUrlAuthParams() {
     return { oauthToken: null, oauthError: null, resetToken: null };
   }
   const url = new URL(window.location.href);
-  const oauthToken = url.searchParams.get("oauth_token");
+  const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+  const oauthToken =
+    hashParams.get("oauth_token") || url.searchParams.get("oauth_token");
   const oauthError = url.searchParams.get("oauth_error");
   const resetToken = url.searchParams.get("reset_token");
 
-  if (oauthToken || oauthError) {
+  let changed = false;
+  if (hashParams.has("oauth_token")) {
+    hashParams.delete("oauth_token");
+    const nextHash = hashParams.toString();
+    url.hash = nextHash ? `#${nextHash}` : "";
+    changed = true;
+  }
+  if (url.searchParams.has("oauth_token") || url.searchParams.has("oauth_error")) {
     url.searchParams.delete("oauth_token");
     url.searchParams.delete("oauth_error");
+    changed = true;
+  }
+  if (changed) {
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
   }
   return { oauthToken, oauthError, resetToken };

@@ -98,7 +98,15 @@ def get_current_user(
             detail="Token sin identificador de usuario.",
         )
 
-    user = db.query(User).filter(User.id == int(user_id_raw)).first()
+    try:
+        user_id = int(user_id_raw)
+    except (ValueError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token con identificador de usuario inválido.",
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
     if not user or not bool(user.is_active):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -118,7 +126,11 @@ def get_optional_user(
     user_id_raw = payload.get("sub")
     if not user_id_raw:
         return None
-    user = db.query(User).filter(User.id == int(user_id_raw)).first()
+    try:
+        user_id = int(user_id_raw)
+    except (ValueError, TypeError):
+        return None
+    user = db.query(User).filter(User.id == user_id).first()
     if not user or not bool(user.is_active):
         return None
     return user

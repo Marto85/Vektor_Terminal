@@ -154,3 +154,54 @@ def test_company_profile_translation_and_fallback(monkeypatch, db_session):
 
     profile = yf_client.get_company_profile("TST", db_session)
     assert profile["description"] == "Test Corp desarrolla software empresarial en la nube."
+
+
+def test_company_history_uses_price_history_cache(monkeypatch, db_session):
+    from datetime import datetime, timezone
+    from app.models.database import PriceHistoryCache
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    cached_payload = {
+        "ticker": "MSFT",
+        "range": "1y",
+        "interval": "1d",
+        "isIntraday": False,
+        "years": 1.0,
+        "totalReturnPct": 15.0,
+        "cagrPct": 15.0,
+        "capitalStructureSource": "sec_historical",
+        "seriesByMetric": {"Price": [{"time": "2026-01-02", "open": 400.0, "high": 405.0, "low": 399.0, "close": 404.0, "volume": 1000, "change": 4.0, "changePct": 1.0}]},
+    }
+    db_session.add(
+        PriceHistoryCache(
+            cache_key="MSFT:1y:1d",
+            ticker="MSFT",
+            range_key="1y:1d",
+            payload=cached_payload,
+            last_updated=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+    )
+    db_session.commit()
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("No debería consultar Yahoo Finance cuando PriceHistoryCache está vigente")
+
+    app.dependency_overrides[endpoints.get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=1, username="tester", email="tester@vektor.local", full_name="Tester", role="superadmin", is_active=True
+    )
+    monkeypatch.setattr(endpoints.yf, "Ticker", fail_if_called)
+    client = TestClient(app)
+
+    try:
+        res = client.get("/api/v1/company/msft/history?range=1y&interval=1d")
+        assert res.status_code == 200
+        assert res.json()["ticker"] == "MSFT"
+        assert res.json()["capitalStructureSource"] == "sec_historical"
+    finally:
+        app.dependency_overrides.clear()

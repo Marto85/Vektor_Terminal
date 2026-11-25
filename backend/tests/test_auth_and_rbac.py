@@ -182,3 +182,12 @@ def test_registration_modes_closed_and_invite(monkeypatch):
         },
     )
     assert res_bad_code.status_code == 403
+
+
+def test_malformed_non_numeric_jwt_sub_returns_401():
+    import jwt
+    from app.core.config import JWT_ALGORITHM, VEKTOR_SECRET_KEY
+
+    bad_token = jwt.encode({"sub": "not-an-integer", "role": "client"}, VEKTOR_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {bad_token}"})
+    assert res.status_code == 401

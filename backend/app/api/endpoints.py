@@ -2,14 +2,16 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from typing import Any
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import yfinance as yf
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 import requests
 
 from app.core.security import get_current_user, require_roles
-from app.models.database import CompanyData, SessionLocal, User
+from app.models.database import CompanyData, PriceHistoryCache, SessionLocal, User, is_sqlite
 from app.core.yf_client import (
     _lookup_fx_multiplier,
     get_company_profile,
@@ -591,8 +593,34 @@ def get_company_history(
     elif yf_interval == "1h" and range in ("3y", "5y", "10y", "max"):
         yf_period = "730d"
 
+    ticker_upper = ticker.upper()
+    cache_key = f"{ticker_upper}:{range}:{yf_interval}"
+    if is_intraday:
+        cache_ttl = timedelta(minutes=15)
+    elif yf_interval == "1d":
+        cache_ttl = timedelta(minutes=30)
+    else:
+        cache_ttl = timedelta(hours=12)
+
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    cached_row = (
+        db.query(PriceHistoryCache)
+        .filter(PriceHistoryCache.cache_key == cache_key)
+        .first()
+    )
+    if cached_row is not None:
+        updated_at = getattr(cached_row, "last_updated", None)
+        cached_payload = getattr(cached_row, "payload", None)
+        if (
+            isinstance(updated_at, datetime)
+            and (now_utc - updated_at) < cache_ttl
+            and isinstance(cached_payload, dict)
+            and "seriesByMetric" in cached_payload
+        ):
+            return cached_payload
+
     try:
-        tk = yf.Ticker(ticker.upper())
+        tk = yf.Ticker(ticker_upper)
         hist = tk.history(period=yf_period, interval=yf_interval, auto_adjust=False)
 
         if hist is None or hist.empty:
@@ -795,8 +823,8 @@ def get_company_history(
         total_return_pct = round(((last_close - first_close) / first_close) * 100, 1) if first_close > 0 else 0.0
         cagr_pct = round((((last_close / first_close) ** (1 / years)) - 1) * 100, 1) if first_close > 0 else 0.0
 
-        return {
-            "ticker": ticker.upper(),
+        response_payload = {
+            "ticker": ticker_upper,
             "range": range,
             "interval": yf_interval,
             "isIntraday": is_intraday,
@@ -806,6 +834,26 @@ def get_company_history(
             "capitalStructureSource": capital_structure_source,
             "seriesByMetric": series_by_metric,
         }
+
+        try:
+            insert_fn = sqlite_insert if is_sqlite else pg_insert
+            stmt = insert_fn(PriceHistoryCache).values(
+                cache_key=cache_key,
+                ticker=ticker_upper,
+                range_key=f"{range}:{yf_interval}",
+                payload=response_payload,
+                last_updated=now_utc,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["cache_key"],
+                set_={"payload": response_payload, "last_updated": now_utc},
+            )
+            db.execute(stmt)
+            db.commit()
+        except Exception:
+            db.rollback()
+
+        return response_payload
 
     except HTTPException:
         raise

@@ -60,7 +60,7 @@ La aplicación utiliza la misma URL web tanto en computadora como en teléfono, 
 4. Confirmá tocando **Agregar** arriba a la derecha y abrí la app desde el ícono creado en tu pantalla de inicio.
 
 ### Gráfico Interactivo, Análisis Técnico y Panel de Estructura de Capital
-- **Selector de métrica:** permite alternar entre *Price*, *% Change*, *Total Return* (con dividendos reinvertidos), *Drawdowns*, *10k Growth*, *Market Cap* y *Enterprise Value*, en rangos de `3m` a `max` y temporalidades de velas `15m`, `1h`, `1D` y `1 Sem`, más vista en pantalla completa.
+- **Selector de métrica:** permite alternar entre *Price*, *% Change*, *Total Return* (con dividendos reinvertidos), *Drawdowns*, *10k Growth*, *Market Cap* y *Enterprise Value* (utilizando estructura de capital histórica anual de la SEC cuando está disponible en caché), en rangos de `3m` a `max` y temporalidades de velas `15m`, `1h`, `1D` y `1 Sem`, más vista en pantalla completa.
 - **Indicadores Técnicos (`Indicadores`):** permite activar o limpiar con un clic medias móviles (`SMA 20`, `SMA 50`, `SMA 200`, `EMA 12`, `EMA 26`), `Bandas de Bollinger (20, 2)`, `Media Vol (20)` y sub-paneles inferiores de osciladores (`RSI 14`, `MACD 12/26/9`, `ATR 14`, `OBV`).
 - **Enfoque AT (Diagnóstico Automático con Validación de Volumen):** selector de lente metodológica que traza niveles sobre el gráfico y despliega una ficha diagnóstica validada por volumen relativo (`RVOL`) y flujo `OBV`:
   - *Tendencia y Medias:* canal envolvente de regresión lineal y auditoría de alineación o cruces `SMA 20/50/200`.
@@ -134,7 +134,7 @@ Buscador cuantitativo sobre un universo curado de emisores globales y ADRs:
    - **Acceso directo:** hacer clic sobre cualquier fila abre inmediatamente el análisis completo de esa empresa en la terminal.
 
 ### J. Carteras & CRM (Asesores y Clientes)
-- **Gestión de Legajos y Portafolios:** permite a asesores y administradores administrar perfiles patrimoniales por cliente y moneda base, registrar operaciones de compra, venta, dividendos y movimientos de caja con cálculo automático de **Precio Promedio Ponderado (`PPP`)** y **Rendimiento Ponderado por Tiempo (`TWR`)**, controlar liquidez disponible y evaluar valuación a mercado en tiempo real.
+- **Gestión de Legajos y Portafolios:** permite a asesores y administradores administrar perfiles patrimoniales por cliente y moneda base, registrar operaciones de compra, venta, dividendos y movimientos de caja (siempre en la moneda base de la cartera para preservar la consistencia del libro) con cálculo automático de **Precio Promedio Ponderado (`PPP`)** y **Rendimiento Ponderado por Tiempo (`TWR`)**, controlar liquidez disponible y evaluar valuación a mercado en tiempo real con conversión FX automática para cotizaciones en otra moneda.
 - **Vista Cliente:** los usuarios con rol `client` visualizan sus tenencias consolidadas, resultado latente/realizado, rendimiento `TWR` libre de distorsiones por aportes/retiros y movimientos históricos.
 
 ---

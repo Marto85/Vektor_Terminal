@@ -1,4 +1,5 @@
 from typing import Annotated, Optional
+from urllib.parse import quote
 from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import RedirectResponse
@@ -187,10 +188,10 @@ def oauth_callback(
 ):
     try:
         jwt_token = handle_oauth_callback(db, provider, code, state)
-        return RedirectResponse(url=f"{FRONTEND_APP_URL}/?oauth_token={jwt_token}")
+        return RedirectResponse(url=f"{FRONTEND_APP_URL}/#oauth_token={quote(jwt_token, safe='')}")
     except Exception as exc:
-        detail = getattr(exc, "detail", "Error al autenticar con el proveedor externo.")
-        return RedirectResponse(url=f"{FRONTEND_APP_URL}/?oauth_error={detail}")
+        detail = str(getattr(exc, "detail", "Error al autenticar con el proveedor externo."))
+        return RedirectResponse(url=f"{FRONTEND_APP_URL}/?oauth_error={quote(detail, safe='')}")
 
 
 @auth_router.get("/auth/me")
