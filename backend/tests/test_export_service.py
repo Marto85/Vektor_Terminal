@@ -185,6 +185,9 @@ def test_build_company_pdf_bytes_generates_valid_pdf():
 
 
 def test_export_endpoints_return_attachment_headers(monkeypatch):
+    from app.core.security import get_current_user
+    from app.models.database import User
+
     profile, statements, health, valuation, ownership = _sample_export_inputs()
 
     monkeypatch.setattr(
@@ -200,13 +203,19 @@ def test_export_endpoints_return_attachment_headers(monkeypatch):
         },
     )
 
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=1, username="tester", email="tester@vektor.local", full_name="Tester", role="superadmin", is_active=True
+    )
     client = TestClient(app)
 
-    resp_xlsx = client.get("/api/v1/company/MSFT/export/xlsx?period=annual")
-    assert resp_xlsx.status_code == 200
-    assert "spreadsheetml.sheet" in resp_xlsx.headers["content-type"]
+    try:
+        resp_xlsx = client.get("/api/v1/company/MSFT/export/xlsx?period=annual")
+        assert resp_xlsx.status_code == 200
+        assert "spreadsheetml.sheet" in resp_xlsx.headers["content-type"]
 
-    resp_pdf = client.get("/api/v1/company/MSFT/export/pdf")
-    assert resp_pdf.status_code == 200
-    assert resp_pdf.headers["content-type"] == "application/pdf"
-    assert resp_pdf.content.startswith(b"%PDF-")
+        resp_pdf = client.get("/api/v1/company/MSFT/export/pdf")
+        assert resp_pdf.status_code == 200
+        assert resp_pdf.headers["content-type"] == "application/pdf"
+        assert resp_pdf.content.startswith(b"%PDF-")
+    finally:
+        app.dependency_overrides.clear()

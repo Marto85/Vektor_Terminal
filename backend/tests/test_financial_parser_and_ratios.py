@@ -110,10 +110,14 @@ def test_extract_quarterly_reconstructs_q4_from_fy():
                 "Revenues": {
                     "units": {
                         "USD": [
-                            {"fy": curr_y, "fp": "Q1", "form": "10-Q", "val": 20_000_000_000},
-                            {"fy": curr_y, "fp": "Q2", "form": "10-Q", "val": 22_000_000_000},
-                            {"fy": curr_y, "fp": "Q3", "form": "10-Q", "val": 25_000_000_000},
-                            {"fy": curr_y, "fp": "FY", "form": "10-K", "val": 100_000_000_000},
+                            {"fy": curr_y, "fp": "Q1", "form": "10-Q", "start": f"{curr_y}-01-01", "end": f"{curr_y}-03-31", "val": 20_000_000_000},
+                            {"fy": curr_y, "fp": "Q2", "form": "10-Q", "start": f"{curr_y}-04-01", "end": f"{curr_y}-06-30", "val": 22_000_000_000},
+                            # Registro YTD de 6 meses bajo fp=Q2 que debe ser ignorado
+                            {"fy": curr_y, "fp": "Q2", "form": "10-Q", "start": f"{curr_y}-01-01", "end": f"{curr_y}-06-30", "val": 42_000_000_000},
+                            {"fy": curr_y, "fp": "Q3", "form": "10-Q", "start": f"{curr_y}-07-01", "end": f"{curr_y}-09-30", "val": 25_000_000_000},
+                            # Registro YTD de 9 meses bajo fp=Q3 que debe ser ignorado
+                            {"fy": curr_y, "fp": "Q3", "form": "10-Q", "start": f"{curr_y}-01-01", "end": f"{curr_y}-09-30", "val": 67_000_000_000},
+                            {"fy": curr_y, "fp": "FY", "form": "10-K", "start": f"{curr_y}-01-01", "end": f"{curr_y}-12-31", "val": 100_000_000_000},
                         ]
                     }
                 }

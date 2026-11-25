@@ -393,6 +393,22 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
                         
                         if fy in target_years and form in QUARTERLY_FORMS:
                             if fp in ["Q1", "Q2", "Q3", "Q4", "FY"]:
+                                if (
+                                    statement != "Balance de Situación"
+                                    and "Acciones" not in standard_name
+                                    and entry.get("start")
+                                    and entry.get("end")
+                                ):
+                                    try:
+                                        d_start = datetime.strptime(entry["start"], "%Y-%m-%d")
+                                        d_end = datetime.strptime(entry["end"], "%Y-%m-%d")
+                                        days = (d_end - d_start).days
+                                        if fp == "FY" and days < 300:
+                                            continue
+                                        if fp in ("Q1", "Q2", "Q3", "Q4") and (days < 65 or days > 120):
+                                            continue
+                                    except ValueError:
+                                        pass
                                 period_key = f"{fy}-{fp}"
                                 val = entry.get("val", 0.0)
                                 if "BPA" not in standard_name:

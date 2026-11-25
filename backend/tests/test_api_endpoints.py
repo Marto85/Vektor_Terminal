@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 from app.main import app
 from app.api import endpoints
+from app.core.security import get_current_user
+from app.models.database import User
 from app.services.auth_service import ensure_default_superadmin
 from app.core.config import VEKTOR_ADMIN_EMAIL, VEKTOR_ADMIN_PASSWORD
 
@@ -81,7 +83,11 @@ def test_valuation_endpoint_with_mocked_service(monkeypatch, db_session):
             "financial_sector_inputs": {},
         }
 
+    def fake_user():
+        return User(id=1, username="tester", email="tester@vektor.local", full_name="Tester", role="superadmin", is_active=True)
+
     app.dependency_overrides[endpoints.get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = fake_user
     monkeypatch.setattr(endpoints, "build_valuation_report", fake_build_valuation_report)
     client = TestClient(app)
 
@@ -91,6 +97,28 @@ def test_valuation_endpoint_with_mocked_service(monkeypatch, db_session):
         data = res.json()
         assert data["ticker"] == "MSFT"
         assert data["reverse_dcf"]["horizon_5y"]["implied_growth_pct"] == 11.2
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_endpoints_require_authentication_and_segments_rbac():
+    client = TestClient(app)
+
+    # Sin token: endpoints de datos, sync y segmentos deben devolver 401
+    assert client.get("/api/v1/company/msft/valuation").status_code == 401
+    assert client.get("/api/v1/screener").status_code == 401
+    assert client.post("/api/v1/screener/sync").status_code == 401
+    assert client.put("/api/v1/company/msft/segments", json={}).status_code == 401
+    assert client.delete("/api/v1/company/msft/segments").status_code == 401
+
+    # Con usuario rol client: no puede modificar/borrar segmentos compartidos (403)
+    def fake_client():
+        return User(id=99, username="cli", email="cli@vektor.local", full_name="Cli", role="client", is_active=True)
+
+    app.dependency_overrides[get_current_user] = fake_client
+    try:
+        assert client.put("/api/v1/company/msft/segments", json={}).status_code == 403
+        assert client.delete("/api/v1/company/msft/segments").status_code == 403
     finally:
         app.dependency_overrides.clear()
 

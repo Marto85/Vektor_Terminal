@@ -85,6 +85,7 @@ export default function LoginScreen() {
   const [regAdvisorId, setRegAdvisorId] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [regConfirmPassword, setRegConfirmPassword] = useState("");
+  const [regInviteCode, setRegInviteCode] = useState("");
 
   // Estado Recuperación
   const [recEmail, setRecEmail] = useState("");
@@ -94,8 +95,12 @@ export default function LoginScreen() {
     pendingResetToken ? "reset" : "request"
   );
 
-  // Proveedores OAuth y ejecutivos disponibles en backend
-  const [providers, setProviders] = useState({ google: false, github: false });
+  // Proveedores OAuth, modo de registro y ejecutivos disponibles en backend
+  const [providers, setProviders] = useState({
+    google: false,
+    github: false,
+    registration_mode: "open",
+  });
   const [advisors, setAdvisors] = useState([]);
 
   // Feedback
@@ -111,10 +116,15 @@ export default function LoginScreen() {
       req
         .then((res) => {
           if (active && res?.data) {
+            const regMode = res.data.registration_mode || "open";
             setProviders({
               google: Boolean(res.data.google),
               github: Boolean(res.data.github),
+              registration_mode: regMode,
             });
+            if (regMode === "closed") {
+              setMode((prev) => (prev === "register" ? "login" : prev));
+            }
           }
         })
         .catch(() => {});
@@ -193,6 +203,7 @@ export default function LoginScreen() {
         email: regEmail.trim(),
         password: regPassword,
         advisor_id: regAdvisorId ? Number(regAdvisorId) : null,
+        invite_code: regInviteCode.trim() || null,
       });
     } catch (err) {
       setErrorMsg(
@@ -280,7 +291,7 @@ export default function LoginScreen() {
         </div>
 
         {/* Selector de pestañas Ingresar / Crear cuenta */}
-        {mode !== "recover" && (
+        {mode !== "recover" && providers.registration_mode !== "closed" && (
           <div className="grid grid-cols-2 gap-1 bg-slate-950/90 border border-slate-800 rounded-xl p-1 mb-5">
             <button
               type="button"
@@ -530,6 +541,28 @@ export default function LoginScreen() {
                 />
               </div>
             </div>
+
+            {providers.registration_mode === "invite" && (
+              <div>
+                <label
+                  htmlFor="reg-invite-code"
+                  className="block text-xs font-medium text-slate-300 mb-1"
+                >
+                  Código de invitación
+                </label>
+                <div className="relative">
+                  <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    id="reg-invite-code"
+                    type="text"
+                    value={regInviteCode}
+                    onChange={(e) => setRegInviteCode(e.target.value)}
+                    placeholder="Código provisto por el administrador"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+            )}
 
             <button
               type="submit"

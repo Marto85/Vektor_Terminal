@@ -109,6 +109,7 @@ function App() {
   const [currentTicker, setCurrentTicker] = useState("MSFT");
   const [hasLoadedCompany, setHasLoadedCompany] = useState(false);
   const [financialData, setFinancialData] = useState([]);
+  const [statementsCurrency, setStatementsCurrency] = useState("USD");
 
   const [profileData, setProfileData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -302,6 +303,11 @@ function App() {
       if (reqId !== companyReqIdRef.current) return;
 
       setFinancialData(finResponse.data);
+      const headerCurr =
+        finResponse.headers?.["x-reporting-currency"] ||
+        profResponse.data?.reporting_currency ||
+        "USD";
+      setStatementsCurrency(String(headerCurr).toUpperCase());
       setProfileData(profResponse.data);
       setCurrentTicker(upperTicker);
       setHasLoadedCompany(true);
@@ -605,7 +611,8 @@ function App() {
   };
 
   const domain = getDomain(profileData?.website);
-  const reportingCurrency = profileData?.reporting_currency || "USD";
+  const reportingCurrency =
+    profileData?.reporting_currency || statementsCurrency || "USD";
   const isFinancialSector = Boolean(
     profileData?.summary_metrics &&
       profileData.summary_metrics.efficiency?.gross_margin_pct === null &&

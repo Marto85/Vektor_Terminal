@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from typing import Any
 from datetime import datetime, timezone
@@ -8,11 +8,15 @@ import yfinance as yf
 from sqlalchemy.orm import Session
 import requests
 
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_roles
 from app.models.database import SessionLocal, User
 from app.core.yf_client import get_company_profile, get_cached_market_snapshot
 from app.services.company_service import get_raw_financials
-from app.services.financial_parser import extract_annual_metrics, extract_quarterly_metrics
+from app.services.financial_parser import (
+    detect_reporting_currency,
+    extract_annual_metrics,
+    extract_quarterly_metrics,
+)
 from app.services.ratios_calculator import calculate_ratios, build_financial_health_report
 from app.services.valuation_service import build_valuation_report
 from app.services.peers_service import build_peers_comparison, build_manual_comparison
@@ -38,7 +42,7 @@ from app.services.thesis_service import (
 from app.services.ownership_service import build_ownership_and_insiders_report
 from app.services.export_service import build_company_workbook_bytes, build_company_pdf_bytes
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(get_current_user)])
 
 
 class WatchlistNamePayload(BaseModel):
@@ -269,12 +273,16 @@ def get_annual_financials(ticker: str, db: Session = Depends(get_db)):
     try:
         raw_data = get_raw_financials(ticker, db)
         financial_data = extract_annual_metrics(raw_data)
+        reporting_currency = detect_reporting_currency(raw_data)
 
         current_year = datetime.now().year
         years_range = [str(y) for y in range(current_year - 6, current_year + 1)]
         financial_data_with_ratios = calculate_ratios(financial_data, years_range)
 
-        return financial_data_with_ratios
+        return JSONResponse(
+            content=financial_data_with_ratios,
+            headers={"X-Reporting-Currency": reporting_currency},
+        )
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -299,7 +307,11 @@ def get_quarterly_financials(ticker: str, db: Session = Depends(get_db)):
     try:
         raw_data = get_raw_financials(ticker, db, is_quarterly=True)
         financial_data = extract_quarterly_metrics(raw_data)
-        return financial_data
+        reporting_currency = detect_reporting_currency(raw_data)
+        return JSONResponse(
+            content=financial_data,
+            headers={"X-Reporting-Currency": reporting_currency},
+        )
 
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -444,7 +456,12 @@ def get_company_thesis_onepager(ticker: str, db: Session = Depends(get_db)):
 
 
 @router.put("/company/{ticker}/segments")
-def put_company_segments(ticker: str, body: CustomSegmentsPayload, db: Session = Depends(get_db)):
+def put_company_segments(
+    ticker: str,
+    body: CustomSegmentsPayload,
+    _actor: User = Depends(require_roles("superadmin", "advisor")),
+    db: Session = Depends(get_db),
+):
     try:
         return save_custom_segments(
             db=db,
@@ -458,7 +475,11 @@ def put_company_segments(ticker: str, body: CustomSegmentsPayload, db: Session =
 
 
 @router.delete("/company/{ticker}/segments")
-def delete_company_custom_segments(ticker: str, db: Session = Depends(get_db)):
+def delete_company_custom_segments(
+    ticker: str,
+    _actor: User = Depends(require_roles("superadmin", "advisor")),
+    db: Session = Depends(get_db),
+):
     try:
         return reset_custom_segments(db, ticker)
     except Exception as e:

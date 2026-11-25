@@ -144,3 +144,41 @@ def test_login_superadmin_and_rbac_user_lifecycle():
         assert blocked_login.status_code == 403
     finally:
         _cleanup_test_users()
+
+
+def test_registration_modes_closed_and_invite(monkeypatch):
+    from app.core import config
+    from app.services import auth_service
+
+    # 1. Modo closed en producción sin código de invitación
+    monkeypatch.setattr(config, "VEKTOR_ENV", "production")
+    monkeypatch.setattr(config, "VEKTOR_INVITE_CODE", "")
+    assert config.get_registration_mode() == "closed"
+    prov_closed = client.get("/api/v1/auth/providers").json()
+    assert prov_closed["registration_mode"] == "closed"
+    res_closed = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "stranger99",
+            "email": "stranger99@vektor.local",
+            "full_name": "Stranger",
+            "password": "Password123!",
+        },
+    )
+    assert res_closed.status_code == 403
+
+    # 2. Modo invite con código requerido
+    monkeypatch.setattr(config, "VEKTOR_INVITE_CODE", "amigos-2026")
+    monkeypatch.setattr(auth_service, "VEKTOR_INVITE_CODE", "amigos-2026")
+    assert config.get_registration_mode() == "invite"
+    res_bad_code = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "amigo99",
+            "email": "amigo99@vektor.local",
+            "full_name": "Amigo",
+            "password": "Password123!",
+            "invite_code": "wrong",
+        },
+    )
+    assert res_bad_code.status_code == 403

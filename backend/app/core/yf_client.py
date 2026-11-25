@@ -956,7 +956,11 @@ def get_cached_market_snapshot(ticker_symbol: str, db: Session) -> dict[str, Any
     change_pct = (change / prev_close) * 100 if prev_close > 0 else 0.0
 
     sec_fundamentals = _extract_sec_fundamental_fallbacks(ticker_upper, db)
-    sec_rep_curr = str(sec_fundamentals.get("reporting_currency") or "USD")
+    sec_rep_curr = str(
+        sec_fundamentals.get("reporting_currency")
+        or info.get("financialCurrency")
+        or "USD"
+    ).upper()
     fx_rate = _resolve_fx_rate_to_trade_currency(info, sec_currency=sec_rep_curr)
     market_1y_fallback = _extract_1y_market_fallbacks(ticker) if not info else {}
     upcoming_events = _extract_upcoming_events(ticker, info)
@@ -1482,7 +1486,12 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
         "change_pct": change_pct,
         "website": website,
         "description": translated_desc,
-        "reporting_currency": str(sec_fundamentals.get("reporting_currency") or "USD"),
+        "reporting_currency": str(
+            sec_fundamentals.get("reporting_currency")
+            or snapshot.get("reporting_currency")
+            or info.get("financialCurrency")
+            or "USD"
+        ).upper(),
         "news": news_list,
         "upcoming_events": upcoming_events,
         "summary_metrics": _build_summary_metrics(

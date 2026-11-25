@@ -12,9 +12,10 @@
 - También podés acceder con un clic mediante tu cuenta de **Google** o **GitHub** (cuando estén habilitados en la configuración del servidor).
 - *(Nota operativa: en el entorno cloud gratuito, si la terminal estuvo inactiva más de 15 minutos, el primer inicio de sesión puede demorar entre 30 y 50 segundos mientras despierta el servidor backend).*
 
-### Crear Cuenta (Registro Público)
-- Desde la pestaña **Crear cuenta** en la pantalla de acceso podés registrar un usuario nuevo completando un **nombre de usuario único** (3 a 32 caracteres en minúsculas, números, punto o guion bajo), tu **nombre completo**, un **correo electrónico** y una **contraseña** de al menos 8 caracteres.
-- Las cuentas creadas por registro público ingresan automáticamente con el perfil **Cliente (`client`)**.
+### Crear Cuenta (Registro por Invitación o Desarrollo)
+- En entornos de producción privados, el auto-registro puede estar **cerrado** (solo un `superadmin` crea cuentas desde **Usuarios y Roles**) o habilitado mediante un **código de invitación** (`VEKTOR_INVITE_CODE`).
+- Cuando el registro esté disponible, desde la pestaña **Crear cuenta** podés registrar un usuario nuevo completando un **nombre de usuario único** (3 a 32 caracteres en minúsculas, números, punto o guion bajo), tu **nombre completo**, un **correo electrónico**, el código de invitación (si aplica) y una **contraseña** de al menos 8 caracteres.
+- Las cuentas creadas por registro ingresan automáticamente con el perfil **Cliente (`client`)**.
 
 ### Recuperar Usuario y Contraseña
 1. Hacé clic en **¿Olvidaste tu usuario o clave?** en la pantalla de ingreso.

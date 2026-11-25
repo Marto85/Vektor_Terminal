@@ -130,7 +130,13 @@ def test_ownership_endpoint_route(monkeypatch, db_session):
             "insider_summary": {"buy_count": 0, "sell_count": 0, "net_value_mm": 0.0},
         },
     )
+    from app.core.security import get_current_user
+    from app.models.database import User
+
     app.dependency_overrides[endpoints.get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id=1, username="tester", email="tester@vektor.local", full_name="Tester", role="superadmin", is_active=True
+    )
     client = TestClient(app)
 
     try:

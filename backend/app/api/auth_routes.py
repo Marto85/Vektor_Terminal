@@ -9,6 +9,7 @@ from app.core.config import (
     FRONTEND_APP_URL,
     GITHUB_CLIENT_ID,
     GOOGLE_CLIENT_ID,
+    get_registration_mode,
 )
 from app.core.security import (
     create_access_token,
@@ -62,6 +63,7 @@ class RegisterRequest(BaseModel):
     full_name: str
     password: str
     advisor_id: Optional[int] = None
+    invite_code: Optional[str] = None
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -102,6 +104,7 @@ def get_enabled_auth_providers():
     return {
         "google": bool(GOOGLE_CLIENT_ID),
         "github": bool(GITHUB_CLIENT_ID),
+        "registration_mode": get_registration_mode(),
     }
 
 
@@ -135,6 +138,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         full_name=payload.full_name,
         password=payload.password,
         advisor_id=payload.advisor_id,
+        invite_code=payload.invite_code,
     )
     token = create_access_token(
         user_id=int(user.id),

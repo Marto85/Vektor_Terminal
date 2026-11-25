@@ -1,5 +1,4 @@
 import os
-import warnings
 
 # Entorno de ejecución: "development" | "production"
 VEKTOR_ENV = os.getenv("VEKTOR_ENV", "development").strip().lower()
@@ -25,12 +24,14 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(
     os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "720")
 )
 
-if VEKTOR_ENV == "production" and VEKTOR_SECRET_KEY == _DEFAULT_SECRET:
-    warnings.warn(
-        "VEKTOR_SECRET_KEY está usando el valor por defecto en producción. "
-        "Configurá una clave aleatoria fuerte en las variables de entorno.",
-        RuntimeWarning,
-    )
+_DEFAULT_ADMIN_PASSWORD = "Admin1234!"
+
+if VEKTOR_ENV == "production":
+    if VEKTOR_SECRET_KEY == _DEFAULT_SECRET:
+        raise RuntimeError(
+            "VEKTOR_SECRET_KEY está usando el valor por defecto en producción. "
+            "Configurá una clave aleatoria fuerte en las variables de entorno."
+        )
 
 # Orígenes CORS permitidos (separados por coma en producción)
 _RAW_ORIGINS = os.getenv(
@@ -44,8 +45,28 @@ ALLOWED_ORIGINS = [
 VEKTOR_ADMIN_EMAIL = os.getenv(
     "VEKTOR_ADMIN_EMAIL", "admin@vektorterminal.local"
 ).strip().lower()
-VEKTOR_ADMIN_PASSWORD = os.getenv("VEKTOR_ADMIN_PASSWORD", "Admin1234!")
+VEKTOR_ADMIN_PASSWORD = os.getenv("VEKTOR_ADMIN_PASSWORD", _DEFAULT_ADMIN_PASSWORD)
 VEKTOR_ADMIN_NAME = os.getenv("VEKTOR_ADMIN_NAME", "Administrador Vektor")
+
+if VEKTOR_ENV == "production" and VEKTOR_ADMIN_PASSWORD == _DEFAULT_ADMIN_PASSWORD:
+    raise RuntimeError(
+        "VEKTOR_ADMIN_PASSWORD está usando el valor por defecto en producción. "
+        "Configurá una contraseña segura en las variables de entorno."
+    )
+
+# Código de invitación opcional para registro público:
+# - Si está definido -> registration_mode = "invite"
+# - Si está vacío en producción -> registration_mode = "closed"
+# - Si está vacío en desarrollo -> registration_mode = "open"
+VEKTOR_INVITE_CODE = os.getenv("VEKTOR_INVITE_CODE", "").strip()
+
+
+def get_registration_mode() -> str:
+    if VEKTOR_INVITE_CODE:
+        return "invite"
+    if VEKTOR_ENV == "production":
+        return "closed"
+    return "open"
 
 # --- Configuración OAuth 2.0 y Correo (Etapa 13 - Opcional / Tier Gratuito) ---
 FRONTEND_APP_URL = os.getenv("FRONTEND_APP_URL", "http://localhost:5173").rstrip("/")

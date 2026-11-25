@@ -22,6 +22,8 @@ from app.core.config import (
     VEKTOR_ADMIN_EMAIL,
     VEKTOR_ADMIN_NAME,
     VEKTOR_ADMIN_PASSWORD,
+    VEKTOR_INVITE_CODE,
+    get_registration_mode,
 )
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.database import PasswordResetToken, SessionLocal, User
@@ -71,6 +73,8 @@ def serialize_user(user: User) -> dict:
 
 def list_public_advisors(db: Session) -> list[dict]:
     """Devuelve ejecutivos activos (advisor/superadmin) seleccionables durante el registro."""
+    if get_registration_mode() == "closed":
+        return []
     advisors = (
         db.query(User)
         .filter(
@@ -166,7 +170,22 @@ def register_public_user(
     full_name: str,
     password: str,
     advisor_id: Optional[int] = None,
+    invite_code: Optional[str] = None,
 ) -> User:
+    reg_mode = get_registration_mode()
+    if reg_mode == "closed":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El registro público está deshabilitado. Solicitá tu cuenta al administrador.",
+        )
+    if reg_mode == "invite":
+        provided_code = (invite_code or "").strip()
+        if not provided_code or not secrets.compare_digest(provided_code, VEKTOR_INVITE_CODE):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Código de invitación inválido o faltante.",
+            )
+
     clean_username = normalize_username(username)
     clean_email = email.strip().lower()
 
@@ -629,6 +648,11 @@ def handle_oauth_callback(db: Session, provider: str, code: str, state: str) -> 
                 user.auth_provider = prov
             db.commit()
     else:
+        if get_registration_mode() != "open":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tu cuenta no está habilitada para auto-registro. Solicitá acceso al administrador.",
+            )
         uname = _generate_unique_username(db, preferred_user)
         user = User(
             username=uname,
