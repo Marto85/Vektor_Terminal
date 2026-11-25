@@ -126,6 +126,6 @@ Terminal Financiera/
         │   └── MetricInfoDrawer.jsx       # Glosario lateral de definiciones y rangos
         ├── __tests__/                     # Suite de pruebas automatizadas con Vitest
         ├── data/metricsGlossary.js
-        ├── main.jsx                       # Punto de entrada React y registro PWA en producción
+        ├── main.jsx                       # Punto de entrada React, ErrorBoundary global y registro PWA en producción
         └── App.jsx                        # Layout responsive desktop/mobile con carga diferida (React.lazy)
 ```

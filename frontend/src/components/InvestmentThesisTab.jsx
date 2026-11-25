@@ -126,7 +126,7 @@ export default function InvestmentThesisTab({
     if (val.trim().length > 0) {
       try {
         const res = await apiClient.get(
-          `/search?q=${val}`
+          `/search?q=${encodeURIComponent(val.trim())}`
         );
         setSearchResults(res.data || []);
         setShowDropdown(true);

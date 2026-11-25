@@ -209,5 +209,13 @@ def test_ppp_calculation_and_portfolio_rbac(mock_quotes):
             },
         )
         assert bad_curr.status_code == 400
+
+        # 10. Bloquear cambio de moneda base si la cartera ya tiene operaciones
+        bad_profile_curr = client.patch(
+            f"/api/v1/portfolios/{client_id}/profile",
+            headers=cli_headers,
+            json={"target_currency": "ARS"},
+        )
+        assert bad_profile_curr.status_code == 400
     finally:
         _cleanup()

@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+import threading
 import requests
 from ratelimit import limits, sleep_and_retry
 from app.core.config import SEC_USER_AGENT
@@ -6,11 +8,32 @@ from app.core.config import SEC_USER_AGENT
 CALLS = 8
 RATE_LIMIT = 1
 
+_CIK_CACHE_TTL = timedelta(hours=24)
+_CIK_CACHE_LOCK = threading.Lock()
+_TICKER_CIK_MAP_CACHE: dict[str, str] = {}
+_TICKER_CIK_CACHE_TS: datetime | None = None
+
 
 def get_cik_from_ticker(ticker: str) -> str:
     """
-    Busca el CIK correspondiente a un Ticker usando el archivo oficial de la SEC.
+    Busca el CIK correspondiente a un Ticker usando el archivo oficial de la SEC,
+    con caché en memoria de 24 horas para evitar descargar el JSON completo en cada consulta.
     """
+    global _TICKER_CIK_MAP_CACHE, _TICKER_CIK_CACHE_TS
+    clean_ticker = ticker.strip().upper()
+    now = datetime.now(timezone.utc)
+
+    with _CIK_CACHE_LOCK:
+        if (
+            _TICKER_CIK_CACHE_TS is not None
+            and (now - _TICKER_CIK_CACHE_TS) < _CIK_CACHE_TTL
+            and _TICKER_CIK_MAP_CACHE
+        ):
+            cached = _TICKER_CIK_MAP_CACHE.get(clean_ticker)
+            if cached:
+                return cached
+            raise ValueError(f"Ticker {clean_ticker} no encontrado en la base de la SEC.")
+
     url = "https://www.sec.gov/files/company_tickers.json"
     headers = {"User-Agent": SEC_USER_AGENT}
 
@@ -19,11 +42,20 @@ def get_cik_from_ticker(ticker: str) -> str:
         response.raise_for_status()
         data = response.json()
 
+        mapping: dict[str, str] = {}
         for _key, value in data.items():
-            if value.get("ticker") == ticker.upper():
-                return str(value.get("cik_str"))
+            sym = str(value.get("ticker") or "").strip().upper()
+            cik_val = value.get("cik_str")
+            if sym and cik_val is not None:
+                mapping[sym] = str(cik_val)
 
-        raise ValueError(f"Ticker {ticker.upper()} no encontrado en la base de la SEC.")
+        with _CIK_CACHE_LOCK:
+            _TICKER_CIK_MAP_CACHE = mapping
+            _TICKER_CIK_CACHE_TS = now
+
+        if clean_ticker in mapping:
+            return mapping[clean_ticker]
+        raise ValueError(f"Ticker {clean_ticker} no encontrado en la base de la SEC.")
 
     except requests.RequestException as e:
         raise RuntimeError(f"Error de conexión al obtener CIK: {str(e)}")

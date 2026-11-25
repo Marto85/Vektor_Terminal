@@ -27,8 +27,14 @@ def get_db():
 
 
 def hash_password(plain_password: str) -> str:
+    pw_bytes = plain_password.encode("utf-8")
+    if len(pw_bytes) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña no puede superar los 72 bytes.",
+        )
     salt = bcrypt.gensalt(rounds=12)
-    return bcrypt.hashpw(plain_password.encode("utf-8"), salt).decode("utf-8")
+    return bcrypt.hashpw(pw_bytes, salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

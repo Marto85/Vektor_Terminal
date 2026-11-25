@@ -1,6 +1,6 @@
 from typing import Optional
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user, get_db
@@ -39,9 +39,9 @@ class CreateTransactionRequest(BaseModel):
     tx_type: str
     ticker: Optional[str] = None
     tx_date: str
-    quantity: float
-    unit_price: float
-    commission: float = 0.0
+    quantity: float = Field(..., allow_inf_nan=False)
+    unit_price: float = Field(..., allow_inf_nan=False)
+    commission: float = Field(0.0, allow_inf_nan=False)
     currency: str = "USD"
     notes: Optional[str] = None
 

@@ -22,6 +22,7 @@ from app.core.config import (
     VEKTOR_ADMIN_EMAIL,
     VEKTOR_ADMIN_NAME,
     VEKTOR_ADMIN_PASSWORD,
+    VEKTOR_ENV,
     VEKTOR_INVITE_CODE,
     get_registration_mode,
 )
@@ -449,7 +450,7 @@ def request_password_recovery(db: Session, email: str) -> dict:
         "message": "Si el correo está registrado, enviamos tu nombre de usuario y el enlace de recuperación.",
     }
     # En modo consola local devolvemos hint para facilitar pruebas sin servidor SMTP
-    if delivery_info.get("delivery") == "console":
+    if delivery_info.get("delivery") == "console" and VEKTOR_ENV != "production":
         resp["dev_hint"] = f"Modo local sin SMTP: revisá la terminal del backend (usuario: {user.username})."
     return resp
 

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -61,8 +61,8 @@ class WatchlistReorderPayload(BaseModel):
 
 class WatchlistItemPayload(BaseModel):
     ticker: str
-    buy_target_price: float | None = None
-    sell_target_price: float | None = None
+    buy_target_price: float | None = Field(None, allow_inf_nan=False)
+    sell_target_price: float | None = Field(None, allow_inf_nan=False)
     thesis_note: str | None = ""
     alerts: list[dict[str, Any]] = []
 

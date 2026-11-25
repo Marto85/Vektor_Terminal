@@ -674,7 +674,20 @@ def update_client_profile_data(
         prof.investment_horizon = investment_horizon
 
     if target_currency is not None and target_currency.strip():
-        prof.target_currency = target_currency.strip().upper()[:10]
+        next_curr = target_currency.strip().upper()[:10]
+        curr_base = (prof.target_currency or "USD").strip().upper()
+        if next_curr != curr_base:
+            has_txs = (
+                db.query(PortfolioTransaction.id)
+                .filter(PortfolioTransaction.client_id == target.id)
+                .first()
+            )
+            if has_txs is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"No podés cambiar la moneda base ({curr_base} → {next_curr}) mientras existan operaciones cargadas en la cartera.",
+                )
+        prof.target_currency = next_curr
 
     if phone is not None:
         prof.phone = phone.strip()

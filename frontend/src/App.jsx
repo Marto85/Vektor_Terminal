@@ -350,6 +350,10 @@ function App() {
       window.URL.revokeObjectURL(blobUrl);
     } catch (err) {
       console.error(`Error exportando ${format.toUpperCase()}:`, err);
+      setError(
+        err?.response?.data?.detail ||
+          `No se pudo exportar el archivo ${format.toUpperCase()}. Intentá nuevamente.`
+      );
     } finally {
       setExportingFormat(null);
     }

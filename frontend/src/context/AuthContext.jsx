@@ -94,10 +94,13 @@ export function AuthProvider({ children }) {
       const res = await apiClient.get("/auth/me");
       saveCachedUser(res.data);
       setUser(res.data);
-    } catch {
-      setStoredToken(null);
-      saveCachedUser(null);
-      setUser(null);
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        setStoredToken(null);
+        saveCachedUser(null);
+        setUser(null);
+      }
     } finally {
       setLoadingAuth(false);
     }
@@ -119,8 +122,9 @@ export function AuthProvider({ children }) {
           setUser(res.data);
         }
       })
-      .catch(() => {
-        if (!cancelled) {
+      .catch((err) => {
+        const status = err?.response?.status;
+        if (!cancelled && (status === 401 || status === 403)) {
           setStoredToken(null);
           saveCachedUser(null);
           setUser(null);

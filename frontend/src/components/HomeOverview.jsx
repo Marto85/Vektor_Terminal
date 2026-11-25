@@ -111,7 +111,9 @@ export default function HomeOverview({
     setHeroQuery(val);
     if (val.trim().length > 0) {
       try {
-        const res = await apiClient.get(`/search?q=${val}`);
+        const res = await apiClient.get(
+          `/search?q=${encodeURIComponent(val.trim())}`
+        );
         setHeroResults(res.data || []);
         setShowHeroDropdown(true);
       } catch {

@@ -191,3 +191,16 @@ def test_malformed_non_numeric_jwt_sub_returns_401():
     bad_token = jwt.encode({"sub": "not-an-integer", "role": "client"}, VEKTOR_SECRET_KEY, algorithm=JWT_ALGORITHM)
     res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {bad_token}"})
     assert res.status_code == 401
+
+
+def test_password_over_72_bytes_returns_400_instead_of_500():
+    res = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "longpassuser",
+            "email": "longpass@vektor.local",
+            "full_name": "Long Pass",
+            "password": "A" * 80,
+        },
+    )
+    assert res.status_code == 400

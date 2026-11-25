@@ -134,7 +134,7 @@ Buscador cuantitativo sobre un universo curado de emisores globales y ADRs:
    - **Acceso directo:** hacer clic sobre cualquier fila abre inmediatamente el análisis completo de esa empresa en la terminal.
 
 ### J. Carteras & CRM (Asesores y Clientes)
-- **Gestión de Legajos y Portafolios:** permite a asesores y administradores administrar perfiles patrimoniales por cliente y moneda base, registrar operaciones de compra, venta, dividendos y movimientos de caja (siempre en la moneda base de la cartera para preservar la consistencia del libro) con cálculo automático de **Precio Promedio Ponderado (`PPP`)** y **Rendimiento Ponderado por Tiempo (`TWR`)**, controlar liquidez disponible y evaluar valuación a mercado en tiempo real con conversión FX automática para cotizaciones en otra moneda.
+- **Gestión de Legajos y Portafolios:** permite a asesores y administradores administrar perfiles patrimoniales por cliente y moneda base (fija mientras existan operaciones registradas), registrar operaciones de compra, venta, dividendos y movimientos de caja (siempre en la moneda base de la cartera para preservar la consistencia del libro) con cálculo automático de **Precio Promedio Ponderado (`PPP`)** y **Rendimiento Ponderado por Tiempo (`TWR`)**, controlar liquidez disponible y evaluar valuación a mercado en tiempo real con conversión FX automática para cotizaciones en otra moneda.
 - **Vista Cliente:** los usuarios con rol `client` visualizan sus tenencias consolidadas, resultado latente/realizado, rendimiento `TWR` libre de distorsiones por aportes/retiros y movimientos históricos.
 
 ---
