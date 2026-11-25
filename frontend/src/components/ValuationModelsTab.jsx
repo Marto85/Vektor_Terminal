@@ -198,7 +198,11 @@ export default function ValuationModelsTab({
     const routing = vPayload?.sector_routing?.profile || "standard";
     const inp = vPayload?.dcf_inputs || {};
     const fInp = vPayload?.financial_sector_inputs || {};
-    const divRate = Number(pPayload?.summary_metrics?.dividend?.dividend_rate || 0);
+    const divRate = Number(
+      pPayload?.summary_metrics?.valuation?.dividend_rate ??
+        pPayload?.summary_metrics?.dividend?.dividend_rate ??
+        0
+    );
 
     if (routing === "financial") {
       setSelectedModel("excess_return");
@@ -675,7 +679,11 @@ export default function ValuationModelsTab({
   const finInp = valData?.financial_sector_inputs || {};
   const currentPrice = Number(inp.current_price || 0);
   const hasDividends =
-    Number(profileData?.summary_metrics?.dividend?.dividend_rate || 0) > 0;
+    Number(
+      profileData?.summary_metrics?.valuation?.dividend_rate ??
+        profileData?.summary_metrics?.dividend?.dividend_rate ??
+        0
+    ) > 0;
 
   const activeCatalogItem =
     MODEL_CATALOG.find((m) => m.id === selectedModel) || MODEL_CATALOG[0];

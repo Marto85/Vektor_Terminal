@@ -103,7 +103,15 @@ def _extract_ticker_snapshot(ticker: str, db: Session) -> dict[str, Any]:
     raw_md = getattr(cache_row, "market_data", None) if cache_row else None
     md: dict[str, Any] = dict(raw_md) if isinstance(raw_md, dict) else {}
 
-    cached_name = str(md.get("name") or "").strip()
+    raw_info = md.get("info")
+    info_dict: dict[str, Any] = raw_info if isinstance(raw_info, dict) else {}
+
+    cached_name = str(
+        md.get("name")
+        or info_dict.get("shortName")
+        or info_dict.get("longName")
+        or ""
+    ).strip()
     if not cache_row or len(md) == 0 or not cached_name or cached_name.upper() == sym:
         try:
             prof_payload = get_company_profile(sym, db)
@@ -113,6 +121,8 @@ def _extract_ticker_snapshot(ticker: str, db: Session) -> dict[str, Any]:
             raw_md_refreshed = getattr(cache_row, "market_data", None) if cache_row else None
             if isinstance(raw_md_refreshed, dict):
                 md = dict(raw_md_refreshed)
+                raw_info = md.get("info")
+                info_dict = raw_info if isinstance(raw_info, dict) else {}
         except Exception:
             pass
 
@@ -134,8 +144,18 @@ def _extract_ticker_snapshot(ticker: str, db: Session) -> dict[str, Any]:
     cap: dict[str, Any] = raw_cap if isinstance(raw_cap, dict) else {}
     grw: dict[str, Any] = raw_grw if isinstance(raw_grw, dict) else {}
 
+    raw_sec = md.get("sec_fundamentals")
+    sec_dict: dict[str, Any] = raw_sec if isinstance(raw_sec, dict) else {}
+    raw_cf = md.get("cf_ltm")
+    cf_dict: dict[str, Any] = raw_cf if isinstance(raw_cf, dict) else {}
+
+    def _pct_from_info(v: Any) -> float | None:
+        if isinstance(v, (int, float)):
+            return round(float(v) * 100.0, 2)
+        return None
+
     price = md.get("price")
-    target_price = val.get("target_price")
+    target_price = val.get("target_price") or info_dict.get("targetMeanPrice")
     upside_ws_pct = None
     if isinstance(price, (int, float)) and price > 0 and isinstance(target_price, (int, float)) and target_price > 0:
         upside_ws_pct = round(((target_price - price) / price) * 100.0, 2)
@@ -143,35 +163,49 @@ def _extract_ticker_snapshot(ticker: str, db: Session) -> dict[str, Any]:
         est_row = db.query(CompanyEstimatesCache).filter(CompanyEstimatesCache.ticker == sym).first()
         raw_est = getattr(est_row, "estimates_data", None) if est_row else None
         if isinstance(raw_est, dict):
-            tp_est = raw_est.get("target_price_mean")
+            consensus_est = raw_est.get("consensus_summary") if isinstance(raw_est.get("consensus_summary"), dict) else {}
+            tp_est = raw_est.get("target_price_mean") or consensus_est.get("target_mean_price")
             if isinstance(price, (int, float)) and price > 0 and isinstance(tp_est, (int, float)) and tp_est > 0:
                 upside_ws_pct = round(((tp_est - price) / price) * 100.0, 2)
 
     mcap = cap.get("market_cap")
-    fcf_ltm = grw.get("fcf_ltm")
+    if mcap is None:
+        raw_mcap = info_dict.get("marketCap")
+        if isinstance(raw_mcap, (int, float)) and raw_mcap > 0:
+            mcap = round(float(raw_mcap) / 1e6, 2)
+        else:
+            shares_mm = md.get("shares_mm")
+            if isinstance(price, (int, float)) and price > 0 and isinstance(shares_mm, (int, float)) and shares_mm > 0:
+                mcap = round(float(price) * float(shares_mm), 2)
+
+    fcf_ltm = grw.get("fcf_ltm") if grw.get("fcf_ltm") is not None else cf_dict.get("fcf_mm")
     fcf_yield_pct = None
     if isinstance(mcap, (int, float)) and mcap > 0 and isinstance(fcf_ltm, (int, float)):
         fcf_yield_pct = round((fcf_ltm / mcap) * 100.0, 2)
 
+    p_fcf_ltm = val.get("p_fcf_ltm")
+    if p_fcf_ltm is None and isinstance(mcap, (int, float)) and mcap > 0 and isinstance(fcf_ltm, (int, float)) and fcf_ltm > 0:
+        p_fcf_ltm = round(mcap / fcf_ltm, 2)
+
     return {
         "ticker": sym,
         "name": company_name,
-        "sector": md.get("sector") or "",
-        "industry": md.get("industry") or "",
+        "sector": md.get("sector") or info_dict.get("sector") or "",
+        "industry": md.get("industry") or info_dict.get("industry") or sec_dict.get("sic_description") or "",
         "price": price,
         "change_pct": md.get("change_pct"),
         "market_cap_mm": mcap,
-        "pe_ltm": val.get("pe_ltm"),
-        "pe_ntm": val.get("pe_ntm"),
-        "ev_ebitda_ltm": val.get("ev_ebitda_ltm"),
-        "pb_ltm": val.get("pb_ltm"),
-        "p_fcf_ltm": val.get("p_fcf_ltm"),
+        "pe_ltm": val.get("pe_ltm") if val.get("pe_ltm") is not None else info_dict.get("trailingPE"),
+        "pe_ntm": val.get("pe_ntm") if val.get("pe_ntm") is not None else info_dict.get("forwardPE"),
+        "ev_ebitda_ltm": val.get("ev_ebitda_ltm") if val.get("ev_ebitda_ltm") is not None else info_dict.get("enterpriseToEbitda"),
+        "pb_ltm": val.get("pb_ltm") if val.get("pb_ltm") is not None else info_dict.get("priceToBook"),
+        "p_fcf_ltm": p_fcf_ltm,
         "fcf_yield_pct": fcf_yield_pct,
-        "ebit_margin_pct": eff.get("ebit_margin"),
-        "roic_pct": eff.get("roic"),
-        "roe_pct": eff.get("roe"),
-        "net_debt_to_ebitda": cap.get("net_debt_to_ebitda"),
-        "rev_growth_yoy_pct": grw.get("revenue_growth_yoy"),
+        "ebit_margin_pct": eff.get("ebit_margin") if eff.get("ebit_margin") is not None else (sec_dict.get("ebit_margin_pct") if sec_dict.get("ebit_margin_pct") is not None else _pct_from_info(info_dict.get("operatingMargins"))),
+        "roic_pct": eff.get("roic") if eff.get("roic") is not None else sec_dict.get("roic_pct"),
+        "roe_pct": eff.get("roe") if eff.get("roe") is not None else (sec_dict.get("roe_pct") if sec_dict.get("roe_pct") is not None else _pct_from_info(info_dict.get("returnOnEquity"))),
+        "net_debt_to_ebitda": cap.get("net_debt_to_ebitda") if cap.get("net_debt_to_ebitda") is not None else sec_dict.get("net_debt_to_ebitda"),
+        "rev_growth_yoy_pct": grw.get("revenue_growth_yoy") if grw.get("revenue_growth_yoy") is not None else (sec_dict.get("revenue_growth_yoy_pct") if sec_dict.get("revenue_growth_yoy_pct") is not None else _pct_from_info(info_dict.get("revenueGrowth"))),
         "upside_ws_pct": upside_ws_pct,
     }
 

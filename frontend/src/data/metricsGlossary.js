@@ -668,6 +668,21 @@ export const METRICS_GLOSSARY = {
   },
 
   // MODELOS DE VALUACION
+  'Deuda Total / EBITDA (x)': {
+    category: 'Solvencia y Estructura de Capital',
+    meaning:
+      'Mide cuántos años de EBITDA operativo bruto equivalen a la deuda financiera total (sin descontar caja).',
+    importance:
+      'Complementa a Deuda Neta / EBITDA evaluando la carga bruta de pasivos antes de asumir disponibilidad inmediata de efectivo.',
+    formula: 'Deuda Financiera Total ÷ EBITDA (LTM)',
+    healthyRange: [
+      '< 2,5x: apalancamiento bruto conservador.',
+      '2,5x – 4,0x: moderado; revisar vencimientos e intereses.',
+      '> 4,0x: apalancamiento elevado (salvo utilities o infraestructura).',
+    ],
+    example:
+      'Con Deuda Total de US$ 6.000 MM y EBITDA de US$ 3.000 MM → 2,00x.',
+  },
   'Perpetuidad de Gordon (Valor Terminal)': {
     title: 'Valor Terminal por Perpetuidad de Gordon (g)',
     formula: 'Valor Terminal = FCF Estacionario Año 6 ÷ (WACC − g)',
@@ -698,9 +713,24 @@ export const METRICS_GLOSSARY = {
   },
 };
 
+const GLOSSARY_ALIAS_MAP = {
+  'EV / Ingresos LTM': 'EV / Ventas (LTM)',
+  'EV / EBITDA LTM': 'EV / EBITDA (LTM)',
+  'EV / Beneficio bruto LTM': 'EV / Beneficio Bruto (LTM)',
+  'NTM P / E': 'NTM Price / Earnings (P/E)',
+  'P / E LTM': 'Precio / Beneficio (P/E)',
+  'LTM P / BV': 'Precio / Valor Libros (P/BV)',
+  'P / FCF LTM': 'Precio / Flujo de Caja Libre (P/FCF)',
+};
+
 export function getGlossaryEntry(metricName) {
   if (!metricName) return null;
   if (METRICS_GLOSSARY[metricName]) return METRICS_GLOSSARY[metricName];
+
+  const aliasedKey = GLOSSARY_ALIAS_MAP[metricName.trim()];
+  if (aliasedKey && METRICS_GLOSSARY[aliasedKey]) {
+    return METRICS_GLOSSARY[aliasedKey];
+  }
 
   const clean = metricName.replace(/\s*\(LTM\)|\s*\(MM\)/gi, '').trim();
   const matchedKey = Object.keys(METRICS_GLOSSARY).find(

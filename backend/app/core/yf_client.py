@@ -1304,7 +1304,7 @@ def _build_summary_metrics(
     if revenue_mm is not None and ebit_margin_pct is not None:
         ebit_val = ebit_sec_mm if ebit_sec_mm is not None else (revenue_mm * (ebit_margin_pct / 100.0))
         eff_tax = float(sec.get("effective_tax_rate") or 0.21)
-        nopat_mm = ebit_val * (1.0 - eff_tax) if ebit_sec_mm is not None else ebit_val
+        nopat_mm = ebit_val * (1.0 - eff_tax)
         book_eq = book_equity_sec_mm
         if book_eq is None and market_cap_mm is not None and pb_ltm is not None and pb_ltm > 0:
             book_eq = market_cap_mm / pb_ltm
@@ -1331,6 +1331,12 @@ def _build_summary_metrics(
         div_yield_pct = round(float(raw_div_yield), 2)
     elif dividends_sec_mm is not None and market_cap_mm is not None and market_cap_mm > 0:
         div_yield_pct = round((dividends_sec_mm / market_cap_mm) * 100.0, 2)
+
+    div_rate: float | None = _to_float(raw_div_rate, 4)
+    if div_rate is None and div_yield_pct is not None and price and price > 0:
+        div_rate = round(float(price) * (float(div_yield_pct) / 100.0), 4)
+    elif div_rate is None and dividends_sec_mm is not None and shares_mm is not None and shares_mm > 0:
+        div_rate = round(float(dividends_sec_mm) / float(shares_mm), 4)
 
     payout_ratio_pct = _to_pct(info.get("payoutRatio"), 1)
     if payout_ratio_pct is None and dividends_sec_mm is not None and net_income_mm is not None and net_income_mm > 0:
@@ -1390,6 +1396,12 @@ def _build_summary_metrics(
             "pe_ntm": pe_ntm,
             "pb_ltm": pb_ltm,
             "p_to_fcf_ltm": p_to_fcf_ltm,
+            "dividend_rate": div_rate,
+            "dividend_yield_pct": div_yield_pct,
+            "payout_ratio_pct": payout_ratio_pct,
+        },
+        "dividend": {
+            "dividend_rate": div_rate,
             "dividend_yield_pct": div_yield_pct,
             "payout_ratio_pct": payout_ratio_pct,
         },

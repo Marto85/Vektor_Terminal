@@ -464,7 +464,7 @@ export default function FinancialsQuickCards({
                 ? -1
                 : 0
             : null,
-        glossaryKey: "Deuda neta/EBITDA LTM",
+        glossaryKey: "Deuda Total / EBITDA (x)",
       },
     ];
   }

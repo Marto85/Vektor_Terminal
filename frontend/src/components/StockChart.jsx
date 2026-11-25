@@ -322,7 +322,20 @@ export default function StockChart({ ticker, companyName }) {
   const isIntraday = Boolean(historyData?.isIntraday || interval === '15m' || interval === '1h');
 
   const computedIndicators = useMemo(() => {
-    if (!activeCandles.length) return {};
+    if (!activeCandles.length || selectedMetric !== 'Price') {
+      return {
+        sma20: [],
+        sma50: [],
+        sma200: [],
+        ema21: [],
+        bb: { upper: [], middle: [], lower: [] },
+        vwap: [],
+        volSma20: [],
+        rsi: [],
+        macd: { macdLine: [], signalLine: [], histogram: [] },
+        atr: [],
+      };
+    }
     return {
       sma20: indicators.sma20 ? calculateSMA(activeCandles, 20) : [],
       sma50: indicators.sma50 ? calculateSMA(activeCandles, 50) : [],
@@ -335,14 +348,15 @@ export default function StockChart({ ticker, companyName }) {
       macd: indicators.macd ? calculateMACD(activeCandles, 12, 26, 9) : { macdLine: [], signalLine: [], histogram: [] },
       atr: indicators.atr ? calculateATR(activeCandles, 14) : [],
     };
-  }, [activeCandles, indicators, isIntraday]);
+  }, [activeCandles, indicators, isIntraday, selectedMetric]);
 
   const modeAnalysis = useMemo(() => {
     if (selectedMetric !== 'Price' || technicalMode === 'none') return null;
     return runTechnicalAnalysisMode(activeCandles, technicalMode);
   }, [activeCandles, selectedMetric, technicalMode]);
 
-  const hasSubPanel = indicators.rsi || indicators.macd || indicators.atr;
+  const hasSubPanel =
+    selectedMetric === 'Price' && (indicators.rsi || indicators.macd || indicators.atr);
   const resolvedOscillator = useMemo(() => {
     if (indicators[activeOscillator]) return activeOscillator;
     if (indicators.rsi) return 'rsi';
@@ -905,8 +919,14 @@ export default function StockChart({ ticker, companyName }) {
             <div className="relative" ref={indicatorsDropdownRef}>
               <button
                 onClick={() => setShowIndicatorsDropdown((prev) => !prev)}
-                className={`flex items-center space-x-1 px-2 py-1 border rounded text-[11px] font-medium cursor-pointer transition-colors ${
-                  activeIndicatorsCount > 0
+                disabled={selectedMetric !== 'Price'}
+                title={
+                  selectedMetric !== 'Price'
+                    ? 'Los indicadores técnicos requieren métrica Price'
+                    : 'Configurar indicadores técnicos'
+                }
+                className={`flex items-center space-x-1 px-2 py-1 border rounded text-[11px] font-medium cursor-pointer transition-colors disabled:opacity-50 ${
+                  activeIndicatorsCount > 0 && selectedMetric === 'Price'
                     ? 'border-blue-300 bg-blue-50/70 text-blue-700'
                     : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
                 }`}
