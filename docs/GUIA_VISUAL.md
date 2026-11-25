@@ -40,7 +40,7 @@ Esta guía complementa al [Manual de Usuario](MANUAL_USUARIO.md) mostrando **qu�
 ![Resumen y Gráfico con Análisis Técnico](images/03_resumen_grafico_at.png)
 
 - **Qué se hace acá:**
-  - Analizar la acción del precio (rangos `3m` a `max`, velas `15m`, `1h`, `1D`, `1 Sem`), alternar entre métricas (`Price`, `% Change`, `Total Return`, `Drawdowns`, `10k Growth`, `Market Cap`, `Enterprise Value`), activar indicadores técnicos (`SMA 20/50/200`, `EMA 21`, `Bollinger`, `VWAP`, `RSI`, `MACD`, `ATR`) o elegir una lente en **Enfoque AT**.
+  - Analizar la acción del precio (rangos `3m` a `max`, velas `15m`, `1h`, `1D`, `1 Sem`), alternar entre métricas (`Price`, `% Change`, `Total Return`, `Drawdowns`, `10k Growth`, `Market Cap`, `Enterprise Value`), activar indicadores técnicos (`SMA 20/50/200`, `EMA 21`, `Bollinger`, `VWAP`, `RSI`, `MACD`, `ATR` disponibles sobre `Price`) o elegir una lente en **Enfoque AT**, y alternar entre **Modo Claro / Oscuro** o colapsar el menú lateral desde la barra superior.
   - Revisar en el panel derecho (**CapitalStructurePanel**) la foto instantánea de valoración, estructura de capital, márgenes y dividendos.
 - **Qué información brinda:**
   - Gráfico OHLCV interactivo + panel de osciladores (`RSI`, `MACD`, `ATR`) + **Lectura Técnica Explicada** con validación por volumen relativo (`RVOL`).
@@ -57,7 +57,7 @@ Esta guía complementa al [Manual de Usuario](MANUAL_USUARIO.md) mostrando **qu�
 ![Finanzas y Tarjetas Rápidas](images/04_finanzas_ratios.png)
 
 - **Qué se hace acá:**
-  - Alternar entre **Cuenta de Resultados**, **Balance de Situación**, **Estado de Flujo de Efectivo** y **Ratios**, en vista **Anual** o **Trimestral**, y exportar a Excel (`.xlsx`).
+  - Alternar entre **Cuenta de Resultados**, **Balance de Situación**, **Estado de Flujo de Efectivo** y **Ratios**, en vista **Anual** o **Trimestral**, ampliar la tabla a pantalla completa y exportar a Excel (`.xlsx`).
   - Hacer clic en cualquier ícono `(i)` para abrir el glosario lateral con fórmula, criterio de tesis y ejemplo práctico.
 - **Qué información brinda:**
   - Cifras estandarizadas desde SEC EDGAR (`10-K`, `10-Q`, `20-F`, `6-K`) con respaldo normalizado, expresadas en millones de la moneda de reporte (indicada arriba de la tabla).

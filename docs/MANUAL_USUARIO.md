@@ -88,7 +88,7 @@ La aplicación utiliza la misma URL web tanto en computadora como en teléfono, 
 
 ### D. Finanzas y Asignación de Capital
 - **Panel de Salud Financiera y Asignación de Capital:** evalúa el contexto sectorial, **Piotroski F-Score** (0–9 con semáforo interactivo), **Altman Z-Score / Z''-Score**, **Descomposición DuPont** (3 y 5 factores), **ROIIC & Reinvestment Rate** (retorno sobre capital invertido incremental y crecimiento intrínseco), **Calidad de FCF Post-SBC** (detracción de compensación basada en acciones sobre el FCF reportado) y **TSR Bridge** (descomposición del retorno anualizado entre crecimiento fundamental, retorno de capital y cambio de múltiplo).
-- **Estados Contables Estandarizados:** permite consultar las tablas en vista **Anual** o **Trimestral** (cifras expresadas en millones de USD, salvo métricas por acción), con acceso directo a la exportación a **Excel (.xlsx)**:
+- **Estados Contables Estandarizados:** permite consultar las tablas en vista **Anual** o **Trimestral** (cifras expresadas en millones de USD, salvo métricas por acción), ampliar la tabla a pantalla completa con el botón de maximizar y exportar directamente a **Excel (.xlsx)**:
   - **Cuenta de Resultados**
   - **Balance de Situación**
   - **Estado de Flujo de Efectivo**
@@ -136,7 +136,8 @@ Buscador cuantitativo sobre un universo curado de emisores globales y ADRs:
    - **Acceso directo:** hacer clic sobre cualquier fila abre inmediatamente el análisis completo de esa empresa en la terminal.
 
 ### J. Carteras & CRM (Asesores y Clientes)
-- **Gestión de Legajos y Portafolios:** permite a asesores y administradores administrar perfiles patrimoniales por cliente y moneda base (fija mientras existan operaciones registradas), registrar operaciones de compra, venta, dividendos y movimientos de caja (siempre en la moneda base de la cartera para preservar la consistencia del libro) con cálculo automático de **Precio Promedio Ponderado (`PPP`)** y **Rendimiento Ponderado por Tiempo (`TWR`)**, controlar liquidez disponible y evaluar valuación a mercado en tiempo real con conversión FX automática para cotizaciones en otra moneda.
+- **Preferencias Visuales y Navegación:** podés alternar entre **Modo Claro** y **Modo Oscuro** desde el botón Sol/Luna en la barra superior, y colapsar o expandir la barra lateral izquierda en escritorio para ganar ancho en tablas extensas.
+- **Gestión de Legajos y Portafolios:** permite a asesores y administradores administrar perfiles patrimoniales por cliente y moneda base (fija mientras existan operaciones registradas), registrar operaciones de compra, venta, dividendos y movimientos de caja (siempre en la moneda base de la cartera para preservar la consistencia del libro) con cálculo automático de **Precio Promedio Ponderado (`PPP`)** y **Rendimiento Ponderado por Tiempo (`TWR`)** valuado con cierres históricos diarios de mercado, controlar liquidez disponible y evaluar valuación a mercado en tiempo real con conversión FX automática para cotizaciones en otra moneda.
 - **Vista Cliente:** los usuarios con rol `client` visualizan sus tenencias consolidadas, resultado latente/realizado, rendimiento `TWR` libre de distorsiones por aportes/retiros y movimientos históricos.
 
 ---
