@@ -324,7 +324,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
           quantity: Number(quantity),
           unit_price: Number(unitPrice),
           commission: commission !== "" ? Number(commission) : 0,
-          currency: txCurrency,
+          currency: currency || txCurrency,
           notes: txNotes.trim() || null,
         },
       );

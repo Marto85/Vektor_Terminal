@@ -969,8 +969,18 @@ export default function StockChart({ ticker, companyName }) {
         </div>
 
         {/* Chips de indicadores activos + botón rápido "Quitar todos" */}
-        {(activeIndicatorsCount > 0 || technicalMode !== 'none') && (
+        {(activeIndicatorsCount > 0 ||
+          technicalMode !== 'none' ||
+          selectedMetric === 'Market Cap' ||
+          selectedMetric === 'Enterprise Value') && (
           <div className="px-4 py-1 flex flex-wrap items-center gap-1 bg-white border-b border-gray-100">
+            {(selectedMetric === 'Market Cap' || selectedMetric === 'Enterprise Value') && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-[10px] font-medium text-amber-800">
+                {historyData?.capitalStructureSource === 'sec_historical'
+                  ? 'Estructura de capital anual (SEC) + precio histórico'
+                  : 'Aprox. usando acciones y deuda neta actuales'}
+              </span>
+            )}
             {technicalMode !== 'none' && (
               <button
                 onClick={() => setTechnicalMode('none')}

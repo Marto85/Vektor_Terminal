@@ -7,6 +7,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 import yfinance as yf
 
+from app.core.yf_client import _lookup_fx_multiplier
 from app.models.database import ClientProfile, PortfolioTransaction, User
 
 VALID_TX_TYPES = ("BUY", "SELL", "DIVIDEND", "DEPOSIT", "WITHDRAWAL")
@@ -96,9 +97,11 @@ def serialize_transaction(tx: PortfolioTransaction) -> dict:
     }
 
 
-def fetch_live_quotes(tickers: list[str]) -> dict[str, dict]:
-    """Obtiene precio actual y variación diaria para una lista de tickers."""
+def fetch_live_quotes(tickers: list[str], target_currency: str = "USD") -> dict[str, dict]:
+    """Obtiene precio actual y variación diaria para una lista de tickers, normalizados a `target_currency`."""
     quotes: dict[str, dict] = {}
+    dest_curr = (target_currency or "USD").strip().upper()
+    fx_cache: dict[str, float] = {dest_curr: 1.0}
     unique = sorted({t.strip().upper() for t in tickers if t and t.strip()})
     for sym in unique:
         try:
@@ -106,15 +109,32 @@ def fetch_live_quotes(tickers: list[str]) -> dict[str, dict]:
             fast = getattr(tk, "fast_info", None)
             price = None
             prev_close = None
+            quote_curr = ""
             if fast:
                 price = getattr(fast, "last_price", None)
                 prev_close = getattr(fast, "previous_close", None)
+                quote_curr = str(getattr(fast, "currency", None) or "").strip().upper()
             if price is None:
                 hist = tk.history(period="2d")
                 if not hist.empty:
                     price = float(hist["Close"].iloc[-1])
                     if len(hist) > 1:
                         prev_close = float(hist["Close"].iloc[-2])
+
+            if not quote_curr:
+                try:
+                    quote_curr = str((tk.info or {}).get("currency") or "").strip().upper()
+                except Exception:
+                    quote_curr = ""
+
+            fx_mult = 1.0
+            if price is not None and quote_curr and quote_curr != dest_curr:
+                if quote_curr not in fx_cache:
+                    fx_cache[quote_curr] = _lookup_fx_multiplier(quote_curr, dest_curr)
+                fx_mult = fx_cache[quote_curr]
+                price = float(price) * fx_mult
+                if prev_close is not None:
+                    prev_close = float(prev_close) * fx_mult
 
             day_change_pct = None
             if price and prev_close and prev_close > 0:
@@ -123,9 +143,10 @@ def fetch_live_quotes(tickers: list[str]) -> dict[str, dict]:
             quotes[sym] = {
                 "price": round(float(price), 4) if price is not None else None,
                 "day_change_pct": day_change_pct,
+                "currency": quote_curr or dest_curr,
             }
         except Exception:
-            quotes[sym] = {"price": None, "day_change_pct": None}
+            quotes[sym] = {"price": None, "day_change_pct": None, "currency": dest_curr}
     return quotes
 
 
@@ -293,6 +314,7 @@ def _compute_twr_metrics(
 def compute_portfolio_positions(
     transactions: list[PortfolioTransaction],
     quotes_map: Optional[dict[str, dict]] = None,
+    target_currency: str = "USD",
 ) -> dict:
     """
     Motor contable de Precio Promedio Ponderado (PPP) + Time-Weighted Return (TWR).
@@ -386,7 +408,9 @@ def compute_portfolio_positions(
 
     open_symbols = [s for s, p in ledger.items() if p["quantity"] > 1e-6]
     resolved_quotes = (
-        quotes_map if quotes_map is not None else fetch_live_quotes(open_symbols)
+        quotes_map
+        if quotes_map is not None
+        else fetch_live_quotes(open_symbols, target_currency=target_currency)
     )
 
     holdings = []
@@ -598,7 +622,11 @@ def get_client_portfolio_detail(
         .order_by(PortfolioTransaction.tx_date.desc(), PortfolioTransaction.id.desc())
         .all()
     )
-    computed = compute_portfolio_positions(txs, quotes_map=quotes_map)
+    computed = compute_portfolio_positions(
+        txs,
+        quotes_map=quotes_map,
+        target_currency=(prof.target_currency or "USD").upper(),
+    )
 
     return {
         "client": serialize_client_profile(target, prof),
@@ -708,6 +736,15 @@ def add_portfolio_transaction(
             detail="La fecha de operación debe tener formato YYYY-MM-DD.",
         )
 
+    prof = get_or_create_client_profile(db, int(target.id))
+    target_curr = (prof.target_currency or "USD").strip().upper()
+    tx_curr = (currency or target_curr).strip().upper()[:10]
+    if tx_curr != target_curr:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La operación debe registrarse en la moneda base de la cartera ({target_curr}) para evitar mezclas en PPP y TWR.",
+        )
+
     new_tx = PortfolioTransaction(
         client_id=int(target.id),
         created_by_id=int(actor.id),
@@ -717,7 +754,7 @@ def add_portfolio_transaction(
         quantity=float(quantity),
         unit_price=float(unit_price),
         commission=float(commission),
-        currency=(currency or "USD").strip().upper()[:10],
+        currency=tx_curr,
         notes=(notes or "").strip() or None,
     )
 

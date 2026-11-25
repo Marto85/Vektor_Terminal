@@ -9,8 +9,13 @@ from sqlalchemy.orm import Session
 import requests
 
 from app.core.security import get_current_user, require_roles
-from app.models.database import SessionLocal, User
-from app.core.yf_client import get_company_profile, get_cached_market_snapshot
+from app.models.database import CompanyData, SessionLocal, User
+from app.core.yf_client import (
+    _lookup_fx_multiplier,
+    get_company_profile,
+    get_cached_market_snapshot,
+)
+from app.services.valuation_service import _compute_split_factors_by_year, build_valuation_report
 from app.services.company_service import get_raw_financials
 from app.services.financial_parser import (
     detect_reporting_currency,
@@ -18,7 +23,6 @@ from app.services.financial_parser import (
     extract_quarterly_metrics,
 )
 from app.services.ratios_calculator import calculate_ratios, build_financial_health_report
-from app.services.valuation_service import build_valuation_report
 from app.services.peers_service import build_peers_comparison, build_manual_comparison
 from app.services.screener_service import get_screener_universe, sync_screener_batch
 from app.services.market_overview_service import build_market_overview
@@ -559,6 +563,7 @@ def get_company_history(
     ticker: str,
     range: str = Query("1y", pattern="^(3m|6m|ytd|1y|3y|5y|10y|max)$"),
     interval: str | None = Query(None, pattern="^(15m|1h|1d|1wk|1mo)$"),
+    db: Session = Depends(get_db),
 ):
     """
     Devuelve series históricas OHLCV para todas las métricas del selector
@@ -606,8 +611,10 @@ def get_company_history(
 
         shares_mm = 0.0
         net_debt_mm = 0.0
+        trade_currency = "USD"
         try:
             info = tk.info or {}
+            trade_currency = str(info.get("currency") or "USD").upper()
             shares_raw = info.get("sharesOutstanding") or 0
             total_debt_raw = info.get("totalDebt") or 0
             total_cash_raw = info.get("totalCash") or 0
@@ -616,6 +623,45 @@ def get_company_history(
         except Exception:
             shares_mm = 0.0
             net_debt_mm = 0.0
+
+        # Estructura de capital histórica anual (SEC cacheada) para evitar distorsión en 5y/10y/max
+        shares_by_year: dict[str, float] = {}
+        net_debt_by_year: dict[str, float] = {}
+        try:
+            comp_row = db.query(CompanyData).filter(CompanyData.ticker == ticker.upper()).first()
+            raw_facts = getattr(comp_row, "raw_facts", None) if comp_row else None
+            if isinstance(raw_facts, dict) and raw_facts:
+                ann_rows = extract_annual_metrics(raw_facts)
+                sec_curr = detect_reporting_currency(raw_facts)
+                sec_fx = _lookup_fx_multiplier(sec_curr, trade_currency) if sec_curr != trade_currency else 1.0
+                candle_years = sorted({dt.strftime("%Y") for dt in hist[date_col]})
+                split_factors = _compute_split_factors_by_year(tk, candle_years)
+                by_metric = {str(r.get("Métrica") or ""): r for r in ann_rows if not r.get("is_header")}
+                for yr in candle_years:
+                    sh_dil = float(by_metric.get("Acciones en Circulación (Diluidas)", {}).get(yr) or 0.0)
+                    sh_bas = float(by_metric.get("Acciones en Circulación (Básicas)", {}).get(yr) or 0.0)
+                    sh_raw = sh_dil if sh_dil > 0 else sh_bas
+                    if sh_raw > 0:
+                        sh_adj = sh_raw * float(split_factors.get(yr, 1.0))
+                        if shares_mm <= 0 or sh_adj >= shares_mm * 0.15:
+                            shares_by_year[yr] = sh_adj
+                    debt_y = (
+                        float(by_metric.get("Deuda a corto plazo", {}).get(yr) or 0.0)
+                        + float(by_metric.get("Deuda a largo plazo", {}).get(yr) or 0.0)
+                    ) * sec_fx
+                    cash_y = (
+                        float(by_metric.get("Efectivo y equivalentes", {}).get(yr) or 0.0)
+                        + float(by_metric.get("Inversiones a corto plazo", {}).get(yr) or 0.0)
+                    ) * sec_fx
+                    if debt_y != 0.0 or cash_y != 0.0:
+                        net_debt_by_year[yr] = debt_y - cash_y
+        except Exception:
+            shares_by_year = {}
+            net_debt_by_year = {}
+
+        capital_structure_source = (
+            "sec_historical" if (shares_by_year or net_debt_by_year) else "current_snapshot"
+        )
 
         has_adj = "Adj Close" in hist.columns
         first_close = float(hist["Close"].iloc[0])
@@ -719,16 +765,24 @@ def get_company_history(
             dd_c = ((c - running_peak) / running_peak) * 100 if running_peak > 0 else 0.0
             build_point("Drawdowns", time_val, dd_o, dd_h, dd_l, dd_c, v, is_pct=True)
 
-            if shares_mm > 0:
-                mc_o, mc_h, mc_l, mc_c = o * shares_mm, h * shares_mm, l * shares_mm, c * shares_mm
+            yr_str = dt_val.strftime("%Y")
+            candle_shares_mm = shares_by_year.get(yr_str) or shares_mm
+            candle_net_debt_mm = net_debt_by_year.get(yr_str, net_debt_mm)
+            if candle_shares_mm > 0:
+                mc_o, mc_h, mc_l, mc_c = (
+                    o * candle_shares_mm,
+                    h * candle_shares_mm,
+                    l * candle_shares_mm,
+                    c * candle_shares_mm,
+                )
                 build_point("Market Cap", time_val, mc_o, mc_h, mc_l, mc_c, v, is_pct=False)
                 build_point(
                     "Enterprise Value",
                     time_val,
-                    mc_o + net_debt_mm,
-                    mc_h + net_debt_mm,
-                    mc_l + net_debt_mm,
-                    mc_c + net_debt_mm,
+                    mc_o + candle_net_debt_mm,
+                    mc_h + candle_net_debt_mm,
+                    mc_l + candle_net_debt_mm,
+                    mc_c + candle_net_debt_mm,
                     v,
                     is_pct=False,
                 )
@@ -749,6 +803,7 @@ def get_company_history(
             "years": round(years, 2),
             "totalReturnPct": total_return_pct,
             "cagrPct": cagr_pct,
+            "capitalStructureSource": capital_structure_source,
             "seriesByMetric": series_by_metric,
         }
 

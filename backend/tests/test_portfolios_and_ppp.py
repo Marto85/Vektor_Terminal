@@ -194,5 +194,20 @@ def test_ppp_calculation_and_portfolio_rbac(mock_quotes):
 
         adm_read = client.get(f"/api/v1/portfolios/{client_id}", headers=adm_headers)
         assert adm_read.status_code == 403
+
+        # 9. Rechazar operaciones en moneda distinta a target_currency (USD)
+        bad_curr = client.post(
+            f"/api/v1/portfolios/{client_id}/transactions",
+            headers=cli_headers,
+            json={
+                "tx_type": "BUY",
+                "ticker": "YPFD.BA",
+                "tx_date": "2026-03-11",
+                "quantity": 10,
+                "unit_price": 40000.0,
+                "currency": "ARS",
+            },
+        )
+        assert bad_curr.status_code == 400
     finally:
         _cleanup()
