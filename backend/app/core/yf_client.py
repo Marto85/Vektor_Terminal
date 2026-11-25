@@ -96,18 +96,24 @@ def _looks_english(text: str) -> bool:
     """
     sample = f" {text.lower()} "
     en_markers = (
+        " the ",
+        " and ",
+        " of ",
+        " with ",
+        " for ",
+        " from ",
+        " its ",
         " engages in ",
-        " operates through ",
+        " operates ",
         " provides ",
         " develops ",
         " manufactures ",
         " founded in ",
         " headquartered in ",
-        " the company ",
-        " its products ",
+        " company ",
+        " products ",
+        " services ",
         " united states",
-        " is an american ",
-        " is a multinational ",
         " stock ",
         " shares ",
         " earnings ",
@@ -117,26 +123,30 @@ def _looks_english(text: str) -> bool:
         " reports ",
     )
     es_markers = (
+        " de ",
+        " la ",
+        " el ",
+        " en ",
+        " y ",
+        " para ",
+        " con ",
+        " sus ",
         " se dedica ",
-        " opera a través ",
+        " opera ",
         " proporciona ",
         " ofrece ",
         " fundada en ",
         " con sede en ",
-        " la empresa ",
-        " la compañía ",
-        " estados unidos",
-        " es una empresa ",
+        " empresa ",
+        " compañía ",
         " acciones ",
         " ganancias ",
         " ingresos ",
         " trimestre ",
-        " anuncia ",
-        " reporta ",
     )
     en_hits = sum(1 for m in en_markers if m in sample)
     es_hits = sum(1 for m in es_markers if m in sample)
-    return en_hits >= 2 and es_hits == 0
+    return en_hits >= 2 and en_hits > es_hits
 
 
 def _translate_to_spanish(raw_text: str, ticker_upper: str) -> tuple[str, bool]:
@@ -197,14 +207,20 @@ def _translate_to_spanish(raw_text: str, ticker_upper: str) -> tuple[str, bool]:
 
 
 def _translate_headline_es(title: str) -> str:
-    """Traduce un titular corto al español de forma segura sin bloquear en caso de fallo."""
+    """Traduce un titular corto al español con respaldo MyMemory sin bloquear en caso de fallo."""
     clean = title.strip()
     if not clean:
         return ""
     try:
         translated = GoogleTranslator(source="auto", target="es").translate(clean[:300])
-        if isinstance(translated, str) and translated.strip():
+        if isinstance(translated, str) and translated.strip() and not _looks_english(translated):
             return translated.strip()
+    except Exception:
+        pass
+    try:
+        translated_mm = MyMemoryTranslator(source="en-US", target="es-ES").translate(clean[:300])
+        if isinstance(translated_mm, str) and translated_mm.strip() and not _looks_english(translated_mm):
+            return translated_mm.strip()
     except Exception:
         pass
     return clean
@@ -263,7 +279,21 @@ def _extract_upcoming_events(ticker_obj: yf.Ticker, info: dict[str, Any]) -> lis
         _parse_event_datetime(cal_dict.get("Earnings Date"))
         or _parse_event_datetime(info.get("earningsTimestamp"))
         or _parse_event_datetime(info.get("earningsTimestampStart"))
+        or _parse_event_datetime(info.get("earningsTimestampEnd"))
     )
+    if earnings_dt is None:
+        try:
+            ed_df = ticker_obj.earnings_dates
+            if isinstance(ed_df, pd.DataFrame) and not ed_df.empty:
+                future_dts = []
+                for idx_val in ed_df.index:
+                    dt_parsed = _parse_event_datetime(idx_val)
+                    if dt_parsed and dt_parsed.date() >= (now_date - timedelta(days=2)):
+                        future_dts.append(dt_parsed)
+                if future_dts:
+                    earnings_dt = min(future_dts)
+        except Exception:
+            pass
     if earnings_dt and earnings_dt.date() >= (now_date - timedelta(days=2)):
         is_confirmed = bool(info.get("isEarningsDateEstimate") is False)
         raw_candidates.append(
@@ -1374,10 +1404,20 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
     change = snapshot["change"]
     change_pct = snapshot["change_pct"]
     fx_rate = float(snapshot.get("fx_rate") or 1.0)
-    news_list = snapshot["news"]
+    news_list = [dict(n) for n in (snapshot.get("news") or []) if isinstance(n, dict)]
+    for item in news_list:
+        raw_t = str(item.get("title") or "").strip()
+        if raw_t and _looks_english(raw_t):
+            item["title"] = _translate_headline_es(raw_t)
+
     upcoming_events = snapshot.get("upcoming_events") if isinstance(snapshot.get("upcoming_events"), list) else []
     raw_info = snapshot.get("info")
     info: dict[str, Any] = raw_info if isinstance(raw_info, dict) else {}
+    if not upcoming_events:
+        try:
+            upcoming_events = _extract_upcoming_events(yf.Ticker(ticker_upper), info)
+        except Exception:
+            upcoming_events = []
     raw_sec_fb = snapshot.get("sec_fundamentals")
     sec_fundamentals: dict[str, Any] = raw_sec_fb if isinstance(raw_sec_fb, dict) else {}
     raw_mkt_1y = snapshot.get("market_1y_fallback")
@@ -1458,7 +1498,7 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
 
         if raw_description:
             translated_desc, ok = _translate_to_spanish(raw_description, ticker_upper)
-            persist_permanent = ok or len(translated_desc) >= 60
+            persist_permanent = ok
         else:
             wiki_desc = _fetch_wikipedia_summary_es(str(name), ticker_upper)
             if wiki_desc:
