@@ -164,3 +164,61 @@ def test_argentina_macro_and_social_overrides_rbac(api_client):
     del_res = api_client.delete("/api/v1/argentina/social-overrides/indec_pobreza", headers=headers)
     assert del_res.status_code == 200
     assert del_res.json()["is_override"] is False
+
+
+def test_argentina_real_fx_comparison_and_series(api_client, monkeypatch):
+    from app.services import argentina_service
+    from app.core.config import VEKTOR_ADMIN_EMAIL, VEKTOR_ADMIN_PASSWORD
+
+    monkeypatch.setattr(argentina_service, "_REAL_FX_CACHE", {})
+
+    fake_ar_ipc = {
+        "index_by_ym": {"2002-04": 100.0, "2003-06": 115.0, "2026-10": 115000.0},
+        "latest_ym": "2026-10",
+        "latest_index": 115000.0,
+    }
+    fake_us_cpi = {
+        "index_by_ym": {"2002-04": 180.0, "2003-06": 184.0, "2026-10": 315.0},
+        "latest_ym": "2026-10",
+        "latest_index": 315.0,
+    }
+    fake_fx_pts = [
+        {"date": "2002-04-15", "value": 2.86},
+        {"date": "2003-06-15", "value": 2.82},
+        {"date": "2026-10-15", "value": 1600.0},
+    ]
+
+    with (
+        patch.object(argentina_service, "_fetch_ar_inflation_index", return_value=fake_ar_ipc),
+        patch.object(argentina_service, "_fetch_us_cpi_index", return_value=fake_us_cpi),
+        patch.object(argentina_service, "_fetch_fx_history_for_real_calc", return_value=fake_fx_pts),
+    ):
+        res_ar = argentina_service.calculate_real_fx_comparison(
+            start_date="2003-06-01",
+            end_date="2003-06-30",
+            fx_type="oficial",
+            include_us_cpi=False,
+        )
+        assert res_ar["result"]["nominal_avg"] == 2.82
+        assert res_ar["result"]["real_today"] == 2820.0
+        assert res_ar["result"]["brecha_pct"] == 76.2
+
+        res_bi = argentina_service.calculate_real_fx_comparison(
+            start_date="2003-06-01",
+            end_date="2003-06-30",
+            fx_type="oficial",
+            include_us_cpi=True,
+        )
+        assert res_bi["result"]["real_today"] < res_ar["result"]["real_today"]
+
+        adm = api_client.post(
+            "/api/v1/auth/login",
+            json={"email": VEKTOR_ADMIN_EMAIL, "password": VEKTOR_ADMIN_PASSWORD},
+        )
+        headers = {"Authorization": f"Bearer {adm.json()['access_token']}"}
+        ep = api_client.get(
+            "/api/v1/argentina/real-fx-compare?start_date=2003-06-01&end_date=2003-06-30&fx_type=oficial",
+            headers=headers,
+        )
+        assert ep.status_code == 200
+        assert ep.json()["result"]["real_today"] == 2820.0

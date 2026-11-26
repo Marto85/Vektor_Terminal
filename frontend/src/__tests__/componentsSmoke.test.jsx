@@ -152,6 +152,35 @@ describe("Bloque 4 — Smoke & Interacción de Componentes Clave", () => {
 
   it("ArgentinaTab renderiza tarjetas, bonos soberanos y grilla de noticias", async () => {
     apiClient.get.mockImplementation((url) => {
+      if (url.includes("/argentina/real-fx-compare")) {
+        return Promise.resolve({
+          data: {
+            fx_type: "oficial",
+            include_us_cpi: false,
+            ipc_latest_month: "2026-10",
+            result: {
+              nominal_avg: 2.97,
+              real_today: 2980.0,
+              current_fx: 1600.0,
+              brecha_pct: 86.3,
+              ar_inflation_factor: 1003.4,
+              us_inflation_factor: 1.0,
+            },
+            presets: [
+              {
+                id: "nestor_kirchner",
+                label: "Presidencia Néstor Kirchner (2003–2007)",
+                start_date: "2003-05-25",
+                end_date: "2007-12-10",
+                fx_type: "oficial",
+                nominal_avg: 2.97,
+                real_today: 2980.0,
+                brecha_pct: 86.3,
+              },
+            ],
+          },
+        });
+      }
       if (url.includes("/argentina/overview")) {
         return Promise.resolve({
           data: {
@@ -190,6 +219,7 @@ describe("Bloque 4 — Smoke & Interacción de Componentes Clave", () => {
       expect(screen.getAllByText("IPC Mensual").length).toBeGreaterThan(0);
       expect(screen.getAllByText("Pobreza (Personas · INDEC)").length).toBeGreaterThan(0);
       expect(screen.getByText("Editar / Cargar dato")).toBeInTheDocument();
+      expect(screen.getByText("Presidencia Néstor Kirchner (2003–2007)")).toBeInTheDocument();
       expect(screen.getByText("Noticia Económica Test")).toBeInTheDocument();
     });
   });

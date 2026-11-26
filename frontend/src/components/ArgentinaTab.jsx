@@ -4,6 +4,8 @@ import {
   Activity,
   BarChart2,
   Building2,
+  Calculator,
+  Calendar,
   CandlestickChart,
   Check,
   Copy,
@@ -17,6 +19,7 @@ import {
   RefreshCw,
   RotateCcw,
   Trash2,
+  TrendingUp,
   Users,
   X,
 } from "lucide-react";
@@ -70,6 +73,16 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
   const [newsTopicFilter, setNewsTopicFilter] = useState("ALL");
   const [newsSourceFilter, setNewsSourceFilter] = useState("ALL");
   const [copiedLink, setCopiedLink] = useState("");
+
+  // Calculadora Dólar Real Histórico (a pesos de hoy)
+  const [realFxMode, setRealFxMode] = useState("range");
+  const [realFxStart, setRealFxStart] = useState("2003-05-25");
+  const [realFxEnd, setRealFxEnd] = useState("2007-12-10");
+  const [realFxType, setRealFxType] = useState("oficial");
+  const [realFxIncludeUs, setRealFxIncludeUs] = useState(false);
+  const [realFxData, setRealFxData] = useState(null);
+  const [loadingRealFx, setLoadingRealFx] = useState(false);
+  const [realFxError, setRealFxError] = useState("");
 
   // Modal Superadmin para editar Termómetro Social / Político
   const [socialModalOpen, setSocialModalOpen] = useState(false);
@@ -161,6 +174,59 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
       cancelled = true;
     };
   }, [selectedSeriesId, compareSeriesId, rangeKey, chartType]);
+
+  const fetchRealFxComparison = async (
+    sDate = realFxStart,
+    eDate = realFxMode === "single" ? sDate : realFxEnd,
+    fType = realFxType,
+    incUs = realFxIncludeUs
+  ) => {
+    setLoadingRealFx(true);
+    setRealFxError("");
+    try {
+      const res = await apiClient.get("/argentina/real-fx-compare", {
+        params: {
+          start_date: sDate,
+          end_date: eDate || sDate,
+          fx_type: fType,
+          include_us_cpi: incUs,
+        },
+      });
+      setRealFxData(res.data);
+    } catch (err) {
+      setRealFxError(
+        err.response?.data?.detail || "No se pudo calcular el dólar real histórico."
+      );
+    } finally {
+      setLoadingRealFx(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const initRealFx = async () => {
+      setLoadingRealFx(true);
+      try {
+        const res = await apiClient.get("/argentina/real-fx-compare", {
+          params: {
+            start_date: "2003-05-25",
+            end_date: "2007-12-10",
+            fx_type: "oficial",
+            include_us_cpi: false,
+          },
+        });
+        if (!cancelled) setRealFxData(res.data);
+      } catch {
+        // Silencioso en carga inicial si offline
+      } finally {
+        if (!cancelled) setLoadingRealFx(false);
+      }
+    };
+    initRealFx();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const container = chartContainerRef.current;
@@ -417,6 +483,8 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
   const compareOptions = useMemo(() => {
     const opts = [
       ...(cardsList || []).map((c) => ({ id: c.series_id, label: c.label, group: "Mercado y FX" })),
+      { id: "dolar_real_oficial", label: "Dólar Oficial a pesos de hoy (IPC AR)", group: "Mercado y FX" },
+      { id: "dolar_real_ccl", label: "Dólar CCL a pesos de hoy (IPC AR)", group: "Mercado y FX" },
       ...((overview?.macro_indicators || []).map((m) => ({
         id: m.series_id,
         label: m.label,
@@ -634,6 +702,278 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
               <span className="w-3 h-0.5 bg-blue-600 inline-block" />
               Eje Izquierdo: <strong>{compareSeriesData.label}</strong> ({compareSeriesData.unit || "-"})
             </span>
+          </div>
+        )}
+      </section>
+
+      {/* BLOQUE B1.5: CALCULADORA Y COMPARADOR HISTÓRICO (DÓLAR ACTUAL VS. DÓLAR HISTÓRICO A PESOS DE HOY) */}
+      <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-2xs space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+              <Calculator className="w-4 h-4 text-orange-600" />
+              Dólar Actual vs. Dólar Histórico (a pesos de hoy)
+            </h3>
+            <p className="text-[11px] text-gray-500">
+              Calculá a cuánto equivaldría hoy un dólar de cualquier fecha o período neteando la inflación argentina (y opcionalmente la de EE.UU.).
+              {realFxData?.ipc_latest_month ? ` · Último IPC AR: ${realFxData.ipc_latest_month}` : ""}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const sid = `dolar_real_${realFxType}${realFxIncludeUs ? "_bilateral" : ""}`;
+              setSelectedSeriesId(sid);
+              setRangeKey("max");
+              setChartType("line");
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-orange-300 bg-orange-50 text-xs font-semibold text-orange-700 hover:bg-orange-100 cursor-pointer"
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+            Ver trayectoria en gráfico
+          </button>
+        </div>
+
+        {/* Controles de Fecha, Tipo de Dólar y Ajuste */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end bg-gray-50/70 border border-gray-200 rounded-xl p-3.5">
+          <div className="lg:col-span-2">
+            <label className="block text-[11px] font-semibold text-gray-600 mb-1">Modo</label>
+            <div className="inline-flex w-full rounded-lg border border-gray-300 bg-white p-0.5">
+              <button
+                type="button"
+                onClick={() => setRealFxMode("range")}
+                className={`flex-1 py-1 rounded text-xs font-semibold cursor-pointer ${
+                  realFxMode === "range" ? "bg-orange-500 text-white" : "text-gray-600"
+                }`}
+              >
+                Período
+              </button>
+              <button
+                type="button"
+                onClick={() => setRealFxMode("single")}
+                className={`flex-1 py-1 rounded text-xs font-semibold cursor-pointer ${
+                  realFxMode === "single" ? "bg-orange-500 text-white" : "text-gray-600"
+                }`}
+              >
+                Fecha
+              </button>
+            </div>
+          </div>
+
+          <div className={realFxMode === "range" ? "lg:col-span-2" : "lg:col-span-4"}>
+            <label htmlFor="real-fx-start" className="block text-[11px] font-semibold text-gray-600 mb-1">
+              {realFxMode === "range" ? "Desde" : "Fecha puntual"}
+            </label>
+            <input
+              id="real-fx-start"
+              type="date"
+              min="2002-01-01"
+              value={realFxStart}
+              onChange={(e) => setRealFxStart(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white text-xs text-gray-900"
+            />
+          </div>
+
+          {realFxMode === "range" && (
+            <div className="lg:col-span-2">
+              <label htmlFor="real-fx-end" className="block text-[11px] font-semibold text-gray-600 mb-1">
+                Hasta
+              </label>
+              <input
+                id="real-fx-end"
+                type="date"
+                min="2002-01-01"
+                value={realFxEnd}
+                onChange={(e) => setRealFxEnd(e.target.value)}
+                className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white text-xs text-gray-900"
+              />
+            </div>
+          )}
+
+          <div className="lg:col-span-2">
+            <label htmlFor="real-fx-type" className="block text-[11px] font-semibold text-gray-600 mb-1">
+              Cotización
+            </label>
+            <select
+              id="real-fx-type"
+              value={realFxType}
+              onChange={(e) => {
+                const nextType = e.target.value;
+                setRealFxType(nextType);
+                fetchRealFxComparison(
+                  realFxStart,
+                  realFxMode === "single" ? realFxStart : realFxEnd,
+                  nextType,
+                  realFxIncludeUs
+                );
+              }}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white text-xs text-gray-900"
+            >
+              <option value="oficial">Dólar Oficial (desde 2002)</option>
+              <option value="blue">Dólar Blue (desde 2011)</option>
+              <option value="ccl">Dólar CCL (desde 2013)</option>
+            </select>
+          </div>
+
+          <div className="lg:col-span-2 flex items-center">
+            <label className="inline-flex items-center gap-1.5 text-[11px] font-medium text-gray-700 cursor-pointer py-1.5">
+              <input
+                type="checkbox"
+                checked={realFxIncludeUs}
+                onChange={(e) => {
+                  const nextUs = e.target.checked;
+                  setRealFxIncludeUs(nextUs);
+                  fetchRealFxComparison(
+                    realFxStart,
+                    realFxMode === "single" ? realFxStart : realFxEnd,
+                    realFxType,
+                    nextUs
+                  );
+                }}
+                className="accent-orange-600"
+              />
+              Incluir IPC EE.UU. (bilateral)
+            </label>
+          </div>
+
+          <div className="lg:col-span-2">
+            <button
+              type="button"
+              disabled={loadingRealFx}
+              onClick={() =>
+                fetchRealFxComparison(
+                  realFxStart,
+                  realFxMode === "single" ? realFxStart : realFxEnd,
+                  realFxType,
+                  realFxIncludeUs
+                )
+              }
+              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-semibold hover:bg-orange-700 cursor-pointer disabled:opacity-50"
+            >
+              {loadingRealFx ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Calendar className="w-3.5 h-3.5" />
+              )}
+              Calcular
+            </button>
+          </div>
+        </div>
+
+        {realFxError && (
+          <p className="text-xs text-red-700 font-medium">{realFxError}</p>
+        )}
+
+        {/* Resultado principal + Tabla de Hitos */}
+        {realFxData?.result && (
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+            <div className="xl:col-span-4 rounded-xl border border-orange-200 bg-orange-50/40 p-4 flex flex-col justify-between space-y-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-orange-700">
+                  Equivalente en pesos de hoy
+                </p>
+                <p className="text-3xl font-extrabold text-gray-900 tabular-nums mt-1">
+                  $ {fmtArNum(realFxData.result.real_today, 2)}
+                </p>
+                <p className="text-xs text-gray-600 mt-1">
+                  Dólar nominal promedio:{" "}
+                  <strong className="tabular-nums">$ {fmtArNum(realFxData.result.nominal_avg, 2)}</strong>
+                  {" · "}
+                  Ajuste IPC AR:{" "}
+                  <strong className="tabular-nums">×{fmtArNum(realFxData.result.ar_inflation_factor, 2)}</strong>
+                  {realFxData.include_us_cpi && (
+                    <>
+                      {" · "}IPC US:{" "}
+                      <strong className="tabular-nums">÷{fmtArNum(realFxData.result.us_inflation_factor, 2)}</strong>
+                    </>
+                  )}
+                </p>
+              </div>
+
+              <div className="pt-3 border-t border-orange-200/70 flex items-center justify-between text-xs">
+                <div>
+                  <span className="text-gray-600">Dólar actual ({realFxData.fx_type.toUpperCase()}): </span>
+                  <strong className="text-gray-900 tabular-nums">
+                    $ {fmtArNum(realFxData.result.current_fx, 2)}
+                  </strong>
+                </div>
+                {realFxData.result.brecha_pct != null && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full font-bold tabular-nums ${
+                      realFxData.result.brecha_pct >= 0
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-red-100 text-[#d93025]"
+                    }`}
+                  >
+                    Brecha {realFxData.result.brecha_pct >= 0 ? "+" : ""}
+                    {fmtArNum(realFxData.result.brecha_pct, 1)}%
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="xl:col-span-8 overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-200 text-gray-500 text-left">
+                    <th className="py-2 pr-3 font-semibold">Período / Hito</th>
+                    <th className="py-2 pr-3 font-semibold text-right">Dólar Nominal</th>
+                    <th className="py-2 pr-3 font-semibold text-right">Valor de Hoy</th>
+                    <th className="py-2 pr-3 font-semibold text-right">Brecha vs. Hoy</th>
+                    <th className="py-2 font-semibold text-right">Cargar</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {(realFxData.presets || []).map((pr) => {
+                    const pos = (pr.brecha_pct || 0) >= 0;
+                    return (
+                      <tr key={pr.id} className="hover:bg-gray-50/70">
+                        <td className="py-2 pr-3 font-semibold text-gray-900">
+                          {pr.label}
+                          <span className="block text-[10px] font-normal text-gray-500">
+                            {pr.start_date} a {pr.end_date} ({pr.fx_type.toUpperCase()})
+                          </span>
+                        </td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-gray-700">
+                          $ {fmtArNum(pr.nominal_avg, 2)}
+                        </td>
+                        <td className="py-2 pr-3 text-right font-extrabold tabular-nums text-gray-900">
+                          $ {fmtArNum(pr.real_today, 0)}
+                        </td>
+                        <td
+                          className={`py-2 pr-3 text-right font-bold tabular-nums ${
+                            pos ? "text-emerald-700" : "text-[#d93025]"
+                          }`}
+                        >
+                          {pr.brecha_pct != null ? `${pos ? "+" : ""}${fmtArNum(pr.brecha_pct, 0)}%` : "-"}
+                        </td>
+                        <td className="py-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRealFxMode("range");
+                              setRealFxStart(pr.start_date);
+                              setRealFxEnd(pr.end_date);
+                              setRealFxType(pr.fx_type);
+                              fetchRealFxComparison(
+                                pr.start_date,
+                                pr.end_date,
+                                pr.fx_type,
+                                realFxIncludeUs
+                              );
+                            }}
+                            className="px-2 py-1 rounded border border-gray-300 bg-white text-[11px] font-semibold text-orange-700 hover:bg-orange-50 cursor-pointer"
+                          >
+                            Aplicar
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </section>

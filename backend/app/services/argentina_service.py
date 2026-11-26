@@ -1110,6 +1110,26 @@ def get_argentina_series(series_id: str, range_key: str = "1y", db: Session | No
                 "points": pts,
             }
         )
+    elif sid.startswith("dolar_real_"):
+        bilateral = sid.endswith("_bilateral")
+        base_fx = sid.replace("dolar_real_", "", 1).replace("_bilateral", "")
+        if base_fx not in ("oficial", "ccl", "blue"):
+            raise ValueError(f"Serie de dólar real no soportada: {sid}")
+        pts = _filter_points_by_range(
+            _build_real_fx_series(fx_type=base_fx, include_us_cpi=bilateral),
+            rk,
+        )
+        fx_labels = {"oficial": "Oficial", "ccl": "CCL", "blue": "Blue"}
+        mode_lbl = "Real Bilateral (IPC AR / US)" if bilateral else "a pesos de hoy (IPC AR)"
+        payload.update(
+            {
+                "label": f"Dólar {fx_labels[base_fx]} {mode_lbl}",
+                "unit": "ARS hoy",
+                "supports_candlestick": False,
+                "source": "BCRA / ArgentinaDatos" + (" / FRED CPI" if bilateral else ""),
+                "points": pts,
+            }
+        )
     else:
         raise ValueError(f"Serie Argentina no soportada: {sid}")
 
@@ -1120,3 +1140,292 @@ def get_argentina_series(series_id: str, range_key: str = "1y", db: Session | No
                 _SERIES_CACHE.pop(oldest, None)
             _SERIES_CACHE[(sid, rk)] = (now, payload)
     return payload
+
+
+# Promedio mensual oficial BCRA Com. A 3500 (2002-01 a 2010-12) para cubrir salida de convertibilidad y 2003-2010
+_BCRA_OFFICIAL_MONTHLY_2002_2010: dict[str, float] = {
+    "2002-01": 1.40, "2002-02": 2.04, "2002-03": 2.40, "2002-04": 2.86, "2002-05": 3.31, "2002-06": 3.63,
+    "2002-07": 3.61, "2002-08": 3.61, "2002-09": 3.65, "2002-10": 3.64, "2002-11": 3.53, "2002-12": 3.45,
+    "2003-01": 3.26, "2003-02": 3.18, "2003-03": 3.09, "2003-04": 2.91, "2003-05": 2.84, "2003-06": 2.82,
+    "2003-07": 2.80, "2003-08": 2.91, "2003-09": 2.93, "2003-10": 2.86, "2003-11": 2.90, "2003-12": 2.96,
+    "2004-01": 2.90, "2004-02": 2.93, "2004-03": 2.89, "2004-04": 2.84, "2004-05": 2.93, "2004-06": 2.96,
+    "2004-07": 2.96, "2004-08": 3.01, "2004-09": 2.99, "2004-10": 2.97, "2004-11": 2.95, "2004-12": 2.97,
+    "2005-01": 2.95, "2005-02": 2.92, "2005-03": 2.92, "2005-04": 2.90, "2005-05": 2.89, "2005-06": 2.89,
+    "2005-07": 2.87, "2005-08": 2.89, "2005-09": 2.91, "2005-10": 2.96, "2005-11": 2.97, "2005-12": 3.02,
+    "2006-01": 3.06, "2006-02": 3.07, "2006-03": 3.08, "2006-04": 3.07, "2006-05": 3.06, "2006-06": 3.08,
+    "2006-07": 3.08, "2006-08": 3.08, "2006-09": 3.10, "2006-10": 3.10, "2006-11": 3.08, "2006-12": 3.06,
+    "2007-01": 3.09, "2007-02": 3.10, "2007-03": 3.10, "2007-04": 3.09, "2007-05": 3.08, "2007-06": 3.08,
+    "2007-07": 3.11, "2007-08": 3.15, "2007-09": 3.15, "2007-10": 3.16, "2007-11": 3.14, "2007-12": 3.14,
+    "2008-01": 3.15, "2008-02": 3.16, "2008-03": 3.16, "2008-04": 3.17, "2008-05": 3.15, "2008-06": 3.05,
+    "2008-07": 3.03, "2008-08": 3.03, "2008-09": 3.08, "2008-10": 3.23, "2008-11": 3.34, "2008-12": 3.43,
+    "2009-01": 3.47, "2009-02": 3.52, "2009-03": 3.66, "2009-04": 3.70, "2009-05": 3.73, "2009-06": 3.77,
+    "2009-07": 3.81, "2009-08": 3.84, "2009-09": 3.85, "2009-10": 3.83, "2009-11": 3.81, "2009-12": 3.81,
+    "2010-01": 3.81, "2010-02": 3.85, "2010-03": 3.87, "2010-04": 3.88, "2010-05": 3.91, "2010-06": 3.93,
+    "2010-07": 3.94, "2010-08": 3.94, "2010-09": 3.96, "2010-10": 3.96, "2010-11": 3.98, "2010-12": 3.98,
+}
+
+REAL_FX_PRESETS: list[dict[str, str]] = [
+    {"id": "abr_2002", "label": "Salida Convertibilidad (Abril 2002)", "start_date": "2002-04-01", "end_date": "2002-04-30", "fx_type": "oficial"},
+    {"id": "nestor_kirchner", "label": "Presidencia Néstor Kirchner (2003–2007)", "start_date": "2003-05-25", "end_date": "2007-12-10", "fx_type": "oficial"},
+    {"id": "periodo_2003_2010", "label": "Período 2003–2010", "start_date": "2003-01-01", "end_date": "2010-12-31", "fx_type": "oficial"},
+    {"id": "cepo_2011_2015", "label": "Cepo 2011–2015 (Oficial)", "start_date": "2011-11-01", "end_date": "2015-12-09", "fx_type": "oficial"},
+    {"id": "macri_2018_2019", "label": "Segunda Etapa 2018–2019", "start_date": "2018-05-01", "end_date": "2019-12-09", "fx_type": "oficial"},
+    {"id": "deval_dic_2023", "label": "Devaluación Diciembre 2023", "start_date": "2023-12-13", "end_date": "2023-12-31", "fx_type": "oficial"},
+]
+
+_REAL_FX_CACHE: dict[str, tuple[datetime, Any]] = {}
+
+
+def _fetch_ar_inflation_index() -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    with _LOCK:
+        cached = _REAL_FX_CACHE.get("ar_ipc")
+        if cached and (now - cached[0]) < timedelta(hours=1):
+            return cached[1]
+
+    rows = _fetch_json("https://api.argentinadatos.com/v1/finanzas/indices/inflacion", timeout=10)
+    monthly: dict[str, float] = {}
+    if isinstance(rows, list):
+        for r in rows:
+            dt = str(r.get("fecha") or "").strip()[:7]
+            val = r.get("valor")
+            if dt and val is not None:
+                monthly[dt] = float(val)
+
+    idx_map: dict[str, float] = {}
+    acc = 100.0
+    sorted_months = sorted(monthly.keys())
+    for ym in sorted_months:
+        acc = acc * (1.0 + monthly[ym] / 100.0)
+        idx_map[ym] = acc
+
+    latest_ym = sorted_months[-1] if sorted_months else None
+    res = {"index_by_ym": idx_map, "latest_ym": latest_ym, "latest_index": idx_map.get(latest_ym) if latest_ym else None}
+    with _LOCK:
+        _REAL_FX_CACHE["ar_ipc"] = (now, res)
+    return res
+
+
+def _fetch_us_cpi_index() -> dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    with _LOCK:
+        cached = _REAL_FX_CACHE.get("us_cpi")
+        if cached and (now - cached[0]) < timedelta(hours=6):
+            return cached[1]
+
+    idx_map: dict[str, float] = {}
+    try:
+        resp = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv?id=CPIAUCSL&cosd=1990-01-01", headers=_HEADERS, timeout=8)
+        resp.raise_for_status()
+        for line in resp.text.splitlines()[1:]:
+            parts = line.strip().split(",")
+            if len(parts) >= 2 and parts[1] not in ("", "."):
+                ym = parts[0][:7]
+                idx_map[ym] = float(parts[1])
+    except Exception:
+        pass
+
+    sorted_months = sorted(idx_map.keys())
+    latest_ym = sorted_months[-1] if sorted_months else None
+    res = {"index_by_ym": idx_map, "latest_ym": latest_ym, "latest_index": idx_map.get(latest_ym) if latest_ym else None}
+    with _LOCK:
+        _REAL_FX_CACHE["us_cpi"] = (now, res)
+    return res
+
+
+def _fetch_fx_history_for_real_calc(fx_type: str) -> list[dict[str, Any]]:
+    ft = (fx_type or "oficial").strip().lower()
+    if ft not in ("oficial", "ccl", "blue"):
+        ft = "oficial"
+    cache_key = f"fx_hist_{ft}"
+    now = datetime.now(timezone.utc)
+    with _LOCK:
+        cached = _REAL_FX_CACHE.get(cache_key)
+        if cached and (now - cached[0]) < timedelta(minutes=30):
+            return cached[1]
+
+    casa = "contadoconliqui" if ft == "ccl" else ft
+    pts = _fetch_argentinadatos_fx_series(casa)
+    if ft == "oficial":
+        hist_2002_2010 = [{"date": f"{ym}-15", "value": val} for ym, val in sorted(_BCRA_OFFICIAL_MONTHLY_2002_2010.items())]
+        first_api_dt = pts[0]["date"] if pts else "2011-01-01"
+        pts = [p for p in hist_2002_2010 if p["date"] < first_api_dt] + pts
+
+    with _LOCK:
+        _REAL_FX_CACHE[cache_key] = (now, pts)
+    return pts
+
+
+def _lookup_monthly_index(idx_map: dict[str, float], ym: str, latest_val: float | None) -> float | None:
+    if not idx_map:
+        return None
+    if ym in idx_map:
+        return idx_map[ym]
+    sorted_keys = sorted(idx_map.keys())
+    if ym > sorted_keys[-1]:
+        return latest_val
+    prior = [k for k in sorted_keys if k <= ym]
+    return idx_map[prior[-1]] if prior else idx_map[sorted_keys[0]]
+
+
+def _compute_real_fx_window(
+    fx_pts: list[dict[str, Any]],
+    ar_ipc: dict[str, Any],
+    us_cpi: dict[str, Any] | None,
+    start_date: str,
+    end_date: str,
+    include_us_cpi: bool,
+) -> dict[str, Any] | None:
+    if not fx_pts or not ar_ipc.get("latest_index"):
+        return None
+
+    selected = [p for p in fx_pts if start_date <= p["date"] <= end_date]
+    if not selected:
+        # Si fue una fecha puntual sin rueda (fin de semana / feriado), buscar el punto previo más cercano
+        prior = [p for p in fx_pts if p["date"] <= end_date]
+        if prior:
+            selected = [prior[-1]]
+        else:
+            selected = [fx_pts[0]]
+
+    ar_map = ar_ipc["index_by_ym"]
+    ar_latest = ar_ipc["latest_index"]
+    us_map = (us_cpi or {}).get("index_by_ym") or {}
+    us_latest = (us_cpi or {}).get("latest_index")
+
+    nom_vals: list[float] = []
+    real_vals: list[float] = []
+    ar_factors: list[float] = []
+    us_factors: list[float] = []
+
+    for p in selected:
+        ym = p["date"][:7]
+        ar_idx = _lookup_monthly_index(ar_map, ym, ar_latest)
+        if not ar_idx or ar_idx <= 0:
+            continue
+        ar_factor = ar_latest / ar_idx
+        us_factor = 1.0
+        if include_us_cpi and us_latest and us_map:
+            us_idx = _lookup_monthly_index(us_map, ym, us_latest)
+            if us_idx and us_idx > 0:
+                us_factor = us_latest / us_idx
+        nom_vals.append(float(p["value"]))
+        real_vals.append(float(p["value"]) * (ar_factor / us_factor))
+        ar_factors.append(ar_factor)
+        us_factors.append(us_factor)
+
+    if not real_vals:
+        return None
+
+    current_fx = float(fx_pts[-1]["value"])
+    nominal_avg = round(sum(nom_vals) / len(nom_vals), 2)
+    real_today = round(sum(real_vals) / len(real_vals), 2)
+    brecha_pct = round(((real_today - current_fx) / current_fx) * 100.0, 1) if current_fx > 0 else None
+    ar_factor_avg = round(sum(ar_factors) / len(ar_factors), 2)
+    us_factor_avg = round(sum(us_factors) / len(us_factors), 3)
+
+    return {
+        "nominal_avg": nominal_avg,
+        "real_today": real_today,
+        "current_fx": round(current_fx, 2),
+        "current_date": fx_pts[-1]["date"],
+        "brecha_pct": brecha_pct,
+        "ar_inflation_factor": ar_factor_avg,
+        "us_inflation_factor": us_factor_avg,
+        "points_used": len(real_vals),
+        "effective_start": selected[0]["date"],
+        "effective_end": selected[-1]["date"],
+    }
+
+
+def _build_real_fx_series(fx_type: str = "oficial", include_us_cpi: bool = False) -> list[dict[str, Any]]:
+    fx_pts = _fetch_fx_history_for_real_calc(fx_type)
+    ar_ipc = _fetch_ar_inflation_index()
+    us_cpi = _fetch_us_cpi_index() if include_us_cpi else None
+    ar_map = ar_ipc.get("index_by_ym") or {}
+    ar_latest = ar_ipc.get("latest_index")
+    if not fx_pts or not ar_latest:
+        return []
+
+    us_map = (us_cpi or {}).get("index_by_ym") or {}
+    us_latest = (us_cpi or {}).get("latest_index")
+
+    # Resampleo mensual para serie limpia y rápida desde 2002 hasta hoy
+    by_ym: dict[str, list[float]] = {}
+    for p in fx_pts:
+        ym = p["date"][:7]
+        by_ym.setdefault(ym, []).append(float(p["value"]))
+
+    out: list[dict[str, Any]] = []
+    for ym in sorted(by_ym.keys()):
+        avg_nom = sum(by_ym[ym]) / len(by_ym[ym])
+        ar_idx = _lookup_monthly_index(ar_map, ym, ar_latest)
+        if not ar_idx or ar_idx <= 0:
+            continue
+        ar_factor = ar_latest / ar_idx
+        us_factor = 1.0
+        if include_us_cpi and us_latest and us_map:
+            us_idx = _lookup_monthly_index(us_map, ym, us_latest)
+            if us_idx and us_idx > 0:
+                us_factor = us_latest / us_idx
+        out.append({"date": f"{ym}-01", "value": round(avg_nom * (ar_factor / us_factor), 2)})
+    return out
+
+
+def calculate_real_fx_comparison(
+    start_date: str,
+    end_date: str | None = None,
+    fx_type: str = "oficial",
+    include_us_cpi: bool = False,
+) -> dict[str, Any]:
+    s_dt = (start_date or "").strip()[:10]
+    e_dt = (end_date or s_dt).strip()[:10]
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", s_dt) or not re.match(r"^\d{4}-\d{2}-\d{2}$", e_dt):
+        raise ValueError("Formato de fecha inválido. Usá YYYY-MM-DD.")
+    if s_dt > e_dt:
+        s_dt, e_dt = e_dt, s_dt
+
+    ft = (fx_type or "oficial").strip().lower()
+    if ft not in ("oficial", "ccl", "blue"):
+        raise ValueError("Tipo de cambio inválido. Opciones: oficial, ccl, blue.")
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        f_ar = pool.submit(_fetch_ar_inflation_index)
+        f_fx = pool.submit(_fetch_fx_history_for_real_calc, ft)
+        f_of = pool.submit(_fetch_fx_history_for_real_calc, "oficial") if ft != "oficial" else None
+        f_us = pool.submit(_fetch_us_cpi_index) if include_us_cpi else None
+
+        ar_ipc = f_ar.result()
+        fx_pts = f_fx.result()
+        oficial_pts = f_of.result() if f_of else fx_pts
+        us_cpi = f_us.result() if f_us else None
+
+    custom = _compute_real_fx_window(fx_pts, ar_ipc, us_cpi, s_dt, e_dt, include_us_cpi)
+    if not custom:
+        raise ValueError("No hay datos suficientes para el rango y tipo de cambio seleccionado.")
+
+    presets_out: list[dict[str, Any]] = []
+    for pr in REAL_FX_PRESETS:
+        pr_pts = fx_pts if (ft == "oficial" or pr["start_date"] >= "2013-01-01") else oficial_pts
+        pr_res = _compute_real_fx_window(pr_pts, ar_ipc, us_cpi, pr["start_date"], pr["end_date"], include_us_cpi)
+        if pr_res:
+            presets_out.append(
+                {
+                    "id": pr["id"],
+                    "label": pr["label"],
+                    "start_date": pr["start_date"],
+                    "end_date": pr["end_date"],
+                    "fx_type": ft if pr_pts is fx_pts else "oficial",
+                    **pr_res,
+                }
+            )
+
+    return {
+        "fx_type": ft,
+        "include_us_cpi": include_us_cpi,
+        "ipc_latest_month": ar_ipc.get("latest_ym"),
+        "us_cpi_latest_month": (us_cpi or {}).get("latest_ym"),
+        "query": {"start_date": s_dt, "end_date": e_dt},
+        "result": custom,
+        "presets": presets_out,
+    }

@@ -201,6 +201,28 @@ def delete_argentina_social_override(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/argentina/real-fx-compare")
+def get_argentina_real_fx_compare(
+    start_date: str = "2003-05-25",
+    end_date: str | None = "2007-12-10",
+    fx_type: str = "oficial",
+    include_us_cpi: bool = False,
+):
+    from app.services.argentina_service import calculate_real_fx_comparison
+
+    try:
+        return calculate_real_fx_comparison(
+            start_date=start_date,
+            end_date=end_date,
+            fx_type=fx_type,
+            include_us_cpi=include_us_cpi,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error calculando dólar real histórico: {str(e)}")
+
+
 @router.get("/watchlists")
 def list_watchlists(
     current_user: User = Depends(get_current_user),
