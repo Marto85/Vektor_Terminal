@@ -11,6 +11,7 @@ import WatchlistTab from "../components/WatchlistTab";
 import ScreenerTab from "../components/ScreenerTab";
 import MacroLabTab from "../components/MacroLabTab";
 import PortfoliosCRMTab from "../components/PortfoliosCRMTab";
+import ArgentinaTab from "../components/ArgentinaTab";
 
 vi.mock("../api/client", () => ({
   default: {
@@ -147,5 +148,36 @@ describe("Bloque 4 — Smoke & Interacción de Componentes Clave", () => {
 
     render(wrapProviders(<PortfoliosCRMTab onSelectTicker={vi.fn()} />));
     await waitFor(() => expect(apiClient.get).toHaveBeenCalled());
+  });
+
+  it("ArgentinaTab renderiza tarjetas, bonos soberanos y grilla de noticias", async () => {
+    apiClient.get.mockImplementation((url) => {
+      if (url.includes("/argentina/overview")) {
+        return Promise.resolve({
+          data: {
+            cards: {
+              mayorista: { series_id: "fx_mayorista", label: "Dólar Mayorista (A3500)", value: 1000, unit: "ARS", subtitle: "BCRA" },
+              mep: { series_id: "fx_mep", label: "Dólar MEP (Promedio)", value: 1150, unit: "ARS", subtitle: "Brecha +15.0%" },
+              riesgo_pais: { series_id: "riesgo_pais", label: "Riesgo País (EMBI+)", value: 750, unit: "pb", subtitle: "2026-11-26" },
+            },
+            sovereign_bonds: [
+              { ticker: "GD30", series_id: "bond_GD30", name: "Bonar Global 2030", law: "Ley NY", maturity: "2030-07-09", coupon_pct: 0.75, price_usd: 68.5, change_pct: 1.2 },
+            ],
+            news: [
+              { title: "Noticia Económica Test", subtitle: "Bajada de prueba", link: "https://example.com/1", source: "Infobae", topic: "Economía", published_at: "2026-11-26T10:00:00Z" },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({
+        data: { series_id: "riesgo_pais", label: "Riesgo País", unit: "pb", supports_candlestick: false, points: [] },
+      });
+    });
+
+    render(wrapProviders(<ArgentinaTab />));
+    await waitFor(() => {
+      expect(screen.getByText("Bonar Global 2030")).toBeInTheDocument();
+      expect(screen.getByText("Noticia Económica Test")).toBeInTheDocument();
+    });
   });
 });

@@ -125,6 +125,28 @@ def get_macro_lab(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error cargando Macro Lab: {str(e)}")
 
 
+@router.get("/argentina/overview")
+def get_argentina_overview():
+    from app.services.argentina_service import build_argentina_overview
+
+    try:
+        return build_argentina_overview()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cargando panel Argentina: {str(e)}")
+
+
+@router.get("/argentina/series/{series_id}")
+def get_argentina_series_endpoint(series_id: str, range: str = "1y"):
+    from app.services.argentina_service import get_argentina_series
+
+    try:
+        return get_argentina_series(series_id=series_id, range_key=range)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cargando serie histórica Argentina: {str(e)}")
+
+
 @router.get("/watchlists")
 def list_watchlists(
     current_user: User = Depends(get_current_user),

@@ -14,6 +14,7 @@ import {
   Download,
   Calculator,
   Globe,
+  Landmark,
   Presentation,
   Users,
   Maximize2,
@@ -61,6 +62,7 @@ const ComparatorTab = lazy(() => import("./components/ComparatorTab"));
 const ScreenerTab = lazy(() => import("./components/ScreenerTab"));
 const ValuationModelsTab = lazy(() => import("./components/ValuationModelsTab"));
 const MacroLabTab = lazy(() => import("./components/MacroLabTab"));
+const ArgentinaTab = lazy(() => import("./components/ArgentinaTab"));
 const InvestmentThesisTab = lazy(() => import("./components/InvestmentThesisTab"));
 const OwnershipInsidersTab = lazy(() => import("./components/OwnershipInsidersTab"));
 const PortfoliosCRMTab = lazy(() => import("./components/PortfoliosCRMTab"));
@@ -262,6 +264,7 @@ function App() {
     { id: "Comparador", name: "Comparador", icon: Scale },
     { id: "Modelos", name: "Modelos de Valuación", icon: Calculator },
     { id: "MacroLab", name: "Macro Lab", icon: Globe },
+    { id: "Argentina", name: "Argentina", icon: Landmark },
     { id: "Tesis", name: "Tesis de Inversión", icon: Presentation },
   ];
 
@@ -591,6 +594,7 @@ function App() {
       activeSidebarTab === "Screener" ||
       activeSidebarTab === "Modelos" ||
       activeSidebarTab === "MacroLab" ||
+      activeSidebarTab === "Argentina" ||
       activeSidebarTab === "Tesis" ||
       activeSidebarTab === "Comparador";
     executeSearch(selectedTicker, period, shouldSwitch);
@@ -609,6 +613,7 @@ function App() {
         activeSidebarTab === "Screener" ||
         activeSidebarTab === "Modelos" ||
         activeSidebarTab === "MacroLab" ||
+        activeSidebarTab === "Argentina" ||
         activeSidebarTab === "Tesis" ||
         activeSidebarTab === "Comparador";
       executeSearch(tickerInput.trim(), period, shouldSwitch);
@@ -1858,6 +1863,15 @@ function App() {
               <ErrorBoundary key="MacroLab" compact>
                 <Suspense fallback={<TabFallback />}>
                   <MacroLabTab />
+                </Suspense>
+              </ErrorBoundary>
+            )}
+
+            {/* PESTAÑA: ARGENTINA (MERCADO, DEUDA Y COYUNTURA) */}
+            {activeSidebarTab === "Argentina" && (
+              <ErrorBoundary key="Argentina" compact>
+                <Suspense fallback={<TabFallback />}>
+                  <ArgentinaTab />
                 </Suspense>
               </ErrorBoundary>
             )}
