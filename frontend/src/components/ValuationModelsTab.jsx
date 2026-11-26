@@ -178,8 +178,8 @@ function RangeSliderWithNumber({
           type="number"
           min={min}
           max={max}
-          step={step}
-          value={Number.isFinite(value) ? value : 0}
+          step="any"
+          value={Number.isFinite(value) ? Number(value.toFixed(2)) : 0}
           aria-label={ariaLabel ? `${ariaLabel} numérico` : undefined}
           onChange={(e) => {
             const parsed = parseFloat(e.target.value);

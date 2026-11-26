@@ -89,6 +89,7 @@ html.dark main .bg-gray-50,
 html.dark main .bg-gray-50\/70,
 html.dark main .bg-gray-100,
 html.dark main .bg-slate-50,
+html.dark main .bg-slate-50\/70,
 html.dark main .bg-slate-100 {
   background-color: #27272a;
 }
@@ -97,6 +98,7 @@ html.dark main .border-gray-200,
 html.dark main .border-gray-100,
 html.dark main .border-gray-300,
 html.dark main .border-slate-200,
+html.dark main .border-slate-200\/80,
 html.dark main .border-slate-200\/90,
 html.dark main .border-slate-300 {
   border-color: #3f3f46;
@@ -168,6 +170,12 @@ html.dark main .bg-blue-50\/70 {
 html.dark main .bg-purple-50,
 html.dark main .bg-purple-100 {
   background-color: rgba(168, 85, 247, 0.16);
+}
+html.dark main .border-purple-200\/80 {
+  border-color: rgba(168, 85, 247, 0.35);
+}
+html.dark main .text-purple-900 {
+  color: #e9d5ff;
 }
 
 html.dark main .text-emerald-950,
