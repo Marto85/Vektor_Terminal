@@ -30,7 +30,7 @@ function saveCachedUser(userObj) {
 
 function consumeInitialUrlAuthParams() {
   if (typeof window === "undefined") {
-    return { oauthToken: null, oauthError: null, resetToken: null };
+    return { oauthToken: null, oauthError: null, resetToken: null, verifyToken: null };
   }
   const url = new URL(window.location.href);
   const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
@@ -38,6 +38,7 @@ function consumeInitialUrlAuthParams() {
     hashParams.get("oauth_token") || url.searchParams.get("oauth_token");
   const oauthError = url.searchParams.get("oauth_error");
   const resetToken = url.searchParams.get("reset_token");
+  const verifyToken = url.searchParams.get("verify_token");
 
   let changed = false;
   if (hashParams.has("oauth_token")) {
@@ -46,15 +47,20 @@ function consumeInitialUrlAuthParams() {
     url.hash = nextHash ? `#${nextHash}` : "";
     changed = true;
   }
-  if (url.searchParams.has("oauth_token") || url.searchParams.has("oauth_error")) {
+  if (
+    url.searchParams.has("oauth_token") ||
+    url.searchParams.has("oauth_error") ||
+    url.searchParams.has("verify_token")
+  ) {
     url.searchParams.delete("oauth_token");
     url.searchParams.delete("oauth_error");
+    url.searchParams.delete("verify_token");
     changed = true;
   }
   if (changed) {
     window.history.replaceState({}, "", url.pathname + url.search + url.hash);
   }
-  return { oauthToken, oauthError, resetToken };
+  return { oauthToken, oauthError, resetToken, verifyToken };
 }
 
 export function AuthProvider({ children }) {
@@ -70,7 +76,7 @@ export function AuthProvider({ children }) {
     () => initialUrlParams.resetToken || "",
   );
   const [loadingAuth, setLoadingAuth] = useState(() => {
-    if (initialUrlParams.oauthToken) return true;
+    if (initialUrlParams.oauthToken || initialUrlParams.verifyToken) return true;
     const hasToken = Boolean(getStoredToken());
     const hasCachedProfile = Boolean(loadCachedUser());
     return hasToken && !hasCachedProfile;
@@ -107,6 +113,33 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
+    if (initialUrlParams.verifyToken) {
+      let cancelled = false;
+      apiClient
+        .post("/auth/verify-email", { token: initialUrlParams.verifyToken })
+        .then((res) => {
+          if (!cancelled && res.data?.access_token) {
+            setStoredToken(res.data.access_token);
+            saveCachedUser(res.data.user);
+            setUser(res.data.user);
+          }
+        })
+        .catch((err) => {
+          if (!cancelled) {
+            setOauthError(
+              err?.response?.data?.detail ||
+                "No se pudo verificar tu correo electrónico."
+            );
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingAuth(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     if (initialUrlParams.oauthToken) {
       setStoredToken(initialUrlParams.oauthToken);
     }
@@ -137,7 +170,7 @@ export function AuthProvider({ children }) {
     return () => {
       cancelled = true;
     };
-  }, [initialUrlParams.oauthToken]);
+  }, [initialUrlParams.oauthToken, initialUrlParams.verifyToken]);
 
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -179,6 +212,9 @@ export function AuthProvider({ children }) {
         advisor_id,
         invite_code,
       });
+      if (res.data?.requires_email_verification) {
+        return res.data;
+      }
       const { access_token, user: createdUser } = res.data;
       setStoredToken(access_token);
       saveCachedUser(createdUser);

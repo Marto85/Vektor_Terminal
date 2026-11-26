@@ -1,7 +1,10 @@
+from collections import defaultdict
+import threading
+import time
 from typing import Annotated, Optional
 from urllib.parse import quote
 from email_validator import EmailNotValidError, validate_email
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
 from pydantic import AfterValidator, BaseModel, Field
 from sqlalchemy.orm import Session
@@ -31,9 +34,34 @@ from app.services.auth_service import (
     request_password_recovery,
     serialize_user,
     update_user_by_admin,
+    verify_registered_email,
 )
 
 auth_router = APIRouter(tags=["Autenticación y Usuarios"])
+
+_AUTH_RATE_LOCK = threading.Lock()
+_AUTH_RATE_BUCKETS: dict[str, list[float]] = defaultdict(list)
+
+
+def _enforce_auth_rate_limit(request: Request, bucket: str, max_calls: int, window_seconds: int = 60) -> None:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    client_ip = (forwarded.split(",")[0].strip() if forwarded else None) or (
+        request.client.host if request.client else "unknown"
+    )
+    key = f"{bucket}:{client_ip}"
+    now = time.monotonic()
+    cutoff = now - window_seconds
+    with _AUTH_RATE_LOCK:
+        hits = [t for t in _AUTH_RATE_BUCKETS[key] if t > cutoff]
+        if len(hits) >= max_calls:
+            _AUTH_RATE_BUCKETS[key] = hits
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Demasiados intentos en poco tiempo. Esperá un minuto antes de reintentar.",
+                headers={"Retry-After": str(window_seconds)},
+            )
+        hits.append(now)
+        _AUTH_RATE_BUCKETS[key] = hits
 
 
 def _validate_vektor_email(v: str) -> str:
@@ -114,8 +142,13 @@ def get_public_advisors(db: Session = Depends(get_db)):
     return {"advisors": list_public_advisors(db)}
 
 
+class VerifyEmailRequest(BaseModel):
+    token: str = Field(..., min_length=10, max_length=200)
+
+
 @auth_router.post("/auth/login")
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    _enforce_auth_rate_limit(request, "login", max_calls=20, window_seconds=60)
     ident = (payload.identifier or payload.email or "").strip()
     user = authenticate_user(db, ident, payload.password)
     token = create_access_token(
@@ -131,7 +164,8 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 @auth_router.post("/auth/register")
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+def register(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+    _enforce_auth_rate_limit(request, "register", max_calls=10, window_seconds=60)
     user = register_public_user(
         db=db,
         username=payload.username,
@@ -141,6 +175,28 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         advisor_id=payload.advisor_id,
         invite_code=payload.invite_code,
     )
+    if not getattr(user, "email_verified", True):
+        return {
+            "requires_email_verification": True,
+            "message": "Cuenta creada. Te enviamos un correo para confirmar tu dirección y activar el acceso.",
+            "user": serialize_user(user),
+        }
+    token = create_access_token(
+        user_id=int(user.id),
+        email=str(user.email),
+        role=str(user.role),
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": serialize_user(user),
+    }
+
+
+@auth_router.post("/auth/verify-email")
+def verify_email(payload: VerifyEmailRequest, request: Request, db: Session = Depends(get_db)):
+    _enforce_auth_rate_limit(request, "verify_email", max_calls=10, window_seconds=60)
+    user = verify_registered_email(db, payload.token)
     token = create_access_token(
         user_id=int(user.id),
         email=str(user.email),
@@ -154,7 +210,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @auth_router.post("/auth/forgot-password")
-def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+def forgot_password(payload: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)):
+    _enforce_auth_rate_limit(request, "forgot_password", max_calls=8, window_seconds=60)
     return request_password_recovery(db, str(payload.email))
 
 

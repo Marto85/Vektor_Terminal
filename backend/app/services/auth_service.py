@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import hashlib
+import os
 import re
 import secrets
 from typing import Optional
@@ -27,8 +28,12 @@ from app.core.config import (
     get_registration_mode,
 )
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models.database import PasswordResetToken, SessionLocal, User
-from app.services.email_service import send_recovery_email
+from app.models.database import EmailVerificationToken, PasswordResetToken, SessionLocal, User
+from app.services.email_service import (
+    is_email_delivery_configured,
+    send_recovery_email,
+    send_verification_email,
+)
 
 VALID_ROLES = ("superadmin", "advisor", "client")
 USERNAME_REGEX = re.compile(r"^[a-z0-9._]{3,32}$")
@@ -161,7 +166,21 @@ def authenticate_user(db: Session, identifier: str, password: str) -> User:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tu cuenta está desactivada. Contactá al administrador.",
         )
+    if not getattr(user, "email_verified", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Confirmá tu correo electrónico desde el enlace que te enviamos antes de ingresar.",
+        )
     return user
+
+
+def is_email_verification_required() -> bool:
+    flag = os.getenv("VEKTOR_REQUIRE_EMAIL_VERIFICATION", "").strip().lower()
+    if flag in ("1", "true", "yes"):
+        return True
+    if flag in ("0", "false", "no"):
+        return False
+    return VEKTOR_ENV == "production" and is_email_delivery_configured()
 
 
 def register_public_user(
@@ -226,6 +245,7 @@ def register_public_user(
             )
         resolved_advisor_id = int(advisor.id)
 
+    require_verify = is_email_verification_required()
     user = User(
         username=clean_username,
         email=clean_email,
@@ -234,10 +254,57 @@ def register_public_user(
         auth_provider="local",
         role="client",
         is_active=True,
+        email_verified=not require_verify,
         must_change_password=False,
         advisor_id=resolved_advisor_id,
     )
     db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    if require_verify:
+        raw_token = secrets.token_urlsafe(24)
+        token_row = EmailVerificationToken(
+            user_id=user.id,
+            token_hash=_hash_reset_token(raw_token),
+            expires_at=datetime.utcnow() + timedelta(hours=24),
+            used=False,
+        )
+        db.add(token_row)
+        db.commit()
+        send_verification_email(
+            to_email=user.email,
+            full_name=user.full_name,
+            username=user.username,
+            raw_token=raw_token,
+        )
+
+    return user
+
+
+def verify_registered_email(db: Session, token: str) -> User:
+    t_hash = _hash_reset_token((token or "").strip())
+    row = (
+        db.query(EmailVerificationToken)
+        .filter(
+            EmailVerificationToken.token_hash == t_hash,
+            EmailVerificationToken.used == False,  # noqa: E712
+        )
+        .first()
+    )
+    if not row or row.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El enlace de confirmación es inválido o ya expiró.",
+        )
+    user = db.query(User).filter(User.id == row.user_id).first()
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La cuenta asociada no está disponible.",
+        )
+    user.email_verified = True
+    row.used = True
     db.commit()
     db.refresh(user)
     return user

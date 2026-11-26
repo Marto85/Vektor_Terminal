@@ -197,7 +197,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
     }
     setSubmitting(true);
     try {
-      await registerPublic({
+      const result = await registerPublic({
         username: regUsername.trim().toLowerCase(),
         full_name: regFullName.trim(),
         email: regEmail.trim(),
@@ -205,6 +205,13 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
         advisor_id: regAdvisorId ? Number(regAdvisorId) : null,
         invite_code: regInviteCode.trim() || null,
       });
+      if (result?.requires_email_verification) {
+        setMode("login");
+        setInfoMsg(
+          result.message ||
+            "Cuenta creada. Revisá tu correo para confirmar la dirección antes de ingresar."
+        );
+      }
     } catch (err) {
       setErrorMsg(
         err?.response?.data?.detail || "No se pudo completar el registro."

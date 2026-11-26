@@ -42,6 +42,7 @@ class User(Base):
     oauth_sub: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="client", index=True)  # superadmin | advisor | client
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     advisor_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
@@ -275,6 +276,19 @@ class PasswordResetToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class EmailVerificationToken(Base):
+    __tablename__ = "email_verification_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 def run_schema_migrations() -> None:
     """Agrega columnas nuevas a tablas existentes de forma idempotente (SQLite/PostgreSQL)."""
     inspector = inspect(engine)
@@ -290,6 +304,8 @@ def run_schema_migrations() -> None:
             conn.execute(text("ALTER TABLE users ADD COLUMN auth_provider VARCHAR(20) DEFAULT 'local' NOT NULL"))
         if "oauth_sub" not in existing_cols:
             conn.execute(text("ALTER TABLE users ADD COLUMN oauth_sub VARCHAR(255)"))
+        if "email_verified" not in existing_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT TRUE NOT NULL"))
 
         # Poblar username en filas previas que no lo tengan
         rows = conn.execute(text("SELECT id, email, username FROM users")).fetchall()
