@@ -43,25 +43,51 @@ _AUTH_RATE_LOCK = threading.Lock()
 _AUTH_RATE_BUCKETS: dict[str, list[float]] = defaultdict(list)
 
 
-def _enforce_auth_rate_limit(request: Request, bucket: str, max_calls: int, window_seconds: int = 60) -> None:
+def _extract_trusted_client_ip(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for", "")
-    client_ip = (forwarded.split(",")[0].strip() if forwarded else None) or (
-        request.client.host if request.client else "unknown"
-    )
-    key = f"{bucket}:{client_ip}"
+    if forwarded:
+        # Usar el último salto agregado por el proxy confiable (Render/Edge), no el primer valor manipulable por el cliente
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
+    return request.client.host if request.client else "unknown"
+
+
+def _enforce_auth_rate_limit(
+    request: Request,
+    bucket: str,
+    max_calls: int,
+    window_seconds: int = 60,
+    subject_key: str | None = None,
+) -> None:
+    client_ip = _extract_trusted_client_ip(request)
+    keys = [f"{bucket}:ip:{client_ip}"]
+    if subject_key:
+        clean_subj = subject_key.strip().lower()[:120]
+        if clean_subj:
+            keys.append(f"{bucket}:subj:{clean_subj}")
+
     now = time.monotonic()
     cutoff = now - window_seconds
     with _AUTH_RATE_LOCK:
-        hits = [t for t in _AUTH_RATE_BUCKETS[key] if t > cutoff]
-        if len(hits) >= max_calls:
+        if len(_AUTH_RATE_BUCKETS) > 512:
+            stale_keys = [
+                k for k, ts_list in _AUTH_RATE_BUCKETS.items() if not ts_list or ts_list[-1] <= cutoff
+            ]
+            for sk in stale_keys:
+                _AUTH_RATE_BUCKETS.pop(sk, None)
+
+        for key in keys:
+            hits = [t for t in _AUTH_RATE_BUCKETS[key] if t > cutoff]
+            if len(hits) >= max_calls:
+                _AUTH_RATE_BUCKETS[key] = hits
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Demasiados intentos en poco tiempo. Esperá un minuto antes de reintentar.",
+                    headers={"Retry-After": str(window_seconds)},
+                )
+            hits.append(now)
             _AUTH_RATE_BUCKETS[key] = hits
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Demasiados intentos en poco tiempo. Esperá un minuto antes de reintentar.",
-                headers={"Retry-After": str(window_seconds)},
-            )
-        hits.append(now)
-        _AUTH_RATE_BUCKETS[key] = hits
 
 
 def _validate_vektor_email(v: str) -> str:
@@ -148,8 +174,8 @@ class VerifyEmailRequest(BaseModel):
 
 @auth_router.post("/auth/login")
 def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    _enforce_auth_rate_limit(request, "login", max_calls=20, window_seconds=60)
     ident = (payload.identifier or payload.email or "").strip()
+    _enforce_auth_rate_limit(request, "login", max_calls=20, window_seconds=60, subject_key=ident)
     user = authenticate_user(db, ident, payload.password)
     token = create_access_token(
         user_id=int(user.id),

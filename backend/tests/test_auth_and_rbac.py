@@ -236,3 +236,69 @@ def test_verify_email_endpoint_and_auth_rate_limit(api_client, db_session, monke
         json={"email": "nonexistent21@vektor.local", "password": "wrong"},
     )
     assert blocked.status_code == 429
+
+
+def test_rate_limit_blocks_spoofed_xff_by_subject_and_purges_expired_unverified(api_client, db_session, monkeypatch):
+    from datetime import datetime, timedelta
+    from app.api import auth_routes
+    from app.core import config
+    from app.models.database import EmailVerificationToken, User
+    from app.services import auth_service
+
+    # 1. Spoofing de X-Forwarded-For con distintas IPs no esquiva el límite por usuario
+    auth_routes._AUTH_RATE_BUCKETS.clear()
+    for i in range(20):
+        r = api_client.post(
+            "/api/v1/auth/login",
+            headers={"X-Forwarded-For": f"198.51.100.{i + 1}, 127.0.0.1"},
+            json={"email": "target.user@vektor.local", "password": "wrong"},
+        )
+        assert r.status_code == 401
+    blocked = api_client.post(
+        "/api/v1/auth/login",
+        headers={"X-Forwarded-For": "203.0.113.99, 127.0.0.1"},
+        json={"email": "target.user@vektor.local", "password": "wrong"},
+    )
+    assert blocked.status_code == 429
+
+    # 2. Cuenta no verificada con token expirado se reemplaza al re-registrarse
+    stale_user = User(
+        username="staleuser",
+        email="stale@vektor.local",
+        full_name="Stale User",
+        hashed_password=auth_service.hash_password("Password123!"),
+        auth_provider="local",
+        role="client",
+        is_active=True,
+        email_verified=False,
+    )
+    db_session.add(stale_user)
+    db_session.commit()
+    db_session.refresh(stale_user)
+    db_session.add(
+        EmailVerificationToken(
+            user_id=stale_user.id,
+            token_hash=auth_service._hash_reset_token("expired-token-123456"),
+            expires_at=datetime.utcnow() - timedelta(hours=2),
+            used=False,
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(config, "VEKTOR_INVITE_CODE", "amigos-2026")
+    monkeypatch.setattr(auth_service, "VEKTOR_INVITE_CODE", "amigos-2026")
+    monkeypatch.setattr(auth_service, "is_email_verification_required", lambda: False)
+    auth_routes._AUTH_RATE_BUCKETS.clear()
+
+    re_reg = api_client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "freshuser",
+            "email": "stale@vektor.local",
+            "full_name": "Fresh User",
+            "password": "Password123!",
+            "invite_code": "amigos-2026",
+        },
+    )
+    assert re_reg.status_code == 200
+    assert re_reg.json()["user"]["username"] == "freshuser"

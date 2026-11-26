@@ -217,16 +217,36 @@ def register_public_user(
             detail="La contraseña debe tener al menos 8 caracteres.",
         )
 
+    now_utc = datetime.utcnow()
+    existing_email_user = db.query(User).filter(func.lower(User.email) == clean_email).first()
+    if existing_email_user:
+        if not existing_email_user.email_verified:
+            active_tok = (
+                db.query(EmailVerificationToken)
+                .filter(
+                    EmailVerificationToken.user_id == existing_email_user.id,
+                    EmailVerificationToken.used == False,  # noqa: E712
+                    EmailVerificationToken.expires_at >= now_utc,
+                )
+                .first()
+            )
+            if active_tok is None:
+                db.query(EmailVerificationToken).filter(
+                    EmailVerificationToken.user_id == existing_email_user.id
+                ).delete(synchronize_session=False)
+                db.delete(existing_email_user)
+                db.commit()
+                existing_email_user = None
+        if existing_email_user is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya existe una cuenta registrada con ese correo electrónico.",
+            )
+
     if db.query(User).filter(func.lower(User.username) == clean_username).first():
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Ese nombre de usuario ya está en uso. Elegí otro.",
-        )
-
-    if db.query(User).filter(func.lower(User.email) == clean_email).first():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Ya existe una cuenta registrada con ese correo electrónico.",
         )
 
     resolved_advisor_id: Optional[int] = None

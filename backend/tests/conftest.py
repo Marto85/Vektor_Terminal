@@ -1,4 +1,6 @@
+import os
 import sys
+import tempfile
 from pathlib import Path
 import pytest
 from sqlalchemy import create_engine
@@ -9,6 +11,10 @@ from sqlalchemy.pool import StaticPool
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
+
+# Aísla DATABASE_URL en un archivo temporal antes de importar app.models.database / app.main
+_TEST_BOOTSTRAP_DB = Path(tempfile.gettempdir()) / "vektor_pytest_bootstrap.db"
+os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TEST_BOOTSTRAP_DB.as_posix()}")
 
 from app.models.database import Base
 
