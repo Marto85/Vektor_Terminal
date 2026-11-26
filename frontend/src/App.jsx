@@ -213,7 +213,7 @@ function App() {
 
   if (loadingAuth) {
     return (
-      <div className="min-h-screen bg-[#1e1e1e] flex flex-col items-center justify-center text-gray-300">
+      <div className="min-h-screen bg-[#1f242d] flex flex-col items-center justify-center text-gray-300">
         <Loader2 className="w-8 h-8 text-orange-500 animate-spin mb-3" />
         <p className="text-xs font-medium tracking-wide">
           Verificando sesión en VektorTerminal...
@@ -890,10 +890,10 @@ function App() {
   );
 
   return (
-    <div className="fixed inset-0 md:static md:h-dvh flex bg-[#1e1e1e] font-sans text-gray-200 overflow-hidden overscroll-none">
+    <div className="fixed inset-0 md:static md:h-dvh flex bg-[#1f242d] font-sans text-gray-200 overflow-hidden overscroll-none">
       {/* SIDEBAR ESCRITORIO (oculto en mobile < 768px) */}
-      <aside className={`hidden md:flex ${sidebarCollapsed ? "w-14" : "w-56"} bg-[#252526] border-r border-gray-700 flex-col shrink-0 transition-all duration-150`}>
-        <div className="h-12 flex items-center justify-between px-3 border-b border-gray-700 bg-[#1e1e1e]">
+      <aside className={`hidden md:flex ${sidebarCollapsed ? "w-14" : "w-56"} bg-[#262b36] border-r border-gray-700 flex-col shrink-0 transition-all duration-150`}>
+        <div className="h-12 flex items-center justify-between px-3 border-b border-gray-700 bg-[#1f242d]">
           {!sidebarCollapsed && (
             <button
               type="button"
@@ -909,7 +909,7 @@ function App() {
             onClick={() => setSidebarCollapsed((prev) => !prev)}
             title={sidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
             aria-label={sidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
-            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-[#333333] cursor-pointer transition-colors mx-auto"
+            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-[#323846] cursor-pointer transition-colors mx-auto"
           >
             {sidebarCollapsed ? (
               <PanelLeftOpen className="w-4 h-4" />
@@ -929,8 +929,8 @@ function App() {
             className="fixed inset-0 bg-black/60 backdrop-blur-[1px]"
             onClick={() => setMobileMenuOpen(false)}
           />
-          <aside className="relative w-72 max-w-[82vw] bg-[#252526] border-r border-gray-700 flex flex-col h-full z-10 shadow-2xl">
-            <div className="h-12 flex items-center justify-between px-4 border-b border-gray-700 bg-[#1e1e1e]">
+          <aside className="relative w-72 max-w-[82vw] bg-[#262b36] border-r border-gray-700 flex flex-col h-full z-10 shadow-2xl">
+            <div className="h-12 flex items-center justify-between px-4 border-b border-gray-700 bg-[#1f242d]">
               <button
                 type="button"
                 onClick={() => {
@@ -958,12 +958,12 @@ function App() {
       {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 flex flex-col min-w-0 bg-[#f9fafb]">
         {/* HEADER RESPONSIVE CON MENÚ MOBILE, AUTOCOMPLETADO, NOTIFICACIONES Y USUARIO */}
-        <header className="h-12 bg-[#252526] border-b border-gray-700 flex items-center justify-between px-2.5 sm:px-4 gap-2 shrink-0 z-40">
+        <header className="h-12 bg-[#262b36] border-b border-gray-700 flex items-center justify-between px-2.5 sm:px-4 gap-2 shrink-0 z-40">
           <button
             type="button"
             onClick={() => setMobileMenuOpen(true)}
             aria-label="Abrir navegación"
-            className="md:hidden p-1.5 rounded-lg text-gray-300 hover:text-white hover:bg-[#333333] cursor-pointer shrink-0"
+            className="md:hidden p-1.5 rounded-lg text-gray-300 hover:text-white hover:bg-[#323846] cursor-pointer shrink-0"
           >
             <Menu className="w-5 h-5" />
           </button>
@@ -981,18 +981,18 @@ function App() {
                 }}
                 onBlur={() => setShowDropdown(false)}
                 placeholder="Buscar ticker (Ej: AAPL, MSFT, MELI)..."
-                className="w-full pl-8 sm:pl-9 pr-3 sm:pr-12 py-1.5 sm:py-1 bg-[#333333] border border-gray-600 rounded text-xs text-white placeholder-gray-400 focus:outline-none focus:border-orange-500 focus:bg-[#1e1e1e]"
+                className="w-full pl-8 sm:pl-9 pr-3 sm:pr-12 py-1.5 sm:py-1 bg-[#323846] border border-gray-600 rounded text-xs text-white placeholder-gray-400 focus:outline-none focus:border-orange-500 focus:bg-[#1f242d]"
               />
-              <div className="hidden sm:block absolute right-2 top-1/2 transform -translate-y-1/2 text-[10px] text-gray-500 bg-[#252526] px-1 rounded border border-gray-600">
+              <div className="hidden sm:block absolute right-2 top-1/2 transform -translate-y-1/2 text-[10px] text-gray-500 bg-[#262b36] px-1 rounded border border-gray-600">
                 Enter
               </div>
 
               {showDropdown && searchResults.length > 0 && (
-                <div className="absolute top-full left-0 w-full mt-1 bg-[#252526] border border-gray-600 rounded shadow-lg overflow-hidden z-50">
+                <div className="absolute top-full left-0 w-full mt-1 bg-[#262b36] border border-gray-600 rounded shadow-lg overflow-hidden z-50">
                   {searchResults.map((res, idx) => (
                     <div
                       key={idx}
-                      className="px-3 sm:px-4 py-2.5 sm:py-2 hover:bg-[#333333] cursor-pointer flex justify-between items-center border-b border-gray-700/50 last:border-0"
+                      className="px-3 sm:px-4 py-2.5 sm:py-2 hover:bg-[#323846] cursor-pointer flex justify-between items-center border-b border-gray-700/50 last:border-0"
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => handleSelectTicker(res.ticker)}
                     >
@@ -1020,7 +1020,7 @@ function App() {
               onClick={toggleTheme}
               title={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
               aria-label={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
-              className="p-1.5 rounded hover:text-white hover:bg-[#333333] cursor-pointer transition-colors"
+              className="p-1.5 rounded hover:text-white hover:bg-[#323846] cursor-pointer transition-colors"
             >
               {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -1145,7 +1145,7 @@ function App() {
               <button
                 type="button"
                 onClick={() => setShowUserMenu((prev) => !prev)}
-                className="flex items-center gap-2 pl-1.5 sm:pl-2 pr-1 py-1 rounded-lg hover:bg-[#333333] transition-colors cursor-pointer"
+                className="flex items-center gap-2 pl-1.5 sm:pl-2 pr-1 py-1 rounded-lg hover:bg-[#323846] transition-colors cursor-pointer"
               >
                 <span
                   className={`hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${roleBadge.cls}`}
@@ -1652,8 +1652,8 @@ function App() {
                       <div className="w-full overflow-x-auto">
                         <table className="w-full text-xs sm:text-[13px] text-left whitespace-nowrap">
                           <thead>
-                            <tr className="bg-[#333333] text-white">
-                              <th className="py-2.5 px-3 sm:px-4 font-bold sticky left-0 bg-[#333333] z-10 w-44 sm:w-72 max-w-44 sm:max-w-none">
+                            <tr className="bg-[#323846] text-white">
+                              <th className="py-2.5 px-3 sm:px-4 font-bold sticky left-0 bg-[#323846] z-10 w-44 sm:w-72 max-w-44 sm:max-w-none">
                                 {activeContentTab} | Vektor
                               </th>
                               {availableYears.map((year) => (
@@ -1913,7 +1913,7 @@ function App() {
         </div>
 
         {/* BARRA INFERIOR DE ACCESO RÁPIDO MOBILE (< 768px) */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 min-h-14 pb-[env(safe-area-inset-bottom)] bg-[#252526] border-t border-gray-700 z-40 grid grid-cols-5 items-center text-[10px]">
+        <nav className="md:hidden fixed bottom-0 inset-x-0 min-h-14 pb-[env(safe-area-inset-bottom)] bg-[#262b36] border-t border-gray-700 z-40 grid grid-cols-5 items-center text-[10px]">
           <button
             type="button"
             onClick={() => setActiveSidebarTab("Inicio")}
@@ -1974,7 +1974,7 @@ function App() {
         {showAddToBoardModal && (
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
             <div className="bg-white rounded-xl border border-gray-200 shadow-2xl w-full max-w-lg overflow-hidden text-xs">
-              <div className="px-5 py-3.5 bg-[#252526] text-white flex items-center justify-between">
+              <div className="px-5 py-3.5 bg-[#262b36] text-white flex items-center justify-between">
                 <div>
                   <h4 className="text-sm font-bold">
                     Agregar{" "}
