@@ -50,8 +50,26 @@ def test_argentina_overview_brechas_and_news_parsing(monkeypatch):
         ),
         patch.object(
             argentina_service,
+            "_fetch_data912_bonds_map",
+            return_value={},
+        ),
+        patch.object(
+            argentina_service,
+            "_fetch_single_macro_card",
+            side_effect=lambda sid, cfg: {
+                "series_id": sid,
+                "label": cfg["label"],
+                "value": 10.0,
+                "unit": cfg["unit"],
+                "date": "2026-11-26",
+                "source": cfg["source"],
+                "subtitle": cfg["subtitle"],
+            },
+        ),
+        patch.object(
+            argentina_service,
             "_fetch_single_sovereign_bond",
-            side_effect=lambda cfg, mep: {
+            side_effect=lambda cfg, mep, live_map=None: {
                 "ticker": cfg["ticker"],
                 "series_id": f"bond_{cfg['ticker']}",
                 "name": cfg["name"],

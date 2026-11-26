@@ -17,6 +17,7 @@ from app.models.database import ArgentinaSocialOverride
 _OVERVIEW_TTL = timedelta(minutes=10)
 _SERIES_TTL = timedelta(minutes=20)
 _LOCK = threading.Lock()
+_BUILD_LOCK = threading.Lock()
 _OVERVIEW_CACHE: dict[str, Any] = {"ts": None, "payload": None}
 _SERIES_CACHE: dict[tuple[str, str], tuple[datetime, dict[str, Any]]] = {}
 
@@ -90,16 +91,18 @@ MACRO_SERIES_CONFIG: dict[str, dict[str, Any]] = {
     "reservas_internacionales": {
         "label": "Reservas Internacionales",
         "unit": "USD M",
-        "source": "BCRA · datos.gob.ar",
+        "source": "BCRA · Estadísticas v4.0",
         "subtitle": "Stock bruto en millones de USD",
-        "datos_gob_id": "92.2_RID_0_0_32",
+        "bcra_var_id": 1,
+        "datos_gob_id": "182.1_VARIACION_LES_0_M_43",
     },
     "base_monetaria": {
         "label": "Base Monetaria",
         "unit": "ARS M",
-        "source": "BCRA · datos.gob.ar",
+        "source": "BCRA · Estadísticas v4.0",
         "subtitle": "Circulación + encajes en millones ARS",
-        "datos_gob_id": "331.2_SALDO_BASA_M_21",
+        "bcra_var_id": 15,
+        "datos_gob_id": "300.1_AP_PAS_BASRIA_0_M_21",
     },
     "tasa_referencia": {
         "label": "Tasa Referencia / TNA",
@@ -108,13 +111,14 @@ MACRO_SERIES_CONFIG: dict[str, dict[str, Any]] = {
         "subtitle": "Tasa nominal anual de referencia",
         "datos_gob_id": "89.2_TS_INTELIG_0_D_20",
         "argentinadatos_url": "https://api.argentinadatos.com/v1/finanzas/tasas/depositos30Dias",
+        "scale_decimal_pct": True,
     },
     "resultado_fiscal": {
         "label": "Resultado Primario SPN",
         "unit": "ARS M",
         "source": "MECON · datos.gob.ar",
         "subtitle": "Sector Público Nacional (mensual)",
-        "datos_gob_id": "452.3_RESULTADO_RIO_0_M_18",
+        "datos_gob_id": "452.3_RESULTADO_RIO_0_M_18_54",
     },
     "balanza_comercial": {
         "label": "Balanza Comercial",
@@ -282,21 +286,41 @@ def _fetch_riesgo_pais_snapshot() -> dict[str, Any]:
 
 
 def _fetch_merval_usd(ccl_rate: float | None) -> dict[str, Any]:
-    if not ccl_rate or ccl_rate <= 0:
-        return {"value_usd": None, "change_pct": None, "value_ars": None}
+    if ccl_rate and ccl_rate > 0:
+        try:
+            hist = yf.Ticker("^MERV").history(period="5d", interval="1d")
+            if hist is not None and not hist.empty and "Close" in hist.columns:
+                closes = [float(v) for v in hist["Close"].dropna().tolist() if float(v) > 0]
+                if closes:
+                    last_ars = closes[-1]
+                    prev_ars = closes[-2] if len(closes) >= 2 else last_ars
+                    last_usd = round(last_ars / ccl_rate, 2)
+                    chg_pct = round(((last_ars - prev_ars) / prev_ars) * 100.0, 2) if prev_ars > 0 else 0.0
+                    return {
+                        "value_usd": last_usd,
+                        "change_pct": chg_pct,
+                        "value_ars": round(last_ars, 2),
+                        "label": "S&P Merval en USD (CCL)",
+                        "subtitle": f"S&P Merval ARS {last_ars:,.0f}",
+                    }
+        except Exception:
+            pass
+
+    # Fallback a ETF MSCI Argentina (ARGT) en USD cuando Yahoo no entrega ^MERV
     try:
-        hist = yf.Ticker("^MERV").history(period="5d", interval="1d")
-        if hist is not None and not hist.empty and "Close" in hist.columns:
-            closes = [float(v) for v in hist["Close"].dropna().tolist() if float(v) > 0]
+        hist_argt = yf.Ticker("ARGT").history(period="5d", interval="1d")
+        if hist_argt is not None and not hist_argt.empty and "Close" in hist_argt.columns:
+            closes = [float(v) for v in hist_argt["Close"].dropna().tolist() if float(v) > 0]
             if closes:
-                last_ars = closes[-1]
-                prev_ars = closes[-2] if len(closes) >= 2 else last_ars
-                last_usd = round(last_ars / ccl_rate, 2)
-                chg_pct = round(((last_ars - prev_ars) / prev_ars) * 100.0, 2) if prev_ars > 0 else 0.0
+                last_usd = round(closes[-1], 2)
+                prev_usd = closes[-2] if len(closes) >= 2 else last_usd
+                chg_pct = round(((last_usd - prev_usd) / prev_usd) * 100.0, 2) if prev_usd > 0 else 0.0
                 return {
                     "value_usd": last_usd,
                     "change_pct": chg_pct,
-                    "value_ars": round(last_ars, 2),
+                    "value_ars": None,
+                    "label": "Renta Variable Arg. (ARGT)",
+                    "subtitle": "MSCI Argentina ETF en USD (proxy)",
                 }
     except Exception:
         pass
@@ -310,39 +334,75 @@ def _normalize_bond_price_100vn(raw_val: float) -> float:
     return round(raw_val, 2)
 
 
-def _fetch_single_sovereign_bond(bond_cfg: dict[str, Any], mep_rate: float | None) -> dict[str, Any]:
+def _fetch_data912_bonds_map() -> dict[str, dict[str, Any]]:
+    try:
+        rows = _fetch_json("https://data912.com/live/arg_bonds", timeout=6)
+        if isinstance(rows, list):
+            return {
+                str(r.get("symbol") or "").strip().upper(): r
+                for r in rows
+                if r.get("symbol")
+            }
+    except Exception:
+        pass
+    return {}
+
+
+def _fetch_single_sovereign_bond(
+    bond_cfg: dict[str, Any],
+    mep_rate: float | None,
+    live_map: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     sym = bond_cfg["ticker"]
     price_usd: float | None = None
     change_pct: float | None = None
-    source_used = "BYMA/Yahoo"
+    source_used = "BYMA/data912"
 
-    raw_candidates = bond_cfg.get("yf_candidates") or [f"{sym}D.BA", f"{sym}.BA"]
-    candidates = [
-        (c, not c.upper().endswith("D.BA"))
-        for c in raw_candidates
-    ]
+    if live_map:
+        d912_candidates = [sym] if sym.endswith("D") else [f"{sym}D", sym]
+        for cand in d912_candidates:
+            row = live_map.get(cand)
+            if not row:
+                continue
+            raw_px = float(row.get("c") or row.get("px_bid") or row.get("px_ask") or 0.0)
+            if raw_px <= 0:
+                continue
+            needs_fx = not cand.endswith("D")
+            if needs_fx or raw_px > 500:
+                if not mep_rate or mep_rate <= 0:
+                    continue
+                price_usd = _normalize_bond_price_100vn(raw_px / mep_rate)
+            else:
+                price_usd = _normalize_bond_price_100vn(raw_px)
+            pct = row.get("pct_change")
+            change_pct = round(float(pct), 2) if pct is not None else None
+            source_used = f"data912 ({cand})"
+            break
 
-    for suffix, needs_fx in candidates:
-        if needs_fx and (not mep_rate or mep_rate <= 0):
-            continue
-        try:
-            hist = yf.Ticker(suffix).history(period="5d", interval="1d")
-            if hist is not None and not hist.empty and "Close" in hist.columns:
-                closes = [float(v) for v in hist["Close"].dropna().tolist() if float(v) > 0]
-                if closes:
-                    last_raw = closes[-1]
-                    prev_raw = closes[-2] if len(closes) >= 2 else last_raw
-                    if needs_fx and mep_rate:
-                        price_usd = _normalize_bond_price_100vn(last_raw / mep_rate)
-                        prev_usd = _normalize_bond_price_100vn(prev_raw / mep_rate)
-                    else:
-                        price_usd = _normalize_bond_price_100vn(last_raw)
-                        prev_usd = _normalize_bond_price_100vn(prev_raw)
-                    change_pct = round(((price_usd - prev_usd) / prev_usd) * 100.0, 2) if prev_usd > 0 else 0.0
-                    source_used = f"Yahoo ({suffix})"
-                    break
-        except Exception:
-            continue
+    if price_usd is None and not live_map:
+        raw_candidates = bond_cfg.get("yf_candidates") or [f"{sym}D.BA", f"{sym}.BA"]
+        candidates = [(c, not c.upper().endswith("D.BA")) for c in raw_candidates]
+        for suffix, needs_fx in candidates:
+            if needs_fx and (not mep_rate or mep_rate <= 0):
+                continue
+            try:
+                hist = yf.Ticker(suffix).history(period="5d", interval="1d")
+                if hist is not None and not hist.empty and "Close" in hist.columns:
+                    closes = [float(v) for v in hist["Close"].dropna().tolist() if float(v) > 0]
+                    if closes:
+                        last_raw = closes[-1]
+                        prev_raw = closes[-2] if len(closes) >= 2 else last_raw
+                        if needs_fx and mep_rate:
+                            price_usd = _normalize_bond_price_100vn(last_raw / mep_rate)
+                            prev_usd = _normalize_bond_price_100vn(prev_raw / mep_rate)
+                        else:
+                            price_usd = _normalize_bond_price_100vn(last_raw)
+                            prev_usd = _normalize_bond_price_100vn(prev_raw)
+                        change_pct = round(((price_usd - prev_usd) / prev_usd) * 100.0, 2) if prev_usd > 0 else 0.0
+                        source_used = f"Yahoo ({suffix})"
+                        break
+            except Exception:
+                continue
 
     return {
         "ticker": sym,
@@ -445,10 +505,30 @@ def _fetch_argentina_news() -> list[dict[str, Any]]:
 
 
 def _fetch_datos_gob_series(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    bcra_var_id = cfg.get("bcra_var_id")
     gid = cfg.get("datos_gob_id")
     rep = cfg.get("representation")
     pts: list[dict[str, Any]] = []
-    if gid:
+
+    if bcra_var_id:
+        try:
+            url = f"https://api.bcra.gob.ar/estadisticas/v4.0/monetarias/{bcra_var_id}?limit=1000"
+            resp = requests.get(url, headers=_HEADERS, timeout=7, verify=False)
+            resp.raise_for_status()
+            data = resp.json()
+            results = data.get("results") if isinstance(data, dict) else None
+            detalle = results[0].get("detalle") if isinstance(results, list) and results else None
+            if isinstance(detalle, list):
+                for row in detalle:
+                    dt = str(row.get("fecha") or "").strip()[:10]
+                    val = row.get("valor")
+                    if dt and val is not None:
+                        pts.append({"date": dt, "value": round(float(val), 2)})
+                pts.sort(key=lambda x: x["date"])
+        except Exception:
+            pts = []
+
+    if not pts and gid:
         try:
             rep_param = f"&representation_mode={rep}" if rep else ""
             url = f"https://apis.datos.gob.ar/series/api/series/?ids={gid}{rep_param}&limit=1000&format=json"
@@ -474,7 +554,10 @@ def _fetch_datos_gob_series(cfg: dict[str, Any]) -> list[dict[str, Any]]:
                     dt = str(row.get("fecha") or "").strip()[:10]
                     val = row.get("valor")
                     if dt and val is not None:
-                        pts.append({"date": dt, "value": round(float(val), 2)})
+                        fval = float(val)
+                        if cfg.get("scale_decimal_pct") and 0 < abs(fval) < 3.0:
+                            fval = fval * 100.0
+                        pts.append({"date": dt, "value": round(fval, 2)})
                 pts.sort(key=lambda x: x["date"])
         except Exception:
             pass
@@ -651,103 +734,111 @@ def build_argentina_overview(db: Session | None = None) -> dict[str, Any]:
             out["social_indicators"] = _build_social_cards(db=db)
             return out
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        f_fx = pool.submit(_fetch_dolares_snapshot)
-        f_rp = pool.submit(_fetch_riesgo_pais_snapshot)
-        f_news = pool.submit(_fetch_argentina_news)
+    with _BUILD_LOCK:
+        now = datetime.now(timezone.utc)
+        with _LOCK:
+            ts = _OVERVIEW_CACHE.get("ts")
+            payload = _OVERVIEW_CACHE.get("payload")
+            if ts and payload and (now - ts) < _OVERVIEW_TTL:
+                out = dict(payload)
+                out["social_indicators"] = _build_social_cards(db=db)
+                return out
 
-        dolares = f_fx.result()
-        riesgo = f_rp.result()
-        news = f_news.result()
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            f_fx = pool.submit(_fetch_dolares_snapshot)
+            f_rp = pool.submit(_fetch_riesgo_pais_snapshot)
+            f_news = pool.submit(_fetch_argentina_news)
+            f_d912 = pool.submit(_fetch_data912_bonds_map)
+            f_macro = {
+                sid: pool.submit(_fetch_single_macro_card, sid, cfg)
+                for sid, cfg in MACRO_SERIES_CONFIG.items()
+            }
 
-    mayorista = (dolares.get("mayorista") or {}).get("venta")
-    oficial = (dolares.get("oficial") or {}).get("venta")
-    mep = (dolares.get("bolsa") or {}).get("promedio") or (dolares.get("bolsa") or {}).get("venta")
-    ccl = (dolares.get("contadoconliqui") or {}).get("venta") or (dolares.get("contadoconliqui") or {}).get("promedio")
+            dolares = f_fx.result()
+            riesgo = f_rp.result()
+            news = f_news.result()
+            live_bonds_map = f_d912.result()
+            macro_indicators = [fut.result() for fut in f_macro.values()]
 
-    brecha_mep_pct = round(((mep - mayorista) / mayorista) * 100.0, 2) if (mep and mayorista and mayorista > 0) else None
-    brecha_ccl_pct = round(((ccl - mayorista) / mayorista) * 100.0, 2) if (ccl and mayorista and mayorista > 0) else None
-    canje_pct = round(((ccl - mep) / mep) * 100.0, 2) if (ccl and mep and mep > 0) else None
+        mayorista = (dolares.get("mayorista") or {}).get("venta")
+        oficial = (dolares.get("oficial") or {}).get("venta")
+        mep = (dolares.get("bolsa") or {}).get("promedio") or (dolares.get("bolsa") or {}).get("venta")
+        ccl = (dolares.get("contadoconliqui") or {}).get("venta") or (dolares.get("contadoconliqui") or {}).get("promedio")
 
-    merval = _fetch_merval_usd(ccl)
+        brecha_mep_pct = round(((mep - mayorista) / mayorista) * 100.0, 2) if (mep and mayorista and mayorista > 0) else None
+        brecha_ccl_pct = round(((ccl - mayorista) / mayorista) * 100.0, 2) if (ccl and mayorista and mayorista > 0) else None
+        canje_pct = round(((ccl - mep) / mep) * 100.0, 2) if (ccl and mep and mep > 0) else None
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        f_bonds = pool.submit(lambda: [_fetch_single_sovereign_bond(cfg, mep) for cfg in SOVEREIGN_BONDS])
-        f_prov = pool.submit(lambda: [_fetch_single_sovereign_bond(cfg, mep) for cfg in PROVINCIAL_BONDS])
-        f_macro = {
-            sid: pool.submit(_fetch_single_macro_card, sid, cfg)
-            for sid, cfg in MACRO_SERIES_CONFIG.items()
+        merval = _fetch_merval_usd(ccl)
+        bonds = [_fetch_single_sovereign_bond(cfg, mep, live_map=live_bonds_map) for cfg in SOVEREIGN_BONDS]
+        provincial_bonds = [_fetch_single_sovereign_bond(cfg, mep, live_map=live_bonds_map) for cfg in PROVINCIAL_BONDS]
+
+        out = {
+            "updated_at": now.isoformat(),
+            "cards": {
+                "mayorista": {
+                    "series_id": "fx_mayorista",
+                    "label": "Dólar Mayorista (A3500)",
+                    "value": mayorista,
+                    "unit": "ARS",
+                    "subtitle": "Referencia oficial comercio exterior",
+                },
+                "oficial": {
+                    "series_id": "fx_oficial",
+                    "label": "Dólar Oficial Minorista",
+                    "value": oficial,
+                    "unit": "ARS",
+                    "subtitle": "BNA / Bancos minoristas",
+                },
+                "mep": {
+                    "series_id": "fx_mep",
+                    "label": "Dólar MEP (Promedio)",
+                    "value": mep,
+                    "unit": "ARS",
+                    "brecha_pct": brecha_mep_pct,
+                    "subtitle": f"Brecha {brecha_mep_pct:+.1f}% vs. Mayorista" if brecha_mep_pct is not None else "Dólar Bolsa",
+                },
+                "ccl": {
+                    "series_id": "fx_ccl",
+                    "label": "Dólar CCL",
+                    "value": ccl,
+                    "unit": "ARS",
+                    "brecha_pct": brecha_ccl_pct,
+                    "canje_pct": canje_pct,
+                    "subtitle": (
+                        f"Brecha {brecha_ccl_pct:+.1f}% · Canje {canje_pct:+.1f}%"
+                        if brecha_ccl_pct is not None and canje_pct is not None
+                        else "Contado con Liquidación"
+                    ),
+                },
+                "riesgo_pais": {
+                    "series_id": "riesgo_pais",
+                    "label": "Riesgo País (EMBI+)",
+                    "value": riesgo.get("valor"),
+                    "change_pb": riesgo.get("change_pb"),
+                    "unit": "pb",
+                    "subtitle": f"Fecha ref: {riesgo.get('fecha')}" if riesgo.get("fecha") else "Spread soberano vs. UST",
+                },
+                "merval_usd": {
+                    "series_id": "merval_usd",
+                    "label": merval.get("label") or "S&P Merval en USD (CCL)",
+                    "value": merval.get("value_usd"),
+                    "change_pct": merval.get("change_pct"),
+                    "unit": "USD",
+                    "subtitle": merval.get("subtitle") or (f"S&P Merval ARS {merval['value_ars']:,.0f}" if merval.get("value_ars") else "Índice local en CCL"),
+                },
+            },
+            "macro_indicators": macro_indicators,
+            "social_indicators": _build_social_cards(db=db),
+            "sovereign_bonds": bonds,
+            "provincial_bonds": provincial_bonds,
+            "news": news,
         }
-        bonds = f_bonds.result()
-        provincial_bonds = f_prov.result()
-        macro_indicators = [fut.result() for fut in f_macro.values()]
 
-    out = {
-        "updated_at": now.isoformat(),
-        "cards": {
-            "mayorista": {
-                "series_id": "fx_mayorista",
-                "label": "Dólar Mayorista (A3500)",
-                "value": mayorista,
-                "unit": "ARS",
-                "subtitle": "Referencia oficial comercio exterior",
-            },
-            "oficial": {
-                "series_id": "fx_oficial",
-                "label": "Dólar Oficial Minorista",
-                "value": oficial,
-                "unit": "ARS",
-                "subtitle": "BNA / Bancos minoristas",
-            },
-            "mep": {
-                "series_id": "fx_mep",
-                "label": "Dólar MEP (Promedio)",
-                "value": mep,
-                "unit": "ARS",
-                "brecha_pct": brecha_mep_pct,
-                "subtitle": f"Brecha {brecha_mep_pct:+.1f}% vs. Mayorista" if brecha_mep_pct is not None else "Dólar Bolsa",
-            },
-            "ccl": {
-                "series_id": "fx_ccl",
-                "label": "Dólar CCL",
-                "value": ccl,
-                "unit": "ARS",
-                "brecha_pct": brecha_ccl_pct,
-                "canje_pct": canje_pct,
-                "subtitle": (
-                    f"Brecha {brecha_ccl_pct:+.1f}% · Canje {canje_pct:+.1f}%"
-                    if brecha_ccl_pct is not None and canje_pct is not None
-                    else "Contado con Liquidación"
-                ),
-            },
-            "riesgo_pais": {
-                "series_id": "riesgo_pais",
-                "label": "Riesgo País (EMBI+)",
-                "value": riesgo.get("valor"),
-                "change_pb": riesgo.get("change_pb"),
-                "unit": "pb",
-                "subtitle": f"Fecha ref: {riesgo.get('fecha')}" if riesgo.get("fecha") else "Spread soberano vs. UST",
-            },
-            "merval_usd": {
-                "series_id": "merval_usd",
-                "label": "S&P Merval en USD (CCL)",
-                "value": merval.get("value_usd"),
-                "change_pct": merval.get("change_pct"),
-                "unit": "USD",
-                "subtitle": f"S&P Merval ARS {merval['value_ars']:,.0f}" if merval.get("value_ars") else "Índice local en CCL",
-            },
-        },
-        "macro_indicators": macro_indicators,
-        "social_indicators": _build_social_cards(db=db),
-        "sovereign_bonds": bonds,
-        "provincial_bonds": provincial_bonds,
-        "news": news,
-    }
-
-    with _LOCK:
-        _OVERVIEW_CACHE["ts"] = now
-        _OVERVIEW_CACHE["payload"] = out
-    return out
+        with _LOCK:
+            _OVERVIEW_CACHE["ts"] = now
+            _OVERVIEW_CACHE["payload"] = out
+        return out
 
 
 def _range_to_days(range_key: str) -> int | None:
@@ -839,30 +930,53 @@ def get_argentina_series(series_id: str, range_key: str = "1y", db: Session | No
         )
 
     elif sid == "merval_usd":
-        ccl_pts = {p["date"]: p["value"] for p in _fetch_argentinadatos_fx_series("contadoconliqui")}
-        hist = yf.Ticker("^MERV").history(period=yf_period, interval="1d")
         pts = []
-        if hist is not None and not hist.empty:
-            sorted_ccl_dates = sorted(ccl_pts.keys())
-            last_ccl = ccl_pts[sorted_ccl_dates[-1]] if sorted_ccl_dates else 1100.0
-            for idx, row in hist.iterrows():
-                dt = idx.strftime("%Y-%m-%d")
-                fx = ccl_pts.get(dt)
-                if not fx and sorted_ccl_dates:
-                    prior = [d for d in sorted_ccl_dates if d <= dt]
-                    fx = ccl_pts[prior[-1]] if prior else last_ccl
-                if fx and fx > 0 and pd.notna(row["Close"]):
-                    o = round(float(row["Open"]) / fx, 2)
-                    h = round(float(row["High"]) / fx, 2)
-                    l = round(float(row["Low"]) / fx, 2)
-                    c = round(float(row["Close"]) / fx, 2)
-                    pts.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "value": c})
+        label = "S&P Merval en USD (CCL)"
+        source = "Yahoo Finance (^MERV) / ArgentinaDatos CCL"
+        try:
+            hist = yf.Ticker("^MERV").history(period=yf_period, interval="1d")
+            if hist is not None and not hist.empty:
+                ccl_pts = {p["date"]: p["value"] for p in _fetch_argentinadatos_fx_series("contadoconliqui")}
+                sorted_ccl_dates = sorted(ccl_pts.keys())
+                last_ccl = ccl_pts[sorted_ccl_dates[-1]] if sorted_ccl_dates else 1100.0
+                for idx, row in hist.iterrows():
+                    dt = idx.strftime("%Y-%m-%d")
+                    fx = ccl_pts.get(dt)
+                    if not fx and sorted_ccl_dates:
+                        prior = [d for d in sorted_ccl_dates if d <= dt]
+                        fx = ccl_pts[prior[-1]] if prior else last_ccl
+                    if fx and fx > 0 and pd.notna(row["Close"]):
+                        o = round(float(row["Open"]) / fx, 2)
+                        h = round(float(row["High"]) / fx, 2)
+                        l = round(float(row["Low"]) / fx, 2)
+                        c = round(float(row["Close"]) / fx, 2)
+                        pts.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "value": c})
+        except Exception:
+            pts = []
+
+        if not pts:
+            try:
+                hist_argt = yf.Ticker("ARGT").history(period=yf_period, interval="1d")
+                if hist_argt is not None and not hist_argt.empty:
+                    for idx, row in hist_argt.iterrows():
+                        if pd.notna(row["Close"]):
+                            dt = idx.strftime("%Y-%m-%d")
+                            o = round(float(row["Open"]), 2)
+                            h = round(float(row["High"]), 2)
+                            l = round(float(row["Low"]), 2)
+                            c = round(float(row["Close"]), 2)
+                            pts.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "value": c})
+                    label = "Renta Variable Argentina (ARGT · USD)"
+                    source = "Yahoo Finance (ARGT ETF)"
+            except Exception:
+                pass
+
         payload.update(
             {
-                "label": "S&P Merval en USD (CCL)",
+                "label": label,
                 "unit": "USD",
                 "supports_candlestick": True,
-                "source": "Yahoo Finance (^MERV) / ArgentinaDatos CCL",
+                "source": source,
                 "points": pts,
             }
         )
@@ -871,52 +985,103 @@ def get_argentina_series(series_id: str, range_key: str = "1y", db: Session | No
         sym = sid.replace("bond_", "", 1).upper()
         pts = []
         bond_cfg = next((b for b in PROVINCIAL_BONDS + SOVEREIGN_BONDS if b["ticker"] == sym), None)
-        candidates = (bond_cfg.get("yf_candidates") if bond_cfg else None) or [f"{sym}D.BA", f"{sym}.BA"]
-        used_sym = candidates[0]
+        d912_candidates = [sym] if sym.endswith("D") else [f"{sym}D", sym]
+        used_sym = d912_candidates[0]
+        source_str = ""
         mep_pts: dict[str, float] | None = None
 
-        for cand in candidates:
+        # 1) Fuente primaria rápida con OHLC diario: data912.com
+        for cand in d912_candidates:
             try:
-                hist = yf.Ticker(cand).history(period=yf_period, interval="1d")
-                if hist is None or hist.empty:
+                rows = _fetch_json(f"https://data912.com/historical/bonds/{cand}", timeout=6)
+                if not isinstance(rows, list) or not rows:
                     continue
-                used_sym = cand
-                needs_fx = not cand.upper().endswith("D.BA")
+                first_c = float(rows[-1].get("c") or 0.0)
+                needs_fx = (not cand.endswith("D")) or first_c > 500
                 if needs_fx:
                     if mep_pts is None:
                         mep_pts = {p["date"]: p["value"] for p in _fetch_argentinadatos_fx_series("bolsa")}
                     sorted_mep = sorted(mep_pts.keys())
                     last_mep = mep_pts[sorted_mep[-1]] if sorted_mep else 1100.0
-                    for idx, row in hist.iterrows():
-                        dt = idx.strftime("%Y-%m-%d")
+                for row in rows:
+                    dt = str(row.get("date") or "").strip()[:10]
+                    if not dt or row.get("c") is None:
+                        continue
+                    o_raw = float(row.get("o") or row["c"])
+                    h_raw = float(row.get("h") or row["c"])
+                    l_raw = float(row.get("l") or row["c"])
+                    c_raw = float(row["c"])
+                    if needs_fx:
                         prior = [d for d in sorted_mep if d <= dt]
                         fx = mep_pts.get(dt) or (mep_pts[prior[-1]] if prior else last_mep)
-                        if fx and fx > 0 and pd.notna(row["Close"]):
-                            o = _normalize_bond_price_100vn(float(row["Open"]) / fx)
-                            h = _normalize_bond_price_100vn(float(row["High"]) / fx)
-                            l = _normalize_bond_price_100vn(float(row["Low"]) / fx)
-                            c = _normalize_bond_price_100vn(float(row["Close"]) / fx)
-                            pts.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "value": c})
-                else:
-                    for idx, row in hist.iterrows():
-                        if pd.notna(row["Close"]):
-                            dt = idx.strftime("%Y-%m-%d")
-                            o = _normalize_bond_price_100vn(float(row["Open"]))
-                            h = _normalize_bond_price_100vn(float(row["High"]))
-                            l = _normalize_bond_price_100vn(float(row["Low"]))
-                            c = _normalize_bond_price_100vn(float(row["Close"]))
-                            pts.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "value": c})
+                        if not fx or fx <= 0:
+                            continue
+                        o_raw, h_raw, l_raw, c_raw = o_raw / fx, h_raw / fx, l_raw / fx, c_raw / fx
+                    pts.append(
+                        {
+                            "date": dt,
+                            "open": _normalize_bond_price_100vn(o_raw),
+                            "high": _normalize_bond_price_100vn(h_raw),
+                            "low": _normalize_bond_price_100vn(l_raw),
+                            "close": _normalize_bond_price_100vn(c_raw),
+                            "value": _normalize_bond_price_100vn(c_raw),
+                        }
+                    )
                 if pts:
+                    pts.sort(key=lambda x: x["date"])
+                    pts = _filter_points_by_range(pts, rk)
+                    used_sym = cand
+                    source_str = f"data912 ({cand})"
                     break
             except Exception:
                 continue
+
+        # 2) Fallback a Yahoo Finance si data912 no devolvió serie
+        if not pts:
+            candidates = (bond_cfg.get("yf_candidates") if bond_cfg else None) or [f"{sym}D.BA", f"{sym}.BA"]
+            for cand in candidates:
+                try:
+                    hist = yf.Ticker(cand).history(period=yf_period, interval="1d")
+                    if hist is None or hist.empty:
+                        continue
+                    used_sym = cand
+                    needs_fx = not cand.upper().endswith("D.BA")
+                    if needs_fx:
+                        if mep_pts is None:
+                            mep_pts = {p["date"]: p["value"] for p in _fetch_argentinadatos_fx_series("bolsa")}
+                        sorted_mep = sorted(mep_pts.keys())
+                        last_mep = mep_pts[sorted_mep[-1]] if sorted_mep else 1100.0
+                        for idx, row in hist.iterrows():
+                            dt = idx.strftime("%Y-%m-%d")
+                            prior = [d for d in sorted_mep if d <= dt]
+                            fx = mep_pts.get(dt) or (mep_pts[prior[-1]] if prior else last_mep)
+                            if fx and fx > 0 and pd.notna(row["Close"]):
+                                o = _normalize_bond_price_100vn(float(row["Open"]) / fx)
+                                h = _normalize_bond_price_100vn(float(row["High"]) / fx)
+                                l = _normalize_bond_price_100vn(float(row["Low"]) / fx)
+                                c = _normalize_bond_price_100vn(float(row["Close"]) / fx)
+                                pts.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "value": c})
+                    else:
+                        for idx, row in hist.iterrows():
+                            if pd.notna(row["Close"]):
+                                dt = idx.strftime("%Y-%m-%d")
+                                o = _normalize_bond_price_100vn(float(row["Open"]))
+                                h = _normalize_bond_price_100vn(float(row["High"]))
+                                l = _normalize_bond_price_100vn(float(row["Low"]))
+                                c = _normalize_bond_price_100vn(float(row["Close"]))
+                                pts.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "value": c})
+                    if pts:
+                        source_str = f"Yahoo Finance ({used_sym})"
+                        break
+                except Exception:
+                    continue
 
         payload.update(
             {
                 "label": f"{sym} (USD cada 100 VN)",
                 "unit": "USD",
                 "supports_candlestick": True,
-                "source": f"Yahoo Finance ({used_sym})",
+                "source": source_str or f"data912 / BYMA ({used_sym})",
                 "points": pts,
             }
         )
