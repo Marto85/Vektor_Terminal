@@ -649,6 +649,12 @@ export function runTechnicalAnalysisMode(candles, mode, options = {}) {
   }
 
   const parsedLive = Number(options?.livePrice);
+  const rawLastClose = Number(candles[candles.length - 1]?.close);
+  const usedLiveOverride =
+    Number.isFinite(parsedLive) &&
+    parsedLive > 0 &&
+    Number.isFinite(rawLastClose) &&
+    Math.abs(parsedLive - rawLastClose) >= 0.01;
   const effectiveCandles =
     Number.isFinite(parsedLive) && parsedLive > 0
       ? candles.map((c, idx) =>
@@ -667,10 +673,14 @@ export function runTechnicalAnalysisMode(candles, mode, options = {}) {
   const pivots = findSwingPivots(effectiveCandles, lookback);
   const volInfo = analyzeVolumeBehavior(effectiveCandles);
 
-  if (mode === 'trend') return analyzeTrendMode(effectiveCandles, volInfo);
-  if (mode === 'chartism') return analyzeChartismMode(effectiveCandles, pivots, volInfo);
-  if (mode === 'elliott') return analyzeElliottMode(effectiveCandles, pivots, volInfo);
-  if (mode === 'momentum') return analyzeMomentumMode(effectiveCandles, pivots, volInfo);
+  let out = null;
+  if (mode === 'trend') out = analyzeTrendMode(effectiveCandles, volInfo);
+  else if (mode === 'chartism') out = analyzeChartismMode(effectiveCandles, pivots, volInfo);
+  else if (mode === 'elliott') out = analyzeElliottMode(effectiveCandles, pivots, volInfo);
+  else if (mode === 'momentum') out = analyzeMomentumMode(effectiveCandles, pivots, volInfo);
 
-  return null;
+  if (out && usedLiveOverride && out.explanation?.drawnElements) {
+    out.explanation.drawnElements = `${out.explanation.drawnElements} (Evaluado sobre cotización viva vs. cierre diario $${rawLastClose.toFixed(2)}.)`;
+  }
+  return out;
 }

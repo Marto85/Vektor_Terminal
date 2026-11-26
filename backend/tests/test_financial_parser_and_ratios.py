@@ -309,3 +309,31 @@ def test_sga_consolidates_ga_and_marketing_and_opex_closes_without_da():
     assert by_m["Gastos de Venta, Generales y Administrativos"] == 20_000.0
     assert by_m["Gastos Operativos Totales"] == 30_000.0
     assert by_m["Beneficio Bruto"] - by_m["Gastos Operativos Totales"] == by_m["Beneficio Operativo"]
+
+
+def test_52_53_week_early_january_end_date_maps_to_prior_fiscal_year():
+    curr_y = datetime.now().year - 1
+    next_y = curr_y + 1
+    raw = {
+        "facts": {
+            "us-gaap": {
+                "Revenues": {
+                    "units": {
+                        "USD": [
+                            {
+                                "fy": curr_y,
+                                "fp": "FY",
+                                "form": "10-K",
+                                "start": f"{curr_y}-01-01",
+                                "end": f"{next_y}-01-03",
+                                "val": 12_000_000_000,
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+    rows = extract_annual_metrics(raw)
+    rev_row = next(r for r in rows if r["Métrica"] == "Ingresos Totales")
+    assert rev_row[str(curr_y)] == 12_000.0

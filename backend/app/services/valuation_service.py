@@ -21,9 +21,11 @@ from app.core.yf_client import (
     get_cached_estimates_and_guidance,
 )
 
+CRP_TABLE_UPDATED_AT = "2026-11"
+
 _COUNTRY_RISK_PREMIUM_PCT: dict[str, float] = {
     "brazil": 2.5,
-    "argentina": 7.0,
+    "argentina": 11.5,
     "mexico": 1.5,
     "colombia": 2.2,
     "chile": 1.0,
@@ -50,7 +52,7 @@ _COUNTRY_RISK_PREMIUM_PCT: dict[str, float] = {
 
 _CURRENCY_RISK_PREMIUM_PCT: dict[str, float] = {
     "BRL": 2.5,
-    "ARS": 7.0,
+    "ARS": 11.5,
     "MXN": 1.5,
     "COP": 2.2,
     "CLP": 1.0,
@@ -740,6 +742,7 @@ def _compute_reverse_dcf(
     wacc = float(dcf_inputs.get("suggested_wacc_pct") or 9.0) / 100.0
     exit_m = float(dcf_inputs.get("exit_multiple_default") or 18.0)
     margin_step = float(dcf_inputs.get("margin_step_pct_yr") or 0.0) / 100.0
+    nwc_pct = float(dcf_inputs.get("nwc_pct_of_delta_rev") or 0.02)
     g_term = 0.03
 
     def eval_corp_price(g_decimal: float, horizon_yrs: int, tv_mode: str = "blend") -> float:
@@ -749,14 +752,19 @@ def _compute_reverse_dcf(
         pv1 = 0.0
         last_margin = ebit_m
         for yr in range(1, horizon_yrs + 1):
-            rv *= 1.0 + g_decimal
+            prev_rv = rv
+            g_yr = g_decimal if yr <= 3 else g_decimal + ((g_term - g_decimal) * (yr - 3)) / 2.0
+            rv *= 1.0 + g_yr
+            delta_nwc = max(rv - prev_rv, 0.0) * nwc_pct
             step_yr = min(yr, 5)
-            m_yr = min(max(ebit_m + margin_step * step_yr, 0.01), 0.65)
+            m_yr = min(max(ebit_m + margin_step * step_yr, -0.20), 0.65)
             last_margin = m_yr
-            fcf_y = rv * (m_yr * (1.0 - tax_r) + da_p - capex1)
+            fcf_y = rv * (m_yr * (1.0 - tax_r) + da_p - capex1) - delta_nwc
             pv1 += fcf_y / ((1.0 + wacc) ** yr)
 
-        fcf_next = rv * (1.0 + g_term) * (last_margin * (1.0 - tax_r) + da_p - capex_t)
+        rv_next = rv * (1.0 + g_term)
+        delta_nwc_term = max(rv_next - rv, 0.0) * nwc_pct
+        fcf_next = rv_next * (last_margin * (1.0 - tax_r) + da_p - capex_t) - delta_nwc_term
         tv_gordon = fcf_next / (wacc - g_term)
         fcf_last_norm = rv * (last_margin * (1.0 - tax_r) + da_p - capex_t)
         tv_mult = fcf_last_norm * exit_m
@@ -1240,15 +1248,44 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
     base_ebit_margin = float(audit["ebit_margin_pct"])
     step_yr = float(trajectory["margin_step_pct_yr"])
     hist_med_ebit = trajectory.get("hist_med_ebit_margin_pct")
+    hist_margins = [
+        float(m["operating_margin_pct"])
+        for m in (trajectory.get("margin_history") or [])
+        if m.get("operating_margin_pct") is not None
+    ]
+    is_structural_decline = (
+        len(hist_margins) >= 3
+        and hist_margins[-1] < hist_margins[-2] < hist_margins[-3]
+        and (hist_margins[-3] - hist_margins[-1]) >= 3.0
+    )
     consensus_target_ebit = base_ebit_margin + (5.0 * step_yr)
-    if hist_med_ebit is not None and float(hist_med_ebit) > base_ebit_margin + 4.0:
+    margin_reversion_applied = False
+    margin_reversion_note: str | None = None
+    if hist_med_ebit is not None and float(hist_med_ebit) > base_ebit_margin + 4.0 and not is_structural_decline:
         # Reversión parcial (75%) hacia la mediana histórica ante caídas cíclicas/transitorias de EBIT
         reversion_target = base_ebit_margin + (float(hist_med_ebit) - base_ebit_margin) * 0.75
         target_ebit_margin_pct = round(min(max(max(consensus_target_ebit, reversion_target), -20.0), 60.0), 1)
         step_yr = round((target_ebit_margin_pct - base_ebit_margin) / 5.0, 2)
         trajectory["margin_step_pct_yr"] = step_yr
+        margin_reversion_applied = True
+        margin_reversion_note = (
+            f"Margen EBIT objetivo normalizado hacia mediana histórica "
+            f"({base_ebit_margin:.1f}% → {target_ebit_margin_pct:.1f}%)."
+        )
     else:
         target_ebit_margin_pct = round(min(max(consensus_target_ebit, -20.0), 60.0), 1)
+        if is_structural_decline and hist_med_ebit is not None and float(hist_med_ebit) > base_ebit_margin + 4.0:
+            margin_reversion_note = (
+                "Sin reversión automática a mediana histórica: el margen EBIT muestra deterioro continuo en los últimos 3 años."
+            )
+
+    sector_txt = f"{classification.get('sector') or ''} {classification.get('industry') or ''}".lower()
+    if any(k in sector_txt for k in ("software", "internet", "saas", "cloud", "media", "communication")):
+        nwc_pct_of_delta_rev = 0.015
+    elif any(k in sector_txt for k in ("retail", "industrial", "manufacturing", "machinery", "energy", "auto", "consumer")):
+        nwc_pct_of_delta_rev = 0.035
+    else:
+        nwc_pct_of_delta_rev = 0.02
 
     dcf_inputs_payload = {
         "current_price": round(current_price, 2),
@@ -1257,11 +1294,16 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         "revenue_base_mm": round(rev_base, 2),
         "recommended_rev_growth_pct": trajectory["recommended_rev_growth_pct"],
         "suggested_wacc_pct": suggested_wacc_pct,
+        "country_risk_premium_pct": crp_pct,
+        "crp_updated_at": CRP_TABLE_UPDATED_AT,
         "margin_step_pct_yr": step_yr,
         "fcf_reported_mm": round(fcf_ltm, 2),
         "fcf_adjusted_mm": audit["adjusted_fcf_mm"],
         "ebit_margin_pct": audit["ebit_margin_pct"],
         "target_ebit_margin_pct": target_ebit_margin_pct,
+        "margin_reversion_applied": margin_reversion_applied,
+        "margin_reversion_note": margin_reversion_note,
+        "nwc_pct_of_delta_rev": nwc_pct_of_delta_rev,
         "tax_rate_pct": audit["tax_rate_pct"],
         "da_sales_pct": da_sales_pct,
         "capex_expansion_pct": audit["capex_current_pct"],

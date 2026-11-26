@@ -260,7 +260,11 @@ def extract_annual_metrics(raw_facts: dict) -> list:
 
                             fy = str(entry.get("fy"))
                             if entry.get("end"):
-                                fy_end = str(entry["end"])[:4]
+                                end_str = str(entry["end"])
+                                fy_end = end_str[:4]
+                                # Cierres de 52/53 semanas en los primeros días de enero corresponden al ejercicio anterior
+                                if len(end_str) >= 10 and end_str[5:7] == "01" and end_str[8:10].isdigit() and int(end_str[8:10]) <= 7 and fy_end.isdigit():
+                                    fy_end = str(int(fy_end) - 1)
                                 if fy not in years_range or fy_end in years_range:
                                     fy = fy_end
 

@@ -372,7 +372,7 @@ export default function ValuationModelsTab({
     const projections = [];
     let pvStage1 = 0;
     let revCurr = rev0;
-    const nwcPctOfDeltaRev = 0.02; // 2% de capital de trabajo incremental sobre variación de ventas
+    const nwcPctOfDeltaRev = Number(inp.nwc_pct_of_delta_rev ?? 0.02);
 
     for (let yr = 1; yr <= 5; yr += 1) {
       const prevRev = revCurr;
@@ -1093,8 +1093,8 @@ export default function ValuationModelsTab({
                     </div>
                     {workMode === "manual" && (
                       <RangeSliderWithNumber
-                        min={2}
-                        max={60}
+                        min={Math.min(-25, Math.floor(targetEbitMargin - 5))}
+                        max={Math.max(60, Math.ceil(targetEbitMargin + 5))}
                         step={0.5}
                         value={targetEbitMargin}
                         onChange={setTargetEbitMargin}
@@ -1105,6 +1105,11 @@ export default function ValuationModelsTab({
                       Rentabilidad operativa hacia la cual converge la empresa
                       desde su margen base actual ({inp.ebit_margin_pct}%).
                     </p>
+                    {inp.margin_reversion_note && (
+                      <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1 mt-1.5">
+                        {inp.margin_reversion_note}
+                      </p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
@@ -1160,8 +1165,8 @@ export default function ValuationModelsTab({
                       </div>
                       {workMode === "manual" && (
                         <RangeSliderWithNumber
-                          min={5.5}
-                          max={18}
+                          min={Math.min(5.5, Math.floor(wacc))}
+                          max={Math.max(22, Math.ceil(wacc + 2))}
                           step={0.5}
                           value={wacc}
                           onChange={setWacc}
@@ -1170,6 +1175,8 @@ export default function ValuationModelsTab({
                       )}
                       <p className="text-[10px] text-gray-500 mt-1">
                         Costo promedio ponderado del capital (tasa de descuento).
+                        {Number(inp.country_risk_premium_pct || 0) > 0 &&
+                          ` Incluye prima país ${inp.country_risk_premium_pct}% (ref. ${inp.crp_updated_at || "vigente"}).`}
                       </p>
                     </div>
 

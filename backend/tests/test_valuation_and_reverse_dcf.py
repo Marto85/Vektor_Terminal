@@ -35,15 +35,21 @@ def test_reverse_dcf_corporate_consistency_with_forward_dcf():
     g_true = 0.12
     g_term = 0.03
 
-    # Calculamos el precio directo para g_true = 12% a 5 años
+    # Calculamos el precio directo para g_true = 12% a 5 años con el motor DCF unificado (fade años 4-5 + ΔNWC)
+    nwc_pct = 0.02
     rv = rev0
     pv1 = 0.0
     for yr in range(1, 6):
-        rv *= 1.0 + g_true
-        fcf_y = rv * (ebit_m * (1.0 - tax_r) + da_p - capex1)
+        prev_rv = rv
+        g_yr = g_true if yr <= 3 else g_true + ((g_term - g_true) * (yr - 3)) / 2.0
+        rv *= 1.0 + g_yr
+        delta_nwc = max(rv - prev_rv, 0.0) * nwc_pct
+        fcf_y = rv * (ebit_m * (1.0 - tax_r) + da_p - capex1) - delta_nwc
         pv1 += fcf_y / ((1.0 + wacc) ** yr)
 
-    fcf_next = rv * (1.0 + g_term) * (ebit_m * (1.0 - tax_r) + da_p - capex_t)
+    rv_next = rv * (1.0 + g_term)
+    delta_nwc_term = max(rv_next - rv, 0.0) * nwc_pct
+    fcf_next = rv_next * (ebit_m * (1.0 - tax_r) + da_p - capex_t) - delta_nwc_term
     tv_gordon = fcf_next / (wacc - g_term)
     fcf_last_norm = rv * (ebit_m * (1.0 - tax_r) + da_p - capex_t)
     tv_mult = fcf_last_norm * exit_m
@@ -63,6 +69,7 @@ def test_reverse_dcf_corporate_consistency_with_forward_dcf():
         "suggested_wacc_pct": wacc * 100.0,
         "exit_multiple_default": exit_m,
         "margin_step_pct_yr": 0.0,
+        "nwc_pct_of_delta_rev": nwc_pct,
     }
 
     res = _compute_reverse_dcf(
@@ -140,6 +147,7 @@ def test_country_risk_premium_for_emerging_markets():
 
     assert _estimate_country_risk_premium_pct("Brazil", "BRL") == 2.5
     assert _estimate_country_risk_premium_pct(None, "BRL") == 2.5
+    assert _estimate_country_risk_premium_pct("Argentina", "ARS") == 11.5
     assert _estimate_country_risk_premium_pct("Uruguay", "USD") == 1.2
     assert _estimate_country_risk_premium_pct(None, "TWD") == 0.6
     assert _estimate_country_risk_premium_pct("United States", "USD") == 0.0
