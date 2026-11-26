@@ -3,9 +3,9 @@ import os
 # Entorno de ejecución: "development" | "production"
 VEKTOR_ENV = os.getenv("VEKTOR_ENV", "development").strip().lower()
 
-# La SEC exige Nombre y un Email válido para no banear la IP
+# La SEC exige Nombre y un Email válido en User-Agent (configurar en SEC_USER_AGENT)
 SEC_USER_AGENT = os.getenv(
-    "SEC_USER_AGENT", "Martin Juan finanzas.juridicos@gmail.com"
+    "SEC_USER_AGENT", "VektorTerminal contact@vektorterminal.local"
 )
 
 # URL de base de datos: SQLite local por defecto; PostgreSQL en producción

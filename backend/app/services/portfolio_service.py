@@ -279,7 +279,7 @@ def _compute_twr_metrics(
             )
             for s in qty_by_sym
         )
-        equity_before_flow = holdings_val_before + max(0.0, cash)
+        equity_before_flow = holdings_val_before + cash
 
         if abs(external_flow_today) > 1e-6:
             if v_start is not None and v_start > 1e-6:
@@ -321,11 +321,11 @@ def _compute_twr_metrics(
                 qty_by_sym.get(s, 0.0) * last_known_price.get(s, 0.0)
                 for s in qty_by_sym
             )
-            initial_eq = holdings_val_after + max(0.0, cash)
+            initial_eq = holdings_val_after + cash
             if initial_eq > 1e-6:
                 v_start = initial_eq
 
-    ending_total_equity = ending_holdings_value + max(0.0, cash)
+    ending_total_equity = ending_holdings_value + cash
     if v_start is not None and v_start > 1e-6:
         r_final = (ending_total_equity - v_start) / v_start
         subperiod_returns.append(r_final)
@@ -398,6 +398,11 @@ def compute_portfolio_positions(
 
         if ttype == "WITHDRAWAL":
             net_wdr = qty * price + comm
+            if cash_balance - net_wdr < -1e-6:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Saldo de caja insuficiente para el retiro ({round(net_wdr, 2)} solicitado vs. {round(max(0.0, cash_balance), 2)} disponible).",
+                )
             cash_balance -= net_wdr
             net_external_deposits -= net_wdr
             continue
@@ -521,7 +526,7 @@ def compute_portfolio_positions(
         if total_invested_cost > 1e-9
         else 0.0
     )
-    total_equity = total_market_value + max(0.0, cash_balance)
+    total_equity = total_market_value + cash_balance
 
     historical_prices_by_sym: dict[str, dict[str, float]] | None = None
     if quotes_map is None and ordered:
@@ -803,11 +808,17 @@ def add_portfolio_transaction(
         )
 
     try:
-        datetime.strptime(tx_date.strip(), "%Y-%m-%d")
+        parsed_tx_date = datetime.strptime(tx_date.strip(), "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="La fecha de operación debe tener formato YYYY-MM-DD.",
+        )
+
+    if parsed_tx_date > datetime.now(timezone.utc).date():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se permiten operaciones con fecha futura.",
         )
 
     prof = get_or_create_client_profile(db, int(target.id))

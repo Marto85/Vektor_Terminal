@@ -250,8 +250,10 @@ def extract_annual_metrics(raw_facts: dict) -> list:
                                     pass
 
                             fy = str(entry.get("fy"))
-                            if fy not in years_range and entry.get("end"):
-                                fy = str(entry["end"])[:4]
+                            if entry.get("end"):
+                                fy_end = str(entry["end"])[:4]
+                                if fy not in years_range or fy_end in years_range:
+                                    fy = fy_end
 
                             if fy in years_range:
                                 val = entry.get("val", 0.0)
@@ -262,9 +264,32 @@ def extract_annual_metrics(raw_facts: dict) -> list:
                                     "Categoría": statement,
                                     "Métrica": standard_name,
                                     "Año": fy,
-                                    "Valor": val
+                                    "Valor": val,
+                                    "end": str(entry.get("end") or ""),
+                                    "filed": str(entry.get("filed") or ""),
                                 })
                     found_tag = True
+                    # Si SG&A tomó solo GeneralAndAdministrativeExpense, sumar SellingAndMarketingExpense si existe
+                    if (
+                        standard_name == "Gastos de Venta, Generales y Administrativos"
+                        and tag == "GeneralAndAdministrativeExpense"
+                        and "SellingAndMarketingExpense" in gaap_data
+                    ):
+                        sm_units_keys = list(gaap_data["SellingAndMarketingExpense"].get("units", {}).keys())
+                        if sm_units_keys:
+                            sm_uk = "USD" if "USD" in sm_units_keys else sm_units_keys[0]
+                            sm_entries: dict[str, tuple[str, str, float]] = {}
+                            for sm_e in gaap_data["SellingAndMarketingExpense"]["units"][sm_uk]:
+                                if sm_e.get("form") in ANNUAL_FORMS and sm_e.get("fp") == "FY":
+                                    sm_fy = str(sm_e.get("end") or "")[:4] or str(sm_e.get("fy"))
+                                    if sm_fy in years_range:
+                                        sort_k = (str(sm_e.get("end") or ""), str(sm_e.get("filed") or ""))
+                                        prev_sm = sm_entries.get(sm_fy)
+                                        if not prev_sm or sort_k >= (prev_sm[0], prev_sm[1]):
+                                            sm_entries[sm_fy] = (sort_k[0], sort_k[1], float(sm_e.get("val", 0.0)) / 1000000.0)
+                            for row_ex in extracted_data:
+                                if row_ex["Métrica"] == standard_name and row_ex["Año"] in sm_entries:
+                                    row_ex["Valor"] = float(row_ex["Valor"]) + sm_entries[row_ex["Año"]][2]
                     break
             
             if not found_tag:
@@ -273,13 +298,16 @@ def extract_annual_metrics(raw_facts: dict) -> list:
                         "Categoría": statement,
                         "Métrica": standard_name,
                         "Año": y,
-                        "Valor": 0.0
+                        "Valor": 0.0,
+                        "end": "",
+                        "filed": "",
                     })
     
     df = pd.DataFrame(extracted_data)
     if df.empty:
         return []
     
+    df = df.sort_values(by=["end", "filed"], kind="mergesort")
     df = df.drop_duplicates(subset=["Categoría", "Métrica", "Año"], keep="last")
     df_pivot = df.pivot(index=["Categoría", "Métrica"], columns="Año", values="Valor").reset_index()
     
@@ -323,7 +351,18 @@ def extract_annual_metrics(raw_facts: dict) -> list:
         if get_val("Beneficio Bruto", y) == 0.0:
             set_val("Beneficio Bruto", y, get_val("Ingresos Totales", y) - get_val("Coste de los bienes vendidos", y))
         if get_val("Gastos Operativos Totales", y) == 0.0:
-            set_val("Gastos Operativos Totales", y, get_val("Gastos de Venta, Generales y Administrativos", y) + get_val("Investigación y Desarrollo", y) + get_val("Depreciación y Amortización", y))
+            bruto_y = get_val("Beneficio Bruto", y)
+            op_y = get_val("Beneficio Operativo", y)
+            if bruto_y != 0.0 and op_y != 0.0:
+                set_val("Gastos Operativos Totales", y, bruto_y - op_y)
+            else:
+                set_val(
+                    "Gastos Operativos Totales",
+                    y,
+                    get_val("Gastos de Venta, Generales y Administrativos", y)
+                    + get_val("Investigación y Desarrollo", y)
+                    + get_val("Otros Gastos Operativos", y),
+                )
         if get_val("Beneficio Operativo", y) == 0.0:
             set_val("Beneficio Operativo", y, get_val("Beneficio Bruto", y) - get_val("Gastos Operativos Totales", y))
         if get_val("Beneficio antes de Impuestos", y) == 0.0:
@@ -470,7 +509,9 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
                                     "Categoría": statement,
                                     "Métrica": standard_name,
                                     "Periodo": period_key,
-                                    "Valor": val
+                                    "Valor": val,
+                                    "end": str(entry.get("end") or ""),
+                                    "filed": str(entry.get("filed") or ""),
                                 })
                     found_tag = True
                     break
@@ -481,13 +522,16 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
                         "Categoría": statement,
                         "Métrica": standard_name,
                         "Periodo": fp,
-                        "Valor": 0.0
+                        "Valor": 0.0,
+                        "end": "",
+                        "filed": "",
                     })
                     
     df = pd.DataFrame(extracted_data)
     if df.empty:
         return []
     
+    df = df.sort_values(by=["end", "filed"], kind="mergesort")
     df = df.drop_duplicates(subset=["Categoría", "Métrica", "Periodo"], keep="last")
     df_pivot = df.pivot(index=["Categoría", "Métrica"], columns="Periodo", values="Valor").reset_index()
     
@@ -570,7 +614,18 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
         if get_val("Beneficio Bruto", p) == 0.0:
             set_val("Beneficio Bruto", p, get_val("Ingresos Totales", p) - get_val("Coste de los bienes vendidos", p))
         if get_val("Gastos Operativos Totales", p) == 0.0:
-            set_val("Gastos Operativos Totales", p, get_val("Gastos de Venta, Generales y Administrativos", p) + get_val("Investigación y Desarrollo", p) + get_val("Depreciación y Amortización", p))
+            bruto_p = get_val("Beneficio Bruto", p)
+            op_p = get_val("Beneficio Operativo", p)
+            if bruto_p != 0.0 and op_p != 0.0:
+                set_val("Gastos Operativos Totales", p, bruto_p - op_p)
+            else:
+                set_val(
+                    "Gastos Operativos Totales",
+                    p,
+                    get_val("Gastos de Venta, Generales y Administrativos", p)
+                    + get_val("Investigación y Desarrollo", p)
+                    + get_val("Otros Gastos Operativos", p),
+                )
         if get_val("Beneficio Operativo", p) == 0.0:
             set_val("Beneficio Operativo", p, get_val("Beneficio Bruto", p) - get_val("Gastos Operativos Totales", p))
         if get_val("Beneficio antes de Impuestos", p) == 0.0:

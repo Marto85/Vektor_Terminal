@@ -23,7 +23,7 @@ services:
       - key: BACKEND_PUBLIC_URL
         sync: false
       - key: SEC_USER_AGENT
-        value: Martin Juan finanzas.juridicos@gmail.com
+        sync: false
       - key: VEKTOR_ADMIN_EMAIL
         sync: false
       - key: VEKTOR_ADMIN_PASSWORD

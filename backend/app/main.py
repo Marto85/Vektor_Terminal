@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from app.api.endpoints import router
 from app.api.auth_routes import auth_router
 from app.api.portfolio_routes import portfolio_router
-from app.core.config import ALLOWED_ORIGINS
+from app.core.config import ALLOWED_ORIGINS, VEKTOR_ENV
 from app.models.database import engine, Base, run_schema_migrations
 from app.services.auth_service import ensure_default_superadmin
 
@@ -14,7 +14,13 @@ Base.metadata.create_all(bind=engine)
 run_schema_migrations()
 ensure_default_superadmin()
 
-app = FastAPI(title="Terminal Financiera API")
+_is_prod = VEKTOR_ENV == "production"
+app = FastAPI(
+    title="Terminal Financiera API",
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
+    openapi_url=None if _is_prod else "/openapi.json",
+)
 
 
 def _sanitize_validation_obj(obj):
