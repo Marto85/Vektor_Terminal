@@ -211,7 +211,9 @@ export default function ValuationModelsTab({
     }
 
     setRevGrowth(Number(inp.recommended_rev_growth_pct ?? 10.0));
-    setTargetEbitMargin(Number(inp.ebit_margin_pct ?? 18.0));
+    setTargetEbitMargin(
+      Number(inp.target_ebit_margin_pct ?? inp.ebit_margin_pct ?? 18.0)
+    );
     setWacc(Number(inp.suggested_wacc_pct ?? 9.0));
     setTerminalGrowth(3.0);
     setCapexStage1Pct(Number(inp.capex_expansion_pct ?? 12.0));

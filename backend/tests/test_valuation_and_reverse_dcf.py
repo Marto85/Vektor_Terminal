@@ -169,3 +169,47 @@ def test_build_summary_metrics_hides_ebitda_ratios_for_banks():
     )
     assert tech_metrics["capital_structure"]["net_debt_to_ebitda"] is not None
     assert tech_metrics["valuation"]["ev_to_ebitda_ltm"] is not None
+
+
+def test_trajectory_scales_margin_step_and_computes_hist_median_ebit():
+    from app.services.valuation_service import _analyze_trajectory_and_margins
+
+    years = ["2022", "2023", "2024", "2025"]
+    data = {
+        ("Ingresos Totales", "2022"): 1000.0,
+        ("Ingresos Totales", "2023"): 1150.0,
+        ("Ingresos Totales", "2024"): 1300.0,
+        ("Ingresos Totales", "2025"): 1500.0,
+        ("Beneficio Bruto", "2022"): 500.0,
+        ("Beneficio Bruto", "2023"): 575.0,
+        ("Beneficio Bruto", "2024"): 650.0,
+        ("Beneficio Bruto", "2025"): 750.0,
+        ("Beneficio Operativo", "2022"): 200.0,
+        ("Beneficio Operativo", "2023"): 230.0,
+        ("Beneficio Operativo", "2024"): 260.0,
+        ("Beneficio Operativo", "2025"): 75.0,
+        ("Beneficio Neto", "2022"): 140.0,
+        ("Beneficio Neto", "2023"): 160.0,
+        ("Beneficio Neto", "2024"): 180.0,
+        ("Beneficio Neto", "2025"): 50.0,
+    }
+    estimates = {
+        "revenue_estimate": {"0y": {"growth": 0.15}, "+1y": {"growth": 0.20}},
+        "earnings_estimate": {"0y": {"growth": 0.30}, "+1y": {"growth": 0.60}},
+    }
+    res = _analyze_trajectory_and_margins(
+        valid_years=years,
+        get_m=lambda m, y: data.get((m, y), 0.0),
+        estimates_data=estimates,
+    )
+    assert res["margin_step_pct_yr"] == 2.5
+    assert res["hist_med_ebit_margin_pct"] == 20.0
+
+
+def test_looks_english_detects_short_headlines_and_spanish_text():
+    from app.core.yf_client import _has_spanish_signals, _looks_english
+
+    assert _looks_english("Vistra Stock Rises on Power Deal") is True
+    assert _looks_english("Nu Holdings Beats Q3 Profit Estimates") is True
+    assert _looks_english("Nu Holdings supera estimaciones del tercer trimestre") is False
+    assert _has_spanish_signals("Vistra sube tras acuerdo energético en EE.UU.") is True

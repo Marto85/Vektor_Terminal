@@ -1415,6 +1415,7 @@ function App() {
                 <StockChart
                   ticker={currentTicker}
                   companyName={profileData?.name}
+                  livePrice={profileData?.price}
                 />
 
                 <CapitalStructurePanel

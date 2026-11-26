@@ -89,12 +89,49 @@ def _to_pct(val: Any, decimals: int = 1) -> float | None:
         return None
 
 
+def _has_spanish_signals(text: str) -> bool:
+    if any(ch in text for ch in "áéíóúüñÁÉÍÓÚÜÑ¿¡"):
+        return True
+    sample = f" {text.lower()} "
+    es_markers = (
+        " de ",
+        " la ",
+        " el ",
+        " en ",
+        " y ",
+        " para ",
+        " con ",
+        " sus ",
+        " del ",
+        " los ",
+        " las ",
+        " una ",
+        " por ",
+        " se dedica ",
+        " opera ",
+        " proporciona ",
+        " ofrece ",
+        " fundada en ",
+        " con sede en ",
+        " empresa ",
+        " compañía ",
+        " acciones ",
+        " ganancias ",
+        " ingresos ",
+        " trimestre ",
+    )
+    return sum(1 for m in es_markers if m in sample) >= 2
+
+
 def _looks_english(text: str) -> bool:
     """
     Detecta si un texto corporativo o titular sigue redactado en inglés
     para traducirlo al español automáticamente.
     """
-    sample = f" {text.lower()} "
+    clean = text.strip()
+    if not clean:
+        return False
+    sample = f" {clean.lower()} "
     en_markers = (
         " the ",
         " and ",
@@ -103,6 +140,21 @@ def _looks_english(text: str) -> bool:
         " for ",
         " from ",
         " its ",
+        " is ",
+        " in ",
+        " on ",
+        " to ",
+        " by ",
+        " as ",
+        " at ",
+        " over ",
+        " after ",
+        " why ",
+        " how ",
+        " new ",
+        " up ",
+        " down ",
+        " vs ",
         " engages in ",
         " operates ",
         " provides ",
@@ -121,6 +173,27 @@ def _looks_english(text: str) -> bool:
         " quarter ",
         " announces ",
         " reports ",
+        " beats ",
+        " misses ",
+        " rises ",
+        " falls ",
+        " jumps ",
+        " drops ",
+        " surges ",
+        " buys ",
+        " sells ",
+        " acquires ",
+        " launches ",
+        " plans ",
+        " says ",
+        " sees ",
+        " billion",
+        " million",
+        " growth",
+        " market",
+        " energy",
+        " power",
+        " bank",
     )
     es_markers = (
         " de ",
@@ -131,6 +204,9 @@ def _looks_english(text: str) -> bool:
         " para ",
         " con ",
         " sus ",
+        " del ",
+        " los ",
+        " las ",
         " se dedica ",
         " opera ",
         " proporciona ",
@@ -146,6 +222,10 @@ def _looks_english(text: str) -> bool:
     )
     en_hits = sum(1 for m in en_markers if m in sample)
     es_hits = sum(1 for m in es_markers if m in sample)
+    if len(clean) < 180:
+        if _has_spanish_signals(clean):
+            return False
+        return en_hits >= 1 and en_hits > es_hits
     return en_hits >= 2 and en_hits > es_hits
 
 
@@ -1421,7 +1501,7 @@ def get_company_profile(ticker_symbol: str, db: Session) -> dict:
     news_list = [dict(n) for n in (snapshot.get("news") or []) if isinstance(n, dict)]
     for item in news_list:
         raw_t = str(item.get("title") or "").strip()
-        if raw_t and _looks_english(raw_t):
+        if raw_t and (_looks_english(raw_t) or not _has_spanish_signals(raw_t)):
             item["title"] = _translate_headline_es(raw_t)
 
     upcoming_events = snapshot.get("upcoming_events") if isinstance(snapshot.get("upcoming_events"), list) else []

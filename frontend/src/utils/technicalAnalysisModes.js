@@ -643,19 +643,34 @@ function analyzeMomentumMode(candles, pivots, volInfo) {
 /**
  * Punto de entrada principal para evaluar el enfoque técnico seleccionado.
  */
-export function runTechnicalAnalysisMode(candles, mode) {
+export function runTechnicalAnalysisMode(candles, mode, options = {}) {
   if (!mode || mode === 'none' || !Array.isArray(candles) || candles.length < 15) {
     return null;
   }
 
-  const lookback = candles.length > 180 ? 7 : candles.length > 80 ? 5 : 3;
-  const pivots = findSwingPivots(candles, lookback);
-  const volInfo = analyzeVolumeBehavior(candles);
+  const parsedLive = Number(options?.livePrice);
+  const effectiveCandles =
+    Number.isFinite(parsedLive) && parsedLive > 0
+      ? candles.map((c, idx) =>
+          idx === candles.length - 1
+            ? {
+                ...c,
+                close: parsedLive,
+                high: Math.max(Number(c.high ?? parsedLive), parsedLive),
+                low: Math.min(Number(c.low ?? parsedLive), parsedLive),
+              }
+            : c,
+        )
+      : candles;
 
-  if (mode === 'trend') return analyzeTrendMode(candles, volInfo);
-  if (mode === 'chartism') return analyzeChartismMode(candles, pivots, volInfo);
-  if (mode === 'elliott') return analyzeElliottMode(candles, pivots, volInfo);
-  if (mode === 'momentum') return analyzeMomentumMode(candles, pivots, volInfo);
+  const lookback = effectiveCandles.length > 180 ? 7 : effectiveCandles.length > 80 ? 5 : 3;
+  const pivots = findSwingPivots(effectiveCandles, lookback);
+  const volInfo = analyzeVolumeBehavior(effectiveCandles);
+
+  if (mode === 'trend') return analyzeTrendMode(effectiveCandles, volInfo);
+  if (mode === 'chartism') return analyzeChartismMode(effectiveCandles, pivots, volInfo);
+  if (mode === 'elliott') return analyzeElliottMode(effectiveCandles, pivots, volInfo);
+  if (mode === 'momentum') return analyzeMomentumMode(effectiveCandles, pivots, volInfo);
 
   return null;
 }

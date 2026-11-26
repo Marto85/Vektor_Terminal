@@ -178,7 +178,7 @@ function formatMetricValue(val, metric) {
   }).format(val);
 }
 
-export default function StockChart({ ticker, companyName }) {
+export default function StockChart({ ticker, companyName, livePrice = null }) {
   const { isDark } = useTheme();
   const chartContainerRef = useRef(null);
   const subChartContainerRef = useRef(null);
@@ -361,8 +361,8 @@ export default function StockChart({ ticker, companyName }) {
 
   const modeAnalysis = useMemo(() => {
     if (selectedMetric !== 'Price' || technicalMode === 'none') return null;
-    return runTechnicalAnalysisMode(activeCandles, technicalMode);
-  }, [activeCandles, selectedMetric, technicalMode]);
+    return runTechnicalAnalysisMode(activeCandles, technicalMode, { livePrice });
+  }, [activeCandles, selectedMetric, technicalMode, livePrice]);
 
   const hasSubPanel =
     selectedMetric === 'Price' && (indicators.rsi || indicators.macd || indicators.atr);

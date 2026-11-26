@@ -334,7 +334,8 @@ def _analyze_trajectory_and_margins(
                 f"Expansión esperada de márgenes: el consenso proyecta BPA +{eps_1y_pct:.1f}% "
                 f"vs. Ventas +{rev_1y_pct:.1f}% (apalancamiento operativo positivo)."
             )
-            margin_step_pct_yr = 0.30
+            # Escala proporcional al apalancamiento operativo esperado (0.30 pp/año base hasta 2.50 pp/año)
+            margin_step_pct_yr = round(min(max(0.30 + (spread_eps_rev - 2.5) * 0.08, 0.30), 2.50), 2)
         elif spread_eps_rev <= -2.5:
             leverage_signal = "compressing"
             leverage_label = (
@@ -342,6 +343,9 @@ def _analyze_trajectory_and_margins(
                 f"vs. Ventas +{rev_1y_pct:.1f}% (presión por costos, CapEx o depreciación)."
             )
             margin_step_pct_yr = -0.30
+
+    hist_ebit_margins = [float(m["operating_margin_pct"]) for m in margin_history if m.get("operating_margin_pct") is not None]
+    hist_med_ebit_margin_pct = round(median(hist_ebit_margins), 2) if len(hist_ebit_margins) >= 2 else None
 
     period_labels = {
         "0q": "Trimestre Actual (0Q)",
@@ -391,6 +395,7 @@ def _analyze_trajectory_and_margins(
         "leverage_signal": leverage_signal,
         "leverage_label": leverage_label,
         "margin_step_pct_yr": margin_step_pct_yr,
+        "hist_med_ebit_margin_pct": hist_med_ebit_margin_pct,
         "consensus_rows": consensus_rows,
         "sec_8k_filings": estimates_data.get("sec_8k_guidance_filings", []),
     }
@@ -1205,6 +1210,19 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
     med_ptbv = med_by_key.get("ptbv") or ltm_multiples.get("ptbv") or 1.8
     exit_ptbv_default = round(min(max(float(med_ptbv), 1.0), 2.8), 2)
 
+    base_ebit_margin = float(audit["ebit_margin_pct"])
+    step_yr = float(trajectory["margin_step_pct_yr"])
+    hist_med_ebit = trajectory.get("hist_med_ebit_margin_pct")
+    consensus_target_ebit = base_ebit_margin + (5.0 * step_yr)
+    if hist_med_ebit is not None and float(hist_med_ebit) > base_ebit_margin + 4.0:
+        # Reversión parcial (75%) hacia la mediana histórica ante caídas cíclicas/transitorias de EBIT
+        reversion_target = base_ebit_margin + (float(hist_med_ebit) - base_ebit_margin) * 0.75
+        target_ebit_margin_pct = round(min(max(max(consensus_target_ebit, reversion_target), -20.0), 60.0), 1)
+        step_yr = round((target_ebit_margin_pct - base_ebit_margin) / 5.0, 2)
+        trajectory["margin_step_pct_yr"] = step_yr
+    else:
+        target_ebit_margin_pct = round(min(max(consensus_target_ebit, -20.0), 60.0), 1)
+
     dcf_inputs_payload = {
         "current_price": round(current_price, 2),
         "shares_mm": round(current_shares_mm, 2),
@@ -1212,10 +1230,11 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         "revenue_base_mm": round(rev_base, 2),
         "recommended_rev_growth_pct": trajectory["recommended_rev_growth_pct"],
         "suggested_wacc_pct": suggested_wacc_pct,
-        "margin_step_pct_yr": trajectory["margin_step_pct_yr"],
+        "margin_step_pct_yr": step_yr,
         "fcf_reported_mm": round(fcf_ltm, 2),
         "fcf_adjusted_mm": audit["adjusted_fcf_mm"],
         "ebit_margin_pct": audit["ebit_margin_pct"],
+        "target_ebit_margin_pct": target_ebit_margin_pct,
         "tax_rate_pct": audit["tax_rate_pct"],
         "da_sales_pct": da_sales_pct,
         "capex_expansion_pct": audit["capex_current_pct"],
