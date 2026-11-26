@@ -1,5 +1,13 @@
-export default function BrandLogo({ size = "md", showSubtitle = false }) {
+export default function BrandLogo({ size = "md", showSubtitle = false, tone = "auto" }) {
   const iconDim = size === "lg" ? "w-9 h-9" : size === "sm" ? "w-5 h-5" : "w-6 h-6";
+  const textColor =
+    tone === "dark"
+      ? "text-white"
+      : tone === "light"
+      ? "text-gray-900"
+      : size === "lg"
+      ? "text-gray-900"
+      : "text-white";
 
   return (
     <div className="inline-flex items-center gap-2.5 select-none">
@@ -59,8 +67,8 @@ export default function BrandLogo({ size = "md", showSubtitle = false }) {
       <div className="flex flex-col leading-tight">
         <span
           className={`font-extrabold tracking-tight ${
-            size === "lg" ? "text-xl text-gray-900" : "text-[15px] text-white"
-          }`}
+            size === "lg" ? "text-xl" : "text-[15px]"
+          } ${textColor}`}
         >
           Vekt<span className="text-orange-500">or</span>
         </span>

@@ -285,36 +285,36 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl p-6 sm:p-8">
+    <div className="min-h-screen bg-[#141416] text-gray-100 flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-[#1e1e22] border border-gray-800 rounded-2xl shadow-2xl p-6 sm:p-8">
         {onBackToLanding && (
           <button
             type="button"
             onClick={onBackToLanding}
-            className="mb-4 text-xs text-slate-400 hover:text-orange-400 transition-colors cursor-pointer"
+            className="mb-4 text-xs text-gray-400 hover:text-orange-400 transition-colors cursor-pointer"
           >
             ← Volver a la página principal
           </button>
         )}
         <div className="flex flex-col items-center text-center mb-6">
           <div className="mb-2">
-            <BrandLogo size="lg" />
+            <BrandLogo size="lg" tone="dark" />
           </div>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-gray-400 mt-1">
             Plataforma de Análisis Fundamental & Gestión de Carteras
           </p>
         </div>
 
         {/* Selector de pestañas Ingresar / Crear cuenta */}
         {mode !== "recover" && providers.registration_mode !== "closed" && (
-          <div className="grid grid-cols-2 gap-1 bg-slate-950/90 border border-slate-800 rounded-xl p-1 mb-5">
+          <div className="grid grid-cols-2 gap-1 bg-[#141416] border border-gray-800 rounded-xl p-1 mb-5">
             <button
               type="button"
               onClick={() => switchMode("login")}
               className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
                 mode === "login"
                   ? "bg-orange-500 text-white shadow"
-                  : "text-slate-400 hover:text-slate-200"
+                  : "text-gray-400 hover:text-gray-200"
               }`}
             >
               Ingresar
@@ -325,7 +325,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
               className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
                 mode === "register"
                   ? "bg-orange-500 text-white shadow"
-                  : "text-slate-400 hover:text-slate-200"
+                  : "text-gray-400 hover:text-gray-200"
               }`}
             >
               Crear cuenta
@@ -353,12 +353,12 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
             <div>
               <label
                 htmlFor="login-identifier"
-                className="block text-xs font-medium text-slate-300 mb-1.5"
+                className="block text-xs font-medium text-gray-300 mb-1.5"
               >
                 Usuario o correo electrónico
               </label>
               <div className="relative">
-                <User className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <User className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   id="login-identifier"
                   type="text"
@@ -366,7 +366,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   placeholder="usuario o nombre@dominio.com"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#141416] border border-gray-800 rounded-lg pl-9 pr-3 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-orange-500"
                 />
               </div>
             </div>
@@ -375,7 +375,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
               <div className="flex items-center justify-between mb-1.5">
                 <label
                   htmlFor="login-password"
-                  className="block text-xs font-medium text-slate-300"
+                  className="block text-xs font-medium text-gray-300"
                 >
                   Contraseña
                 </label>
@@ -385,13 +385,13 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                     setRecStep("request");
                     switchMode("recover");
                   }}
-                  className="text-[11px] text-emerald-400 hover:text-emerald-300"
+                  className="text-[11px] text-orange-400 hover:text-orange-300"
                 >
                   ¿Olvidaste tu usuario o clave?
                 </button>
               </div>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Lock className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   id="login-password"
                   type={showPass ? "text" : "password"}
@@ -399,12 +399,13 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-10 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#141416] border border-gray-800 rounded-lg pl-9 pr-10 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-orange-500"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPass((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  aria-label={showPass ? "Ocultar clave" : "Mostrar clave"}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
                   tabIndex={-1}
                 >
                   {showPass ? (
@@ -419,7 +420,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
             <button
               type="submit"
               disabled={submitting}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors cursor-pointer"
+              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors cursor-pointer"
             >
               {submitting ? "Verificando..." : "Ingresar a la terminal"}
             </button>
@@ -432,12 +433,12 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
             <div>
               <label
                 htmlFor="reg-username"
-                className="block text-xs font-medium text-slate-300 mb-1"
+                className="block text-xs font-medium text-gray-300 mb-1"
               >
                 Nombre de usuario
               </label>
               <div className="relative">
-                <User className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <User className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   id="reg-username"
                   type="text"
@@ -445,10 +446,10 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                   value={regUsername}
                   onChange={(e) => setRegUsername(e.target.value)}
                   placeholder="ej. martin.juan"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#141416] border border-gray-800 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-orange-500"
                 />
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">
+              <p className="text-[11px] text-gray-500 mt-1">
                 3 a 32 caracteres: minúsculas, números, punto o guion bajo.
               </p>
             </div>
@@ -456,7 +457,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
             <div>
               <label
                 htmlFor="reg-fullname"
-                className="block text-xs font-medium text-slate-300 mb-1"
+                className="block text-xs font-medium text-gray-300 mb-1"
               >
                 Nombre completo
               </label>
@@ -467,19 +468,19 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                 value={regFullName}
                 onChange={(e) => setRegFullName(e.target.value)}
                 placeholder="Nombre y apellido"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                className="w-full bg-[#141416] border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-orange-500"
               />
             </div>
 
             <div>
               <label
                 htmlFor="reg-email"
-                className="block text-xs font-medium text-slate-300 mb-1"
+                className="block text-xs font-medium text-gray-300 mb-1"
               >
                 Correo electrónico (para recuperación de acceso)
               </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Mail className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   id="reg-email"
                   type="email"
@@ -487,7 +488,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                   value={regEmail}
                   onChange={(e) => setRegEmail(e.target.value)}
                   placeholder="tu.correo@dominio.com"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#141416] border border-gray-800 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-orange-500"
                 />
               </div>
             </div>
@@ -495,17 +496,17 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
             <div>
               <label
                 htmlFor="reg-advisor"
-                className="block text-xs font-medium text-slate-300 mb-1"
+                className="block text-xs font-medium text-gray-300 mb-1"
               >
                 Ejecutivo a cargo (opcional)
               </label>
               <div className="relative">
-                <UserCheck className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <UserCheck className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <select
                   id="reg-advisor"
                   value={regAdvisorId}
                   onChange={(e) => setRegAdvisorId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#141416] border border-gray-800 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-orange-500"
                 >
                   <option value="">Sin ejecutivo (cuenta independiente)</option>
                   {advisors.map((adv) => (
@@ -515,7 +516,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                   ))}
                 </select>
               </div>
-              <p className="text-[11px] text-slate-500 mt-1">
+              <p className="text-[11px] text-gray-500 mt-1">
                 Si lo dejás en blanco, tu cartera será privada y solo visible para vos.
               </p>
             </div>
@@ -524,7 +525,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
               <div>
                 <label
                   htmlFor="reg-pass"
-                  className="block text-xs font-medium text-slate-300 mb-1"
+                  className="block text-xs font-medium text-gray-300 mb-1"
                 >
                   Contraseña
                 </label>
@@ -535,13 +536,13 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                   value={regPassword}
                   onChange={(e) => setRegPassword(e.target.value)}
                   placeholder="Mín. 8 caracteres"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#141416] border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-orange-500"
                 />
               </div>
               <div>
                 <label
                   htmlFor="reg-pass-confirm"
-                  className="block text-xs font-medium text-slate-300 mb-1"
+                  className="block text-xs font-medium text-gray-300 mb-1"
                 >
                   Confirmar clave
                 </label>
@@ -552,7 +553,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                   value={regConfirmPassword}
                   onChange={(e) => setRegConfirmPassword(e.target.value)}
                   placeholder="Repetí la clave"
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-[#141416] border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-orange-500"
                 />
               </div>
             </div>
@@ -561,19 +562,19 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
               <div>
                 <label
                   htmlFor="reg-invite-code"
-                  className="block text-xs font-medium text-slate-300 mb-1"
+                  className="block text-xs font-medium text-gray-300 mb-1"
                 >
                   Código de invitación
                 </label>
                 <div className="relative">
-                  <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <KeyRound className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     id="reg-invite-code"
                     type="text"
                     value={regInviteCode}
                     onChange={(e) => setRegInviteCode(e.target.value)}
                     placeholder="Código provisto por el administrador"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-[#141416] border border-gray-800 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-orange-500"
                   />
                 </div>
               </div>
@@ -582,7 +583,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
             <button
               type="submit"
               disabled={submitting}
-              className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors cursor-pointer"
+              className="w-full flex items-center justify-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors cursor-pointer"
             >
               <UserPlus className="w-4 h-4" />
               {submitting ? "Creando cuenta..." : "Registrarme e ingresar"}
@@ -596,17 +597,17 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
             <button
               type="button"
               onClick={() => switchMode("login")}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200"
+              className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
               Volver al inicio de sesión
             </button>
 
             <div>
-              <h2 className="text-sm font-semibold text-slate-100">
+              <h2 className="text-sm font-semibold text-gray-100">
                 Recuperar usuario y contraseña
               </h2>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-gray-400 mt-1">
                 Te enviaremos tu nombre de usuario registrado y un código válido
                 por 15 minutos para definir una nueva clave.
               </p>
@@ -617,19 +618,19 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                 <div>
                   <label
                     htmlFor="rec-email"
-                    className="block text-xs font-medium text-slate-300 mb-1"
+                    className="block text-xs font-medium text-gray-300 mb-1"
                   >
                     Correo electrónico registrado
                   </label>
                   <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <Mail className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       id="rec-email"
                       type="email"
                       value={recEmail}
                       onChange={(e) => setRecEmail(e.target.value)}
                       placeholder="tu.correo@dominio.com"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-[#141416] border border-gray-800 rounded-lg pl-9 pr-3 py-2.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-orange-500"
                     />
                   </div>
                 </div>
@@ -637,7 +638,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors cursor-pointer"
+                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors cursor-pointer"
                 >
                   {submitting
                     ? "Enviando..."
@@ -647,7 +648,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                 <button
                   type="button"
                   onClick={() => setRecStep("reset")}
-                  className="w-full text-center text-[11px] text-slate-400 hover:text-emerald-400"
+                  className="w-full text-center text-[11px] text-gray-400 hover:text-orange-400"
                 >
                   Ya tengo un código de recuperación
                 </button>
@@ -657,19 +658,19 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                 <div>
                   <label
                     htmlFor="rec-token"
-                    className="block text-xs font-medium text-slate-300 mb-1"
+                    className="block text-xs font-medium text-gray-300 mb-1"
                   >
                     Código / Token de recuperación
                   </label>
                   <div className="relative">
-                    <KeyRound className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <KeyRound className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       id="rec-token"
                       type="text"
                       value={recToken}
                       onChange={(e) => setRecToken(e.target.value)}
                       placeholder="Pegá el código recibido"
-                      className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-[#141416] border border-gray-800 rounded-lg pl-9 pr-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-orange-500"
                     />
                   </div>
                 </div>
@@ -677,7 +678,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                 <div>
                   <label
                     htmlFor="rec-new-pass"
-                    className="block text-xs font-medium text-slate-300 mb-1"
+                    className="block text-xs font-medium text-gray-300 mb-1"
                   >
                     Nueva contraseña
                   </label>
@@ -688,14 +689,14 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                     value={recNewPassword}
                     onChange={(e) => setRecNewPassword(e.target.value)}
                     placeholder="Mínimo 8 caracteres"
-                    className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-[#141416] border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-orange-500"
                   />
                 </div>
 
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors cursor-pointer"
+                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm py-2.5 rounded-lg transition-colors cursor-pointer"
                 >
                   {submitting
                     ? "Actualizando..."
@@ -705,7 +706,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                 <button
                   type="button"
                   onClick={() => setRecStep("request")}
-                  className="w-full text-center text-[11px] text-slate-400 hover:text-emerald-400"
+                  className="w-full text-center text-[11px] text-gray-400 hover:text-orange-400"
                 >
                   Solicitar un nuevo código
                 </button>
@@ -718,11 +719,11 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
         {mode !== "recover" && (
           <div className="mt-6">
             <div className="relative flex items-center justify-center mb-4">
-              <div className="border-t border-slate-800 w-full" />
-              <span className="bg-slate-900 px-3 whitespace-nowrap shrink-0 text-[11px] uppercase tracking-wider text-slate-500">
+              <div className="border-t border-gray-800 w-full" />
+              <span className="bg-[#1e1e22] px-3 whitespace-nowrap shrink-0 text-[11px] uppercase tracking-wider text-gray-500">
                 o continuá con
               </span>
-              <div className="border-t border-slate-800 w-full" />
+              <div className="border-t border-gray-800 w-full" />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -735,7 +736,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                     ? "Continuar con tu cuenta de Google"
                     : "Requiere configurar GOOGLE_CLIENT_ID en backend/.env"
                 }
-                className="flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800/90 border border-slate-800 rounded-lg py-2.5 px-3 text-xs font-medium text-slate-200 transition-colors disabled:opacity-50 cursor-pointer"
+                className="flex items-center justify-center gap-2 bg-[#141416] hover:bg-[#252526] border border-gray-800 rounded-lg py-2.5 px-3 text-xs font-medium text-gray-200 transition-colors disabled:opacity-50 cursor-pointer"
               >
                 <GoogleIcon />
                 <span>
@@ -752,7 +753,7 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
                     ? "Continuar con tu cuenta de GitHub"
                     : "Requiere configurar GITHUB_CLIENT_ID en backend/.env"
                 }
-                className="flex items-center justify-center gap-2 bg-slate-950 hover:bg-slate-800/90 border border-slate-800 rounded-lg py-2.5 px-3 text-xs font-medium text-slate-200 transition-colors disabled:opacity-50 cursor-pointer"
+                className="flex items-center justify-center gap-2 bg-[#141416] hover:bg-[#252526] border border-gray-800 rounded-lg py-2.5 px-3 text-xs font-medium text-gray-200 transition-colors disabled:opacity-50 cursor-pointer"
               >
                 <GitHubIcon />
                 <span>
@@ -763,8 +764,8 @@ export default function LoginScreen({ initialMode = "login", onBackToLanding = n
           </div>
         )}
 
-        <div className="mt-6 pt-4 border-t border-slate-800/80 flex items-center justify-center gap-2 text-[11px] text-slate-500">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
+        <div className="mt-6 pt-4 border-t border-gray-800/80 flex items-center justify-center gap-2 text-[11px] text-gray-500">
+          <ShieldCheck className="w-3.5 h-3.5 text-orange-400" />
           <span>Sesión cifrada JWT · Roles RBAC · OAuth 2.0</span>
         </div>
       </div>
