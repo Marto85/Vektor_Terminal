@@ -163,6 +163,12 @@ describe("Bloque 4 — Smoke & Interacción de Componentes Clave", () => {
             sovereign_bonds: [
               { ticker: "GD30", series_id: "bond_GD30", name: "Bonar Global 2030", law: "Ley NY", maturity: "2030-07-09", coupon_pct: 0.75, price_usd: 68.5, change_pct: 1.2 },
             ],
+            macro_indicators: [
+              { series_id: "ipc_mensual", label: "IPC Mensual", value: 2.7, unit: "%", date: "2026-10-01", source: "INDEC" },
+            ],
+            social_indicators: [
+              { series_id: "indec_pobreza", label: "Pobreza (Personas · INDEC)", value: 31.6, delta: -6.5, unit: "%", date: "2025-06-30", source: "INDEC EPH" },
+            ],
             news: [
               { title: "Noticia Económica Test", subtitle: "Bajada de prueba", link: "https://example.com/1", source: "Infobae", topic: "Economía", published_at: "2026-11-26T10:00:00Z" },
             ],
@@ -174,9 +180,12 @@ describe("Bloque 4 — Smoke & Interacción de Componentes Clave", () => {
       });
     });
 
-    render(wrapProviders(<ArgentinaTab />));
+    render(wrapProviders(<ArgentinaTab isSuperadmin />));
     await waitFor(() => {
       expect(screen.getByText("Bonar Global 2030")).toBeInTheDocument();
+      expect(screen.getAllByText("IPC Mensual").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("Pobreza (Personas · INDEC)").length).toBeGreaterThan(0);
+      expect(screen.getByText("Editar / Cargar dato")).toBeInTheDocument();
       expect(screen.getByText("Noticia Económica Test")).toBeInTheDocument();
     });
   });

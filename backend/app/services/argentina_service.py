@@ -9,7 +9,10 @@ import xml.etree.ElementTree as ET
 
 import pandas as pd
 import requests
+from sqlalchemy.orm import Session
 import yfinance as yf
+
+from app.models.database import ArgentinaSocialOverride
 
 _OVERVIEW_TTL = timedelta(minutes=10)
 _SERIES_TTL = timedelta(minutes=20)
@@ -48,6 +51,154 @@ ARG_NEWS_FEEDS: list[dict[str, str]] = [
     {"source": "C5N", "topic": "Economía", "url": "https://www.c5n.com/rss/economia.xml"},
     {"source": "C5N", "topic": "Política", "url": "https://www.c5n.com/rss/politica.xml"},
 ]
+
+MACRO_SERIES_CONFIG: dict[str, dict[str, Any]] = {
+    "ipc_mensual": {
+        "label": "IPC Mensual",
+        "unit": "%",
+        "source": "INDEC · datos.gob.ar",
+        "subtitle": "Variación mensual nivel general",
+        "datos_gob_id": "148.3_INIVELNAL_DICI_M_26",
+        "representation": "percent_change",
+        "argentinadatos_url": "https://api.argentinadatos.com/v1/finanzas/indices/inflacion",
+    },
+    "ipc_interanual": {
+        "label": "IPC Interanual",
+        "unit": "%",
+        "source": "INDEC · datos.gob.ar",
+        "subtitle": "Variación últimos 12 meses",
+        "datos_gob_id": "148.3_INIVELNAL_DICI_M_26",
+        "representation": "percent_change_a_year_ago",
+        "argentinadatos_url": "https://api.argentinadatos.com/v1/finanzas/indices/inflacionInteranual",
+    },
+    "emae": {
+        "label": "Actividad (EMAE Desest.)",
+        "unit": "Índice",
+        "source": "INDEC · datos.gob.ar",
+        "subtitle": "Base 2004 = 100 · Desestacionalizado",
+        "datos_gob_id": "143.3_NO_PR_2004_A_31",
+    },
+    "reservas_internacionales": {
+        "label": "Reservas Internacionales",
+        "unit": "USD M",
+        "source": "BCRA · datos.gob.ar",
+        "subtitle": "Stock bruto en millones de USD",
+        "datos_gob_id": "92.2_RID_0_0_32",
+    },
+    "base_monetaria": {
+        "label": "Base Monetaria",
+        "unit": "ARS M",
+        "source": "BCRA · datos.gob.ar",
+        "subtitle": "Circulación + encajes en millones ARS",
+        "datos_gob_id": "331.2_SALDO_BASA_M_21",
+    },
+    "tasa_referencia": {
+        "label": "Tasa Referencia / TNA",
+        "unit": "%",
+        "source": "BCRA · ArgentinaDatos",
+        "subtitle": "Tasa nominal anual de referencia",
+        "datos_gob_id": "89.2_TS_INTELIG_0_D_20",
+        "argentinadatos_url": "https://api.argentinadatos.com/v1/finanzas/tasas/depositos30Dias",
+    },
+    "resultado_fiscal": {
+        "label": "Resultado Primario SPN",
+        "unit": "ARS M",
+        "source": "MECON · datos.gob.ar",
+        "subtitle": "Sector Público Nacional (mensual)",
+        "datos_gob_id": "452.3_RESULTADO_RIO_0_M_18",
+    },
+    "balanza_comercial": {
+        "label": "Balanza Comercial",
+        "unit": "USD M",
+        "source": "INDEC · datos.gob.ar",
+        "subtitle": "Saldo exportaciones menos importaciones",
+        "datos_gob_id": "74.3_ISC_0_M_19",
+    },
+}
+
+SOCIAL_SERIES_CONFIG: dict[str, dict[str, Any]] = {
+    "indec_pobreza": {
+        "label": "Pobreza (Personas · INDEC)",
+        "unit": "%",
+        "source": "INDEC · Encuesta Permanente de Hogares",
+        "subtitle": "Total aglomerados urbanos (semestral)",
+        "baseline_points": [
+            {"date": "2018-06-30", "value": 27.3, "note": "1° Semestre 2018"},
+            {"date": "2018-12-31", "value": 32.0, "note": "2° Semestre 2018"},
+            {"date": "2019-06-30", "value": 35.4, "note": "1° Semestre 2019"},
+            {"date": "2019-12-31", "value": 35.5, "note": "2° Semestre 2019"},
+            {"date": "2020-06-30", "value": 40.9, "note": "1° Semestre 2020"},
+            {"date": "2020-12-31", "value": 42.0, "note": "2° Semestre 2020"},
+            {"date": "2021-06-30", "value": 40.6, "note": "1° Semestre 2021"},
+            {"date": "2021-12-31", "value": 37.3, "note": "2° Semestre 2021"},
+            {"date": "2022-06-30", "value": 36.5, "note": "1° Semestre 2022"},
+            {"date": "2022-12-31", "value": 39.2, "note": "2° Semestre 2022"},
+            {"date": "2023-06-30", "value": 40.1, "note": "1° Semestre 2023"},
+            {"date": "2023-12-31", "value": 41.7, "note": "2° Semestre 2023"},
+            {"date": "2024-06-30", "value": 52.9, "note": "1° Semestre 2024"},
+            {"date": "2024-12-31", "value": 38.1, "note": "2° Semestre 2024"},
+            {"date": "2025-06-30", "value": 31.6, "note": "1° Semestre 2025 (ref. oficial)"},
+        ],
+    },
+    "indec_indigencia": {
+        "label": "Indigencia (Personas · INDEC)",
+        "unit": "%",
+        "source": "INDEC · Encuesta Permanente de Hogares",
+        "subtitle": "Total aglomerados urbanos (semestral)",
+        "baseline_points": [
+            {"date": "2018-06-30", "value": 4.9, "note": "1° Semestre 2018"},
+            {"date": "2018-12-31", "value": 6.7, "note": "2° Semestre 2018"},
+            {"date": "2019-06-30", "value": 7.7, "note": "1° Semestre 2019"},
+            {"date": "2019-12-31", "value": 8.0, "note": "2° Semestre 2019"},
+            {"date": "2020-06-30", "value": 10.5, "note": "1° Semestre 2020"},
+            {"date": "2020-12-31", "value": 10.5, "note": "2° Semestre 2020"},
+            {"date": "2021-06-30", "value": 10.7, "note": "1° Semestre 2021"},
+            {"date": "2021-12-31", "value": 8.2, "note": "2° Semestre 2021"},
+            {"date": "2022-06-30", "value": 8.8, "note": "1° Semestre 2022"},
+            {"date": "2022-12-31", "value": 8.1, "note": "2° Semestre 2022"},
+            {"date": "2023-06-30", "value": 9.3, "note": "1° Semestre 2023"},
+            {"date": "2023-12-31", "value": 11.9, "note": "2° Semestre 2023"},
+            {"date": "2024-06-30", "value": 18.1, "note": "1° Semestre 2024"},
+            {"date": "2024-12-31", "value": 8.2, "note": "2° Semestre 2024"},
+            {"date": "2025-06-30", "value": 6.9, "note": "1° Semestre 2025 (ref. oficial)"},
+        ],
+    },
+    "uca_pobreza": {
+        "label": "Pobreza (ODSA · UCA)",
+        "unit": "%",
+        "source": "Observatorio de la Deuda Social Argentina (UCA)",
+        "subtitle": "Estimación por ingresos ODSA-UCA",
+        "baseline_points": [
+            {"date": "2018-10-31", "value": 33.6, "note": "3° Trimestre 2018"},
+            {"date": "2019-10-31", "value": 39.8, "note": "3° Trimestre 2019"},
+            {"date": "2020-10-31", "value": 44.7, "note": "3° Trimestre 2020"},
+            {"date": "2021-10-31", "value": 42.4, "note": "3° Trimestre 2021"},
+            {"date": "2022-10-31", "value": 43.1, "note": "3° Trimestre 2022"},
+            {"date": "2023-10-31", "value": 44.7, "note": "3° Trimestre 2023"},
+            {"date": "2024-03-31", "value": 54.9, "note": "1° Trimestre 2024"},
+            {"date": "2024-09-30", "value": 49.9, "note": "3° Trimestre 2024"},
+            {"date": "2025-03-31", "value": 38.9, "note": "1° Trimestre 2025 (estimación UCA)"},
+        ],
+    },
+    "utdt_icg": {
+        "label": "Confianza en el Gobierno (ICG)",
+        "unit": "pts (0-5)",
+        "source": "Universidad Torcuato Di Tella (UTDT)",
+        "subtitle": "Escala 0 a 5 · Índice mensual",
+        "baseline_points": [
+            {"date": "2024-01-31", "value": 2.61, "note": "Enero 2024"},
+            {"date": "2024-03-31", "value": 2.56, "note": "Marzo 2024"},
+            {"date": "2024-05-31", "value": 2.51, "note": "Mayo 2024"},
+            {"date": "2024-07-31", "value": 2.37, "note": "Julio 2024"},
+            {"date": "2024-09-30", "value": 2.16, "note": "Septiembre 2024"},
+            {"date": "2024-11-30", "value": 2.66, "note": "Noviembre 2024"},
+            {"date": "2025-01-31", "value": 2.61, "note": "Enero 2025"},
+            {"date": "2025-03-31", "value": 2.42, "note": "Marzo 2025"},
+            {"date": "2025-05-31", "value": 2.45, "note": "Mayo 2025"},
+            {"date": "2025-07-31", "value": 2.40, "note": "Julio 2025"},
+        ],
+    },
+}
 
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _IMG_SRC_RE = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
@@ -277,13 +428,212 @@ def _fetch_argentina_news() -> list[dict[str, Any]]:
     return deduped
 
 
-def build_argentina_overview() -> dict[str, Any]:
+def _fetch_datos_gob_series(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    gid = cfg.get("datos_gob_id")
+    rep = cfg.get("representation")
+    pts: list[dict[str, Any]] = []
+    if gid:
+        try:
+            rep_param = f"&representation_mode={rep}" if rep else ""
+            url = f"https://apis.datos.gob.ar/series/api/series/?ids={gid}{rep_param}&limit=1000&format=json"
+            data = _fetch_json(url, timeout=8)
+            rows = data.get("data") if isinstance(data, dict) else None
+            if isinstance(rows, list):
+                for row in rows:
+                    if isinstance(row, (list, tuple)) and len(row) >= 2 and row[1] is not None:
+                        dt = str(row[0]).strip()[:10]
+                        val = float(row[1])
+                        if rep in ("percent_change", "percent_change_a_year_ago"):
+                            val = val * 100.0
+                        pts.append({"date": dt, "value": round(val, 2)})
+                pts.sort(key=lambda x: x["date"])
+        except Exception:
+            pts = []
+
+    if not pts and cfg.get("argentinadatos_url"):
+        try:
+            rows = _fetch_json(cfg["argentinadatos_url"], timeout=8)
+            if isinstance(rows, list):
+                for row in rows:
+                    dt = str(row.get("fecha") or "").strip()[:10]
+                    val = row.get("valor")
+                    if dt and val is not None:
+                        pts.append({"date": dt, "value": round(float(val), 2)})
+                pts.sort(key=lambda x: x["date"])
+        except Exception:
+            pass
+    return pts
+
+
+def _fetch_single_macro_card(series_id: str, cfg: dict[str, Any]) -> dict[str, Any]:
+    pts = _fetch_datos_gob_series(cfg)
+    latest = pts[-1] if pts else None
+    prev = pts[-2] if len(pts) >= 2 else None
+    val = latest["value"] if latest else None
+    delta = round(val - prev["value"], 2) if (val is not None and prev is not None) else None
+    return {
+        "series_id": series_id,
+        "label": cfg["label"],
+        "value": val,
+        "prev_value": prev["value"] if prev else None,
+        "delta": delta,
+        "unit": cfg["unit"],
+        "date": latest["date"] if latest else None,
+        "source": cfg["source"],
+        "subtitle": cfg["subtitle"],
+    }
+
+
+def _load_social_series_data(series_id: str, db: Session | None = None) -> dict[str, Any]:
+    cfg = SOCIAL_SERIES_CONFIG[series_id]
+    points = [dict(p) for p in cfg["baseline_points"]]
+    source = cfg["source"]
+    is_override = False
+    updated_at = None
+    updated_by = None
+
+    if db is not None:
+        row = db.query(ArgentinaSocialOverride).filter(ArgentinaSocialOverride.series_id == series_id).first()
+        if row and isinstance(row.points_json, list) and row.points_json:
+            cleaned: list[dict[str, Any]] = []
+            for p in row.points_json:
+                dt = str(p.get("date") or "").strip()[:10]
+                if dt and p.get("value") is not None:
+                    item = {"date": dt, "value": round(float(p["value"]), 2)}
+                    if p.get("note"):
+                        item["note"] = str(p["note"])[:160]
+                    cleaned.append(item)
+            if cleaned:
+                cleaned.sort(key=lambda x: x["date"])
+                points = cleaned
+                source = row.source or source
+                is_override = True
+                updated_at = row.updated_at.isoformat() if row.updated_at else None
+                updated_by = row.updated_by
+
+    return {
+        "series_id": series_id,
+        "label": cfg["label"],
+        "unit": cfg["unit"],
+        "source": source,
+        "subtitle": cfg["subtitle"],
+        "is_override": is_override,
+        "updated_at": updated_at,
+        "updated_by": updated_by,
+        "points": points,
+    }
+
+
+def _build_social_cards(db: Session | None = None) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    for sid in SOCIAL_SERIES_CONFIG:
+        data = _load_social_series_data(sid, db=db)
+        pts = data["points"]
+        latest = pts[-1] if pts else None
+        prev = pts[-2] if len(pts) >= 2 else None
+        val = latest["value"] if latest else None
+        delta = round(val - prev["value"], 2) if (val is not None and prev is not None) else None
+        cards.append(
+            {
+                "series_id": sid,
+                "label": data["label"],
+                "value": val,
+                "prev_value": prev["value"] if prev else None,
+                "delta": delta,
+                "unit": data["unit"],
+                "date": latest["date"] if latest else None,
+                "note": latest.get("note") if latest else None,
+                "source": data["source"],
+                "subtitle": data["subtitle"],
+                "is_override": data["is_override"],
+            }
+        )
+    return cards
+
+
+def get_social_overrides(db: Session) -> list[dict[str, Any]]:
+    return [_load_social_series_data(sid, db=db) for sid in SOCIAL_SERIES_CONFIG]
+
+
+def upsert_social_override(
+    db: Session,
+    series_id: str,
+    points: list[dict[str, Any]],
+    source: str | None = None,
+    updated_by: str | None = None,
+) -> dict[str, Any]:
+    sid = (series_id or "").strip()
+    if sid not in SOCIAL_SERIES_CONFIG:
+        raise ValueError(f"Indicador social/político inválido: {sid}")
+    cfg = SOCIAL_SERIES_CONFIG[sid]
+    cleaned: list[dict[str, Any]] = []
+    seen_dates: dict[str, dict[str, Any]] = {}
+    for p in points:
+        dt = str(p.get("date") or "").strip()[:10]
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", dt):
+            raise ValueError(f"Fecha inválida '{dt}'. Usá formato YYYY-MM-DD.")
+        val = round(float(p["value"]), 2)
+        item: dict[str, Any] = {"date": dt, "value": val}
+        if p.get("note"):
+            item["note"] = str(p["note"]).strip()[:160]
+        seen_dates[dt] = item
+    cleaned = [seen_dates[k] for k in sorted(seen_dates.keys())]
+    if not cleaned:
+        raise ValueError("Debe incluir al menos un punto histórico válido.")
+
+    row = db.query(ArgentinaSocialOverride).filter(ArgentinaSocialOverride.series_id == sid).first()
+    if row is None:
+        row = ArgentinaSocialOverride(
+            series_id=sid,
+            label=cfg["label"],
+            unit=cfg["unit"],
+            source=(source or cfg["source"]).strip()[:160],
+            points_json=cleaned,
+            updated_by=(updated_by or "")[:120],
+            updated_at=datetime.utcnow(),
+        )
+        db.add(row)
+    else:
+        row.source = (source or row.source or cfg["source"]).strip()[:160]
+        row.points_json = cleaned
+        row.updated_by = (updated_by or "")[:120]
+        row.updated_at = datetime.utcnow()
+    db.commit()
+
+    with _LOCK:
+        _OVERVIEW_CACHE["ts"] = None
+        _OVERVIEW_CACHE["payload"] = None
+        for k in [key for key in list(_SERIES_CACHE.keys()) if key[0] == sid]:
+            _SERIES_CACHE.pop(k, None)
+
+    return _load_social_series_data(sid, db=db)
+
+
+def reset_social_override(db: Session, series_id: str) -> dict[str, Any]:
+    sid = (series_id or "").strip()
+    if sid not in SOCIAL_SERIES_CONFIG:
+        raise ValueError(f"Indicador social/político inválido: {sid}")
+    db.query(ArgentinaSocialOverride).filter(ArgentinaSocialOverride.series_id == sid).delete()
+    db.commit()
+
+    with _LOCK:
+        _OVERVIEW_CACHE["ts"] = None
+        _OVERVIEW_CACHE["payload"] = None
+        for k in [key for key in list(_SERIES_CACHE.keys()) if key[0] == sid]:
+            _SERIES_CACHE.pop(k, None)
+
+    return _load_social_series_data(sid, db=db)
+
+
+def build_argentina_overview(db: Session | None = None) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     with _LOCK:
         ts = _OVERVIEW_CACHE.get("ts")
         payload = _OVERVIEW_CACHE.get("payload")
         if ts and payload and (now - ts) < _OVERVIEW_TTL:
-            return payload
+            out = dict(payload)
+            out["social_indicators"] = _build_social_cards(db=db)
+            return out
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         f_fx = pool.submit(_fetch_dolares_snapshot)
@@ -305,8 +655,14 @@ def build_argentina_overview() -> dict[str, Any]:
 
     merval = _fetch_merval_usd(ccl)
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        bonds = list(pool.map(lambda cfg: _fetch_single_sovereign_bond(cfg, mep), SOVEREIGN_BONDS))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        f_bonds = pool.submit(lambda: [ _fetch_single_sovereign_bond(cfg, mep) for cfg in SOVEREIGN_BONDS ])
+        f_macro = {
+            sid: pool.submit(_fetch_single_macro_card, sid, cfg)
+            for sid, cfg in MACRO_SERIES_CONFIG.items()
+        }
+        bonds = f_bonds.result()
+        macro_indicators = [fut.result() for fut in f_macro.values()]
 
     out = {
         "updated_at": now.isoformat(),
@@ -363,6 +719,8 @@ def build_argentina_overview() -> dict[str, Any]:
                 "subtitle": f"S&P Merval ARS {merval['value_ars']:,.0f}" if merval.get("value_ars") else "Índice local en CCL",
             },
         },
+        "macro_indicators": macro_indicators,
+        "social_indicators": _build_social_cards(db=db),
         "sovereign_bonds": bonds,
         "news": news,
     }
@@ -408,14 +766,15 @@ def _fetch_argentinadatos_fx_series(casa: str) -> list[dict[str, Any]]:
     return out
 
 
-def get_argentina_series(series_id: str, range_key: str = "1y") -> dict[str, Any]:
+def get_argentina_series(series_id: str, range_key: str = "1y", db: Session | None = None) -> dict[str, Any]:
     sid = (series_id or "").strip()
     rk = (range_key or "1y").strip().lower()
     now = datetime.now(timezone.utc)
-    with _LOCK:
-        cached = _SERIES_CACHE.get((sid, rk))
-        if cached and (now - cached[0]) < _SERIES_TTL:
-            return cached[1]
+    if sid not in SOCIAL_SERIES_CONFIG:
+        with _LOCK:
+            cached = _SERIES_CACHE.get((sid, rk))
+            if cached and (now - cached[0]) < _SERIES_TTL:
+                return cached[1]
 
     yf_period_map = {"3m": "3mo", "6m": "6mo", "1y": "1y", "3y": "3y", "5y": "5y", "max": "max"}
     yf_period = yf_period_map.get(rk, "1y")
@@ -530,12 +889,38 @@ def get_argentina_series(series_id: str, range_key: str = "1y") -> dict[str, Any
                 "points": pts,
             }
         )
+    elif sid in MACRO_SERIES_CONFIG:
+        cfg = MACRO_SERIES_CONFIG[sid]
+        pts = _filter_points_by_range(_fetch_datos_gob_series(cfg), rk)
+        payload.update(
+            {
+                "label": cfg["label"],
+                "unit": cfg["unit"],
+                "supports_candlestick": False,
+                "source": cfg["source"],
+                "points": pts,
+            }
+        )
+    elif sid in SOCIAL_SERIES_CONFIG:
+        data = _load_social_series_data(sid, db=db)
+        pts = _filter_points_by_range(data["points"], rk)
+        payload.update(
+            {
+                "label": data["label"],
+                "unit": data["unit"],
+                "supports_candlestick": False,
+                "source": data["source"],
+                "is_override": data["is_override"],
+                "points": pts,
+            }
+        )
     else:
         raise ValueError(f"Serie Argentina no soportada: {sid}")
 
-    with _LOCK:
-        if len(_SERIES_CACHE) >= 128:
-            oldest = min(_SERIES_CACHE, key=lambda k: _SERIES_CACHE[k][0])
-            _SERIES_CACHE.pop(oldest, None)
-        _SERIES_CACHE[(sid, rk)] = (now, payload)
+    if sid not in SOCIAL_SERIES_CONFIG:
+        with _LOCK:
+            if len(_SERIES_CACHE) >= 128:
+                oldest = min(_SERIES_CACHE, key=lambda k: _SERIES_CACHE[k][0])
+                _SERIES_CACHE.pop(oldest, None)
+            _SERIES_CACHE[(sid, rk)] = (now, payload)
     return payload

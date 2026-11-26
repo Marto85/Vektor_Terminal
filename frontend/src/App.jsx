@@ -1871,7 +1871,7 @@ function App() {
             {activeSidebarTab === "Argentina" && (
               <ErrorBoundary key="Argentina" compact>
                 <Suspense fallback={<TabFallback />}>
-                  <ArgentinaTab />
+                  <ArgentinaTab isSuperadmin={user?.role === "superadmin"} />
                 </Suspense>
               </ErrorBoundary>
             )}

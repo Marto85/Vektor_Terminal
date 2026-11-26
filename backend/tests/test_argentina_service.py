@@ -98,3 +98,49 @@ def test_argentina_series_candlestick_flags_and_endpoints(api_client):
     with patch("app.services.argentina_service.get_argentina_series", return_value={"series_id": "riesgo_pais", "points": []}):
         r = api_client.get("/api/v1/argentina/series/riesgo_pais?range=1y", headers=headers)
         assert r.status_code == 200
+
+
+def test_argentina_macro_and_social_overrides_rbac(api_client):
+    from app.services import argentina_service
+    from app.core.config import VEKTOR_ADMIN_EMAIL, VEKTOR_ADMIN_PASSWORD
+
+    # Macro series parsing desde datos.gob.ar
+    with patch.object(
+        argentina_service,
+        "_fetch_json",
+        return_value={"data": [["2026-09-01", 0.035], ["2026-10-01", 0.028]]},
+    ):
+        s_ipc = argentina_service.get_argentina_series("ipc_mensual", "1y")
+        assert s_ipc["supports_candlestick"] is False
+        assert s_ipc["unit"] == "%"
+        assert s_ipc["points"][-1]["value"] == 2.8
+
+    # Login superadmin y override social
+    adm = api_client.post(
+        "/api/v1/auth/login",
+        json={"email": VEKTOR_ADMIN_EMAIL, "password": VEKTOR_ADMIN_PASSWORD},
+    )
+    headers = {"Authorization": f"Bearer {adm.json()['access_token']}"}
+
+    put_res = api_client.put(
+        "/api/v1/argentina/social-overrides/indec_pobreza",
+        headers=headers,
+        json={
+            "source": "INDEC EPH Test",
+            "points": [
+                {"date": "2024-12-31", "value": 38.1, "note": "2° Sem 2024"},
+                {"date": "2025-12-31", "value": 29.5, "note": "2° Sem 2025"},
+            ],
+        },
+    )
+    assert put_res.status_code == 200
+    assert put_res.json()["is_override"] is True
+    assert put_res.json()["points"][-1]["value"] == 29.5
+
+    ser_res = api_client.get("/api/v1/argentina/series/indec_pobreza?range=3y", headers=headers)
+    assert ser_res.status_code == 200
+    assert ser_res.json()["points"][-1]["value"] == 29.5
+
+    del_res = api_client.delete("/api/v1/argentina/social-overrides/indec_pobreza", headers=headers)
+    assert del_res.status_code == 200
+    assert del_res.json()["is_override"] is False

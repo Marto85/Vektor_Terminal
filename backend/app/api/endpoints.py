@@ -125,26 +125,80 @@ def get_macro_lab(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Error cargando Macro Lab: {str(e)}")
 
 
+class ArgentinaSocialPointPayload(BaseModel):
+    date: str = Field(..., min_length=10, max_length=10)
+    value: float = Field(..., ge=-1000, le=1e9, allow_inf_nan=False)
+    note: str | None = Field(None, max_length=160)
+
+
+class ArgentinaSocialOverridePayload(BaseModel):
+    source: str | None = Field(None, max_length=160)
+    points: list[ArgentinaSocialPointPayload] = Field(..., min_length=1, max_length=500)
+
+
 @router.get("/argentina/overview")
-def get_argentina_overview():
+def get_argentina_overview(db: Session = Depends(get_db)):
     from app.services.argentina_service import build_argentina_overview
 
     try:
-        return build_argentina_overview()
+        return build_argentina_overview(db=db)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cargando panel Argentina: {str(e)}")
 
 
 @router.get("/argentina/series/{series_id}")
-def get_argentina_series_endpoint(series_id: str, range: str = "1y"):
+def get_argentina_series_endpoint(series_id: str, range: str = "1y", db: Session = Depends(get_db)):
     from app.services.argentina_service import get_argentina_series
 
     try:
-        return get_argentina_series(series_id=series_id, range_key=range)
+        return get_argentina_series(series_id=series_id, range_key=range, db=db)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cargando serie histórica Argentina: {str(e)}")
+
+
+@router.get("/argentina/social-overrides")
+def get_argentina_social_overrides(db: Session = Depends(get_db)):
+    from app.services.argentina_service import get_social_overrides
+
+    return {"items": get_social_overrides(db)}
+
+
+@router.put("/argentina/social-overrides/{series_id}")
+def put_argentina_social_override(
+    series_id: str,
+    payload: ArgentinaSocialOverridePayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("superadmin")),
+):
+    from app.services.argentina_service import upsert_social_override
+
+    try:
+        updated = upsert_social_override(
+            db=db,
+            series_id=series_id,
+            points=[p.model_dump() for p in payload.points],
+            source=payload.source,
+            updated_by=current_user.username or current_user.email,
+        )
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.delete("/argentina/social-overrides/{series_id}")
+def delete_argentina_social_override(
+    series_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("superadmin")),
+):
+    from app.services.argentina_service import reset_social_override
+
+    try:
+        return reset_social_override(db=db, series_id=series_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/watchlists")

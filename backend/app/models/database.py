@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from sqlalchemy import (
     create_engine,
     Column,
@@ -287,6 +287,18 @@ class EmailVerificationToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ArgentinaSocialOverride(Base):
+    __tablename__ = "argentina_social_overrides"
+
+    series_id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    unit: Mapped[str] = mapped_column(String(32), nullable=False)
+    source: Mapped[str] = mapped_column(String(160), nullable=False)
+    points_json: Mapped[Any] = mapped_column(JSON, nullable=False)
+    updated_by: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 def run_schema_migrations() -> None:
