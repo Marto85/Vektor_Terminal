@@ -326,14 +326,19 @@ export default function ValuationModelsTab({
     const projections = [];
     let pvStage1 = 0;
     let revCurr = rev0;
+    const nwcPctOfDeltaRev = 0.02; // 2% de capital de trabajo incremental sobre variación de ventas
 
     for (let yr = 1; yr <= 5; yr += 1) {
-      revCurr = revCurr * (1 + g);
+      const prevRev = revCurr;
+      // Fade gradual hacia crecimiento terminal en los años 4 y 5
+      const gYr = yr <= 3 ? g : g + ((gTerm - g) * (yr - 3)) / 2;
+      revCurr = revCurr * (1 + gYr);
+      const deltaNwc = Math.max(revCurr - prevRev, 0) * nwcPctOfDeltaRev;
       const marginYr = startMargin + ((endMargin - startMargin) * yr) / 5;
       const nopat = revCurr * marginYr * (1 - taxRate);
       const da = revCurr * daPct;
       const capex = revCurr * capex1;
-      const fcf = nopat + da - capex + Number(extraAdjMm || 0);
+      const fcf = nopat + da - capex - deltaNwc + Number(extraAdjMm || 0);
       const pv = fcf / (1 + r) ** yr;
       pvStage1 += pv;
 
@@ -347,8 +352,10 @@ export default function ValuationModelsTab({
     }
 
     const rev6 = revCurr * (1 + gTerm);
+    const deltaNwcTerm = Math.max(rev6 - revCurr, 0) * nwcPctOfDeltaRev;
     const steadyFcf6 =
-      rev6 * (endMargin * (1 - taxRate) + daPct - capexTerm) +
+      rev6 * (endMargin * (1 - taxRate) + daPct - capexTerm) -
+      deltaNwcTerm +
       Number(extraAdjMm || 0);
     const tvGordon = steadyFcf6 / (r - gTerm);
     const priceGordon =

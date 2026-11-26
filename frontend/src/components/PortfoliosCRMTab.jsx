@@ -27,6 +27,7 @@ const TX_TYPE_META = {
   DIVIDEND: { label: "Dividendo", badge: "bg-blue-50 text-blue-700 border-blue-200" },
   DEPOSIT: { label: "Depósito", badge: "bg-purple-50 text-purple-700 border-purple-200" },
   WITHDRAWAL: { label: "Retiro", badge: "bg-amber-50 text-amber-700 border-amber-200" },
+  SPLIT: { label: "Split", badge: "bg-blue-50 text-blue-700 border-blue-200" },
 };
 
 function formatCurrency(val, currency = "USD") {
@@ -201,6 +202,9 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
     } else if (nextType === "DEPOSIT" || nextType === "WITHDRAWAL") {
       setTicker("");
       setUnitPrice("1");
+    } else if (nextType === "SPLIT") {
+      setUnitPrice("0");
+      setCommission("0");
     } else {
       setUnitPrice("");
     }
@@ -313,7 +317,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
     setError("");
     setFeedback("");
 
-    const needsTicker = txType === "BUY" || txType === "SELL" || txType === "DIVIDEND";
+    const needsTicker = txType === "BUY" || txType === "SELL" || txType === "DIVIDEND" || txType === "SPLIT";
     try {
       const res = await apiClient.post(
         `/portfolios/${activeClientId}/transactions`,
@@ -370,7 +374,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
   const canEdit = Boolean(portfolio?.can_edit);
   const currency = portfolio?.client?.target_currency || "USD";
   const requiresTicker =
-    txType === "BUY" || txType === "SELL" || txType === "DIVIDEND";
+    txType === "BUY" || txType === "SELL" || txType === "DIVIDEND" || txType === "SPLIT";
   const twrVal = Number(summary?.twr_pct || 0);
 
   return (
@@ -819,6 +823,7 @@ export default function PortfoliosCRMTab({ onSelectCompany }) {
                       <option value="DIVIDEND">Dividendo</option>
                       <option value="DEPOSIT">Depósito Caja</option>
                       <option value="WITHDRAWAL">Retiro Caja</option>
+                      <option value="SPLIT">Split (Factor)</option>
                     </select>
                   </div>
 

@@ -11,7 +11,7 @@ import yfinance as yf
 from app.core.yf_client import _lookup_fx_multiplier
 from app.models.database import ClientProfile, PortfolioTransaction, User
 
-VALID_TX_TYPES = ("BUY", "SELL", "DIVIDEND", "DEPOSIT", "WITHDRAWAL")
+VALID_TX_TYPES = ("BUY", "SELL", "DIVIDEND", "DEPOSIT", "WITHDRAWAL", "SPLIT")
 VALID_RISK_PROFILES = ("conservador", "moderado", "agresivo")
 VALID_HORIZONS = ("corto_plazo", "mediano_plazo", "largo_plazo")
 
@@ -151,28 +151,47 @@ def fetch_live_quotes(tickers: list[str], target_currency: str = "USD") -> dict[
     return quotes
 
 
+_TWR_HIST_CACHE_TTL = timedelta(hours=6)
+_TWR_HIST_CACHE: dict[tuple[str, str, str], tuple[datetime, dict[str, float]]] = {}
+
+
 def _fetch_historical_close_map(
     symbols: list[str],
     start_date: str,
     end_date: str,
+    target_currency: str = "USD",
 ) -> dict[str, dict[str, float]]:
     """
-    Obtiene cierres diarios históricos por símbolo para valuar tenencias en fechas
-    intermedias de flujos externos del TWR. Ante error de red o ausencia de datos,
-    devuelve un mapa vacío para hacer fallback limpio al último precio operado.
+    Obtiene cierres diarios históricos por símbolo (con caché de 6h y conversión FX)
+    para valuar tenencias en fechas intermedias de flujos externos del TWR.
     """
     if not symbols or not start_date or not end_date or start_date >= end_date:
         return {}
+    now_utc = datetime.now(timezone.utc)
+    curr = (target_currency or "USD").strip().upper()
+    fx_mult = _lookup_fx_multiplier("USD", curr) if curr != "USD" else 1.0
+    if not fx_mult or fx_mult <= 0:
+        fx_mult = 1.0
+
     result: dict[str, dict[str, float]] = {}
     for sym in symbols:
+        cache_k = (sym, start_date, curr)
+        cached = _TWR_HIST_CACHE.get(cache_k)
+        if cached and (now_utc - cached[0]) < _TWR_HIST_CACHE_TTL:
+            result[sym] = cached[1]
+            continue
         try:
             hist = yf.Ticker(sym).history(start=start_date, end=end_date, interval="1d", auto_adjust=False)
             if hist is not None and not hist.empty and "Close" in hist.columns:
                 date_map: dict[str, float] = {}
                 for idx, val in hist["Close"].items():
                     if pd.notna(val) and float(val) > 0:
-                        date_map[idx.strftime("%Y-%m-%d")] = float(val)
+                        date_map[idx.strftime("%Y-%m-%d")] = float(val) * fx_mult
                 if date_map:
+                    if len(_TWR_HIST_CACHE) >= 256:
+                        oldest_k = min(_TWR_HIST_CACHE, key=lambda k: _TWR_HIST_CACHE[k][0])
+                        _TWR_HIST_CACHE.pop(oldest_k, None)
+                    _TWR_HIST_CACHE[cache_k] = (now_utc, date_map)
                     result[sym] = date_map
         except Exception:
             continue
@@ -315,6 +334,11 @@ def _compute_twr_metrics(
                 cash += qty * price - comm
             elif ttype == "DIVIDEND":
                 cash += qty * price - comm
+            elif ttype == "SPLIT" and sym and qty > 0:
+                if sym in qty_by_sym:
+                    qty_by_sym[sym] = qty_by_sym[sym] * qty
+                if sym in last_known_price and last_known_price[sym] > 0:
+                    last_known_price[sym] = last_known_price[sym] / qty
 
         if v_start is None:
             holdings_val_after = sum(
@@ -463,6 +487,11 @@ def compute_portfolio_positions(
             total_dividends += net_div
             cash_balance += net_div
 
+        elif ttype == "SPLIT" and qty > 0:
+            if pos["quantity"] > 0:
+                pos["quantity"] = pos["quantity"] * qty
+                pos["ppp"] = pos["total_cost"] / pos["quantity"] if pos["quantity"] > 1e-9 else 0.0
+
     open_symbols = [s for s, p in ledger.items() if p["quantity"] > 1e-6]
     resolved_quotes = (
         quotes_map
@@ -534,7 +563,12 @@ def compute_portfolio_positions(
         tx_dates = sorted({(t.tx_date or "").strip() for t in ordered if t.tx_date})
         if tx_symbols and len(tx_dates) > 1:
             end_dt = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
-            historical_prices_by_sym = _fetch_historical_close_map(tx_symbols, tx_dates[0], end_dt)
+            historical_prices_by_sym = _fetch_historical_close_map(
+                tx_symbols,
+                tx_dates[0],
+                end_dt,
+                target_currency=target_currency,
+            )
 
     twr_metrics = _compute_twr_metrics(
         ordered_txs=ordered,
@@ -795,10 +829,10 @@ def add_portfolio_transaction(
         )
 
     normalized_ticker = (ticker or "").strip().upper() or None
-    if normalized_type in ("BUY", "SELL", "DIVIDEND") and not normalized_ticker:
+    if normalized_type in ("BUY", "SELL", "DIVIDEND", "SPLIT") and not normalized_ticker:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El ticker es obligatorio para operaciones de compra, venta o dividendo.",
+            detail="El ticker es obligatorio para operaciones de compra, venta, dividendo o split.",
         )
 
     if quantity <= 0 or unit_price < 0 or commission < 0:

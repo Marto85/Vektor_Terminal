@@ -116,6 +116,7 @@ const TABLE_COLUMNS = [
   { key: 'net_debt_to_ebitda', label: 'DN/EBITDA', type: 'mult' },
   { key: 'rev_growth_yoy_pct', label: 'Crec. Ventas', type: 'pct' },
   { key: 'upside_ws_pct', label: 'Potencial WS', type: 'pct' },
+  { key: 'updated_ago_hours', label: 'Actualizado', type: 'ago' },
 ];
 
 const ALL_COLUMN_KEYS = [
@@ -139,6 +140,12 @@ const COMPACT_COLUMN_KEYS = [
 
 function formatCell(val, type) {
   if (val === null || val === undefined || Number.isNaN(val)) return '-';
+  if (type === 'ago') {
+    const hrs = Number(val);
+    if (hrs < 1) return 'Recién';
+    if (hrs < 24) return `Hace ${Math.round(hrs)} h`;
+    return `Hace ${Math.round(hrs / 24)} d`;
+  }
   const isNeg = val < 0;
   const abs = Math.abs(val);
 

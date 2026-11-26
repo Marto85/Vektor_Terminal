@@ -93,7 +93,11 @@ def _infer_sector_from_sic_desc(sic_desc: str) -> str:
     return "Otros"
 
 
-def _extract_screener_row(ticker_upper: str, snap: dict[str, Any]) -> dict[str, Any] | None:
+def _extract_screener_row(
+    ticker_upper: str,
+    snap: dict[str, Any],
+    updated_at: datetime | None = None,
+) -> dict[str, Any] | None:
     raw_info = snap.get("info")
     info: dict[str, Any] = raw_info if isinstance(raw_info, dict) else {}
     raw_sec_fb = snap.get("sec_fundamentals")
@@ -161,6 +165,12 @@ def _extract_screener_row(ticker_upper: str, snap: dict[str, Any]) -> dict[str, 
         "rev_growth_yoy_pct": gcf.get("revenue_growth_yoy_pct"),
         "dividend_yield_pct": val.get("dividend_yield_pct"),
         "upside_ws_pct": upside_ws_pct,
+        "updated_at": updated_at.isoformat() if isinstance(updated_at, datetime) else None,
+        "updated_ago_hours": (
+            round((datetime.utcnow() - updated_at).total_seconds() / 3600.0, 1)
+            if isinstance(updated_at, datetime)
+            else None
+        ),
     }
 
 
@@ -172,6 +182,7 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
     """
     now = datetime.utcnow()
     cached_map: dict[str, dict[str, Any]] = {}
+    updated_map: dict[str, datetime] = {}
     stale_count = 0
 
     for row in db.query(CompanyMarketCache).yield_per(25):
@@ -180,8 +191,10 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
         if isinstance(payload, dict) and float(payload.get("price") or 0) > 0:
             cached_map[tk] = payload
             updated_at: Any = row.last_updated
-            if isinstance(updated_at, datetime) and (now - updated_at) >= SCREENER_REFRESH_TTL:
-                stale_count += 1
+            if isinstance(updated_at, datetime):
+                updated_map[tk] = updated_at
+                if (now - updated_at) >= SCREENER_REFRESH_TTL:
+                    stale_count += 1
         db.expunge(row)
 
     missing_from_universe = [t for t in SCREENER_UNIVERSE if t not in cached_map]
@@ -191,12 +204,13 @@ def get_screener_universe(db: Session, bootstrap_limit: int = 4) -> dict[str, An
             for sym, snap in pool.map(_fetch_snapshot_isolated, missing_from_universe[:bootstrap_limit]):
                 if snap is not None:
                     cached_map[sym] = snap
+                    updated_map[sym] = now
 
     items: list[dict[str, Any]] = []
     sectors_set: set[str] = set()
 
     for tk, snap in sorted(cached_map.items()):
-        extracted = _extract_screener_row(tk, snap)
+        extracted = _extract_screener_row(tk, snap, updated_at=updated_map.get(tk))
         if extracted is not None:
             items.append(extracted)
             if extracted["sector"]:

@@ -968,6 +968,8 @@ def get_company_history(
                 set_={"payload": response_payload, "last_updated": now_utc},
             )
             db.execute(stmt)
+            purge_cutoff = now_utc - timedelta(days=30)
+            db.query(PriceHistoryCache).filter(PriceHistoryCache.last_updated < purge_cutoff).delete()
             db.commit()
         except Exception:
             db.rollback()

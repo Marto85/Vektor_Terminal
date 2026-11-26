@@ -366,16 +366,22 @@ export default function HomeOverview({
                   </p>
                   <p
                     className={`text-xs font-semibold mt-1 inline-flex items-center tabular-nums ${
-                      isPos ? "text-emerald-600" : "text-[#d93025]"
+                      bm.symbol === "^TNX"
+                        ? "text-gray-600"
+                        : isPos
+                          ? "text-emerald-600"
+                          : "text-[#d93025]"
                     }`}
                   >
-                    {isPos ? (
-                      <TrendingUp className="w-3 h-3 mr-1" />
-                    ) : (
-                      <TrendingDown className="w-3 h-3 mr-1" />
-                    )}
-                    {isPos ? "+" : ""}
-                    {fmtNum(bm.change_pct, 2)}%
+                    {bm.symbol !== "^TNX" &&
+                      (isPos ? (
+                        <TrendingUp className="w-3 h-3 mr-1" />
+                      ) : (
+                        <TrendingDown className="w-3 h-3 mr-1" />
+                      ))}
+                    {bm.symbol === "^TNX"
+                      ? `${bm.change >= 0 ? "+" : ""}${Math.round((bm.change || 0) * 100)} pb`
+                      : `${isPos ? "+" : ""}${fmtNum(bm.change_pct, 2)}%`}
                   </p>
                 </div>
 
