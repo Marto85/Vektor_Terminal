@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 import yfinance as yf
 
 from app.models.database import CompanyData, CompanyMarketCache
-from app.core.yf_client import get_cached_market_snapshot
+from app.core.yf_client import _lookup_fx_multiplier, get_cached_market_snapshot
+from app.services.financial_parser import detect_reporting_currency
 
 
 def _safe_div(num: float | None, den: float | None) -> float:
@@ -581,7 +582,19 @@ def build_financial_health_report(
         or sym
     ).strip()
 
-    sec_fx_to_usd = float(sec_fb.get("sec_fx_to_usd") or md.get("fx_rate") or 1.0)
+    reporting_currency = (
+        detect_reporting_currency(company_row.raw_facts)
+        if (company_row is not None and isinstance(company_row.raw_facts, dict))
+        else str(sec_fb.get("reporting_currency") or info.get("financialCurrency") or "USD").upper()
+    )
+    if reporting_currency == "USD" and info.get("financialCurrency"):
+        reporting_currency = str(info.get("financialCurrency")).upper()
+    cached_sec_fx = float(sec_fb.get("sec_fx_to_usd") or 0.0)
+    md_fx = float(md.get("fx_rate") or 1.0)
+    if reporting_currency != "USD" and (cached_sec_fx <= 0.0 or cached_sec_fx == 1.0):
+        sec_fx_to_usd = md_fx if md_fx != 1.0 else _lookup_fx_multiplier(reporting_currency, "USD")
+    else:
+        sec_fx_to_usd = float(cached_sec_fx or md_fx or 1.0)
     price_usd = float(md.get("price") or 0.0)
     shares_mm = float(md.get("shares_mm") or sec_fb.get("shares_out_mm") or 0.0)
 

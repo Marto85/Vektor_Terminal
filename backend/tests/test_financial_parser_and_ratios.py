@@ -216,3 +216,52 @@ def test_ratios_and_financial_health_report_manufacturing_vs_bank(db_session):
     health_bank = build_financial_health_report("BANKX", annual_rows, db_session)
     assert health_bank["altman"]["applicable"] is False
     assert health_bank["piotroski"]["applicable"] is False
+
+
+def test_ifrs_taxonomy_prioritized_over_stray_us_gaap_tag():
+    from app.services.financial_parser import detect_reporting_currency
+
+    curr_y = datetime.now().year - 1
+    raw = {
+        "facts": {
+            "us-gaap": {
+                "OtherAssetsCurrent": {
+                    "units": {
+                        "USD": [
+                            {"fy": curr_y, "fp": "FY", "form": "20-F", "end": f"{curr_y}-12-31", "val": 100_000_000}
+                        ]
+                    }
+                }
+            },
+            "ifrs-full": {
+                "Revenue": {
+                    "units": {
+                        "BRL": [
+                            {
+                                "fy": curr_y,
+                                "fp": "FY",
+                                "form": "20-F",
+                                "start": f"{curr_y}-01-01",
+                                "end": f"{curr_y}-12-31",
+                                "val": 13_400_000_000,
+                            }
+                        ]
+                    }
+                },
+                "Assets": {
+                    "units": {
+                        "BRL": [
+                            {"fy": curr_y, "fp": "FY", "form": "20-F", "end": f"{curr_y}-12-31", "val": 62_300_000_000}
+                        ]
+                    }
+                },
+            },
+        }
+    }
+
+    assert detect_reporting_currency(raw) == "BRL"
+    rows = extract_annual_metrics(raw)
+    rev_row = next(r for r in rows if r["Métrica"] == "Ingresos Totales")
+    assets_row = next(r for r in rows if r["Métrica"] == "Total activo")
+    assert rev_row[str(curr_y)] == 13_400.0
+    assert assets_row[str(curr_y)] == 62_300.0

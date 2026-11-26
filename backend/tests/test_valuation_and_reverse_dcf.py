@@ -133,3 +133,39 @@ def test_audit_detects_capex_expansion_anomaly():
     assert audit["has_anomalies"] is True
     assert any(f["code"] == "CAPEX_EXPANSION" for f in audit["flags"])
     assert audit["adjusted_fcf_mm"] > 80.0
+
+
+def test_country_risk_premium_for_emerging_markets():
+    from app.services.valuation_service import _estimate_country_risk_premium_pct
+
+    assert _estimate_country_risk_premium_pct("Brazil", "BRL") == 2.5
+    assert _estimate_country_risk_premium_pct(None, "BRL") == 2.5
+    assert _estimate_country_risk_premium_pct("United States", "USD") == 0.0
+
+
+def test_build_summary_metrics_hides_ebitda_ratios_for_banks():
+    from app.core.yf_client import _build_summary_metrics
+
+    base_info = {
+        "marketCap": 100_000_000_000,
+        "totalDebt": 20_000_000_000,
+        "totalCash": 10_000_000_000,
+        "ebitda": 5_000_000_000,
+        "totalRevenue": 25_000_000_000,
+    }
+    bank_metrics = _build_summary_metrics(
+        info={**base_info, "sector": "Financial Services"},
+        price=100.0,
+        fx_rate=1.0,
+    )
+    assert bank_metrics["capital_structure"]["net_debt_to_ebitda"] is None
+    assert bank_metrics["valuation"]["ev_to_ebitda_ltm"] is None
+    assert bank_metrics["efficiency"]["gross_margin_pct"] is None
+
+    tech_metrics = _build_summary_metrics(
+        info={**base_info, "sector": "Technology"},
+        price=100.0,
+        fx_rate=1.0,
+    )
+    assert tech_metrics["capital_structure"]["net_debt_to_ebitda"] is not None
+    assert tech_metrics["valuation"]["ev_to_ebitda_ltm"] is not None

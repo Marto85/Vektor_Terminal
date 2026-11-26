@@ -10,14 +10,52 @@ from sqlalchemy.orm import Session
 from app.models.database import PriceHistoryCache, is_sqlite
 from app.services.company_service import get_raw_financials
 from app.services.financial_parser import (
+    detect_reporting_currency,
     extract_annual_metrics,
     is_foreign_adr_filer,
     normalize_historical_shares,
 )
 from app.core.yf_client import (
+    _lookup_fx_multiplier,
     get_cached_market_snapshot,
     get_cached_estimates_and_guidance,
 )
+
+_COUNTRY_RISK_PREMIUM_PCT: dict[str, float] = {
+    "brazil": 2.5,
+    "argentina": 7.0,
+    "mexico": 1.5,
+    "colombia": 2.2,
+    "chile": 1.0,
+    "peru": 1.5,
+    "china": 1.0,
+    "india": 1.8,
+    "indonesia": 1.8,
+    "turkey": 4.5,
+    "south africa": 2.5,
+}
+
+_CURRENCY_RISK_PREMIUM_PCT: dict[str, float] = {
+    "BRL": 2.5,
+    "ARS": 7.0,
+    "MXN": 1.5,
+    "COP": 2.2,
+    "CLP": 1.0,
+    "PEN": 1.5,
+    "CNY": 1.0,
+    "RMB": 1.0,
+    "INR": 1.8,
+    "TRY": 4.5,
+    "ZAR": 2.5,
+}
+
+
+def _estimate_country_risk_premium_pct(country: str | None, reporting_currency: str | None) -> float:
+    c_key = str(country or "").strip().lower()
+    if c_key in _COUNTRY_RISK_PREMIUM_PCT:
+        return _COUNTRY_RISK_PREMIUM_PCT[c_key]
+    curr_key = str(reporting_currency or "").strip().upper()
+    return _CURRENCY_RISK_PREMIUM_PCT.get(curr_key, 0.0)
 
 
 def _compute_split_factors_by_year(tk: yf.Ticker, years_range: list[str]) -> dict[str, float]:
@@ -827,8 +865,17 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
 
     info: dict[str, Any] = market_snapshot.get("info", {})
     sec_fb: dict[str, Any] = market_snapshot.get("sec_fundamentals") or {}
-    sec_fx_rate = float(sec_fb.get("sec_fx_to_usd") or market_snapshot.get("fx_rate") or 1.0)
+    reporting_currency = detect_reporting_currency(raw_facts)
+    if reporting_currency == "USD" and info.get("financialCurrency"):
+        reporting_currency = str(info.get("financialCurrency")).upper()
     yf_fx_rate = float(market_snapshot.get("fx_rate") or 1.0)
+    cached_sec_fx = float(sec_fb.get("sec_fx_to_usd") or 0.0)
+    stale_sec_fb_fx = False
+    if reporting_currency != "USD" and (cached_sec_fx <= 0.0 or cached_sec_fx == 1.0):
+        sec_fx_rate = yf_fx_rate if yf_fx_rate != 1.0 else _lookup_fx_multiplier(reporting_currency, "USD")
+        stale_sec_fb_fx = True
+    else:
+        sec_fx_rate = float(cached_sec_fx or yf_fx_rate or 1.0)
 
     current_price = float(market_snapshot.get("price") or 0.0)
     current_shares_mm = float(market_snapshot.get("shares_mm") or sec_fb.get("shares_out_mm") or 0.0)
@@ -1092,25 +1139,34 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
     except Exception:
         rf_pct = 4.25
 
+    crp_pct = _estimate_country_risk_premium_pct(info.get("country"), reporting_currency)
     beta_val = float(info.get("beta") or 1.0)
-    cost_of_equity_pct = round(min(max(rf_pct + beta_val * 5.0, 8.0), 14.5), 1)
+    cost_of_equity_pct = round(
+        min(max(rf_pct + beta_val * 5.0 + crp_pct, 8.0 + crp_pct * 0.7), 14.5 + crp_pct),
+        1,
+    )
     latest_y_for_debt = valid_years[-1] if valid_years else None
     debt_from_bs = (
         (get_m("Deuda a corto plazo", latest_y_for_debt) + get_m("Deuda a largo plazo", latest_y_for_debt))
         if latest_y_for_debt
         else 0.0
     )
-    total_debt_mm = max(float(sec_fb.get("total_debt_mm") or debt_from_bs or 0.0), 0.0)
+    raw_fb_debt = float(sec_fb.get("total_debt_mm") or 0.0)
+    if stale_sec_fb_fx and raw_fb_debt > 0.0:
+        raw_fb_debt = raw_fb_debt * sec_fx_rate
+    total_debt_mm = max(float(raw_fb_debt or debt_from_bs or 0.0), 0.0)
     eff_tax_rate = float(sec_fb.get("effective_tax_rate") or 0.21)
     if current_mcap_mm is not None and current_mcap_mm > 0:
         total_cap_mm = current_mcap_mm + total_debt_mm
         w_e = current_mcap_mm / total_cap_mm
         w_d = total_debt_mm / total_cap_mm
-        kd_after_tax = max(rf_pct + 1.5, 4.0) * (1.0 - min(max(eff_tax_rate, 0.0), 0.35))
+        kd_after_tax = max(rf_pct + 1.5 + crp_pct * 0.6, 4.0) * (1.0 - min(max(eff_tax_rate, 0.0), 0.35))
         raw_wacc = w_e * cost_of_equity_pct + w_d * kd_after_tax
     else:
-        raw_wacc = rf_pct + beta_val * 4.5
-    suggested_wacc_pct = round(min(max(raw_wacc, 7.2), 12.5), 1)
+        raw_wacc = rf_pct + beta_val * 4.5 + crp_pct
+    wacc_floor = 7.2 + crp_pct * 0.7
+    wacc_cap = 12.5 + crp_pct
+    suggested_wacc_pct = round(min(max(raw_wacc, wacc_floor), wacc_cap), 1)
 
     tangible_equity_mm = max(latest_equity_mm - latest_goodwill_ltm - latest_intangibles_ltm, 0.0)
 

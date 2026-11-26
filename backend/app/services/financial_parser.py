@@ -131,11 +131,17 @@ SUPPORTED_XBRL_TAGS: set[str] = {
 
 def _get_taxonomy_data(raw_facts: dict) -> dict:
     facts = raw_facts.get("facts", {})
+    us_gaap = facts.get("us-gaap") if isinstance(facts.get("us-gaap"), dict) else {}
+    ifrs_full = facts.get("ifrs-full") if isinstance(facts.get("ifrs-full"), dict) else {}
     merged: dict = {}
-    if isinstance(facts.get("us-gaap"), dict) and facts["us-gaap"]:
-        merged.update(facts["us-gaap"])
-    elif isinstance(facts.get("ifrs-full"), dict) and facts["ifrs-full"]:
-        merged.update(facts["ifrs-full"])
+    # Si ifrs-full tiene más conceptos que us-gaap (ej. emisores 20-F como STNE con 1 tag residual en us-gaap),
+    # priorizar ifrs-full para no perder la taxonomía principal ni su moneda de reporte.
+    if len(ifrs_full) > len(us_gaap):
+        merged.update(us_gaap)
+        merged.update(ifrs_full)
+    else:
+        merged.update(ifrs_full)
+        merged.update(us_gaap)
     if isinstance(facts.get("dei"), dict):
         for k, v in facts["dei"].items():
             if k not in merged:

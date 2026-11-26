@@ -1318,6 +1318,8 @@ def _build_summary_metrics(
     gross_margin_out = None if is_bank_sector else gross_margin_yf
     ebitda_margin_out = None if is_bank_sector else ebitda_margin_pct
     roic_out = None if is_bank_sector else roic_pct
+    net_debt_to_ebitda_out = None if is_bank_sector else net_debt_to_ebitda
+    ev_to_ebitda_out = None if is_bank_sector else ev_to_ebitda_ltm
 
     raw_div_rate = info.get("dividendRate")
     raw_trailing_dy = info.get("trailingAnnualDividendYield")
@@ -1369,7 +1371,7 @@ def _build_summary_metrics(
             "enterprise_value_mm": ev_mm,
             "shares_out_mm": shares_mm,
             "net_debt_mm": net_debt_mm,
-            "net_debt_to_ebitda": net_debt_to_ebitda,
+            "net_debt_to_ebitda": net_debt_to_ebitda_out,
         },
         "efficiency": {
             "gross_margin_pct": gross_margin_out,
@@ -1390,7 +1392,7 @@ def _build_summary_metrics(
         "valuation": {
             "target_price": _to_float(info.get("targetMeanPrice")),
             "ev_to_sales_ltm": ev_to_sales_ltm,
-            "ev_to_ebitda_ltm": ev_to_ebitda_ltm,
+            "ev_to_ebitda_ltm": ev_to_ebitda_out,
             "ev_to_gross_profit_ltm": ev_to_gross_profit_ltm,
             "pe_ltm": pe_ltm,
             "pe_ntm": pe_ntm,

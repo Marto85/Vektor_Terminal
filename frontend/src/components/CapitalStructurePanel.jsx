@@ -63,6 +63,8 @@ export default function CapitalStructurePanel({ summaryMetrics, onOpenInfo }) {
   }
 
   const { market_data, capital_structure, efficiency, growth_cashflow, valuation } = summaryMetrics;
+  const isBankSector =
+    efficiency?.gross_margin_pct === null && efficiency?.roic_pct === null;
 
   return (
     <div className="w-full lg:w-[53%] px-6 py-4 flex flex-col justify-between bg-white">
@@ -86,7 +88,12 @@ export default function CapitalStructurePanel({ summaryMetrics, onOpenInfo }) {
             <TikrRow label="Valor empresarial (MM)" value={capital_structure?.enterprise_value_mm} prefix="US$ " onOpenInfo={onOpenInfo} />
             <TikrRow label="Acciones en circulación" value={capital_structure?.shares_out_mm} suffix=" MM" onOpenInfo={onOpenInfo} />
             <TikrRow label="Deuda neta LTM (MM)" value={capital_structure?.net_debt_mm} prefix="US$ " onOpenInfo={onOpenInfo} />
-            <TikrRow label="Deuda neta/EBITDA LTM" value={capital_structure?.net_debt_to_ebitda} suffix="x" onOpenInfo={onOpenInfo} />
+            <TikrRow
+              label="Deuda neta/EBITDA LTM"
+              value={isBankSector ? null : capital_structure?.net_debt_to_ebitda}
+              suffix="x"
+              onOpenInfo={onOpenInfo}
+            />
           </div>
         </div>
       </div>
@@ -125,7 +132,12 @@ export default function CapitalStructurePanel({ summaryMetrics, onOpenInfo }) {
           <div>
             <TikrRow label="Precio objetivo de Wall Street" value={valuation?.target_price} prefix="US$ " onOpenInfo={onOpenInfo} />
             <TikrRow label="EV / Ingresos LTM" value={valuation?.ev_to_sales_ltm} suffix="x" onOpenInfo={onOpenInfo} />
-            <TikrRow label="EV / EBITDA LTM" value={valuation?.ev_to_ebitda_ltm} suffix="x" onOpenInfo={onOpenInfo} />
+            <TikrRow
+              label="EV / EBITDA LTM"
+              value={isBankSector ? null : valuation?.ev_to_ebitda_ltm}
+              suffix="x"
+              onOpenInfo={onOpenInfo}
+            />
             <TikrRow label="EV / Beneficio bruto LTM" value={valuation?.ev_to_gross_profit_ltm} suffix="x" onOpenInfo={onOpenInfo} />
             <TikrRow label="NTM P / E" value={valuation?.pe_ntm} suffix="x" onOpenInfo={onOpenInfo} />
           </div>
