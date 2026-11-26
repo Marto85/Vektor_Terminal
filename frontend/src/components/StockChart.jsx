@@ -65,6 +65,16 @@ const CHART_METRICS = [
   'Enterprise Value',
 ];
 
+const CHART_METRIC_LABELS = {
+  Price: 'Precio',
+  '% Change': '% Variación',
+  'Total Return': 'Retorno Total',
+  Drawdowns: 'Caídas (Drawdown)',
+  '10k Growth': 'Crecimiento US$ 10k',
+  'Market Cap': 'Cap. Bursátil',
+  'Enterprise Value': 'Valor Empresa (EV)',
+};
+
 const INDICATOR_OPTIONS = [
   { id: 'sma20', label: 'SMA 20', group: 'Tendencia', color: '#2563eb' },
   { id: 'sma50', label: 'SMA 50', group: 'Tendencia', color: '#f59e0b' },
@@ -162,7 +172,7 @@ function formatMetricValue(val, metric) {
   if (PCT_METRICS.has(metric)) {
     return `${val.toFixed(2)}%`;
   }
-  return new Intl.NumberFormat('en-US', {
+  return new Intl.NumberFormat('es-AR', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(val);
@@ -798,7 +808,8 @@ export default function StockChart({ ticker, companyName }) {
               onClick={() => setShowMetricDropdown((prev) => !prev)}
               className="flex items-center px-2.5 py-1 border border-gray-300 rounded text-[12px] font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 cursor-pointer transition-colors"
             >
-              {selectedMetric} <ChevronDown className="w-3.5 h-3.5 ml-1 text-gray-500" />
+              {CHART_METRIC_LABELS[selectedMetric] || selectedMetric}{' '}
+              <ChevronDown className="w-3.5 h-3.5 ml-1 text-gray-500" />
             </button>
 
             {showMetricDropdown && (
@@ -812,7 +823,7 @@ export default function StockChart({ ticker, companyName }) {
                     }}
                     className="flex justify-between items-center px-4 py-2 hover:bg-gray-50 cursor-pointer text-[13px] text-gray-800"
                   >
-                    <span>{metric}</span>
+                    <span>{CHART_METRIC_LABELS[metric] || metric}</span>
                     {selectedMetric === metric && <Check className="w-4 h-4 text-gray-400" />}
                   </div>
                 ))}
@@ -996,7 +1007,10 @@ export default function StockChart({ ticker, companyName }) {
           selectedMetric === 'Enterprise Value') && (
           <div className="px-4 py-1 flex flex-wrap items-center gap-1 bg-white border-b border-gray-100">
             {(selectedMetric === 'Market Cap' || selectedMetric === 'Enterprise Value') && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-[10px] font-medium text-amber-800">
+              <span
+                title="El balance anual de cada ejercicio se proyecta sobre los meses de ese año calendario (referencia aproximada)."
+                className="inline-flex items-center px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-[10px] font-medium text-amber-800"
+              >
                 {historyData?.capitalStructureSource === 'sec_historical'
                   ? 'Estructura de capital anual (SEC) + precio histórico'
                   : 'Aprox. usando acciones y deuda neta actuales'}
@@ -1213,7 +1227,7 @@ export default function StockChart({ ticker, companyName }) {
                     <div className="pt-0.5 border-t border-gray-100 text-gray-600">
                       Vol:{' '}
                       <span className="font-semibold text-gray-900">
-                        {new Intl.NumberFormat('en-US', { notation: 'compact' }).format(hoverInfo.candle.volume)}
+                        {new Intl.NumberFormat('es-AR', { notation: 'compact' }).format(hoverInfo.candle.volume)}
                       </span>
                       {hoverInfo.rvol !== null && (
                         <span
@@ -1306,7 +1320,7 @@ export default function StockChart({ ticker, companyName }) {
         {/* Barra inferior del gráfico */}
         <div className="px-4 py-2.5 mt-auto border-t border-gray-100 flex items-center justify-between gap-2 bg-[#fcfcfc] rounded-bl-lg">
           <div className="text-[11px] text-gray-500 truncate">
-            {ticker} · {selectedMetric} ({interval})
+            {ticker} · {CHART_METRIC_LABELS[selectedMetric] || selectedMetric} ({interval})
           </div>
 
           <div className="flex space-x-1.5 shrink-0">

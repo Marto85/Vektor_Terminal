@@ -908,6 +908,7 @@ function App() {
             type="button"
             onClick={() => setSidebarCollapsed((prev) => !prev)}
             title={sidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
+            aria-label={sidebarCollapsed ? "Expandir barra lateral" : "Colapsar barra lateral"}
             className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-[#333333] cursor-pointer transition-colors mx-auto"
           >
             {sidebarCollapsed ? (
@@ -1018,6 +1019,7 @@ function App() {
               type="button"
               onClick={toggleTheme}
               title={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+              aria-label={isDark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
               className="p-1.5 rounded hover:text-white hover:bg-[#333333] cursor-pointer transition-colors"
             >
               {isDark ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
@@ -1481,7 +1483,7 @@ function App() {
                         profileData.news.map((n, i) => {
                           const date = new Date(
                             n.providerPublishTime * 1000,
-                          ).toLocaleDateString();
+                          ).toLocaleDateString("es-AR");
                           return (
                             <div
                               key={i}

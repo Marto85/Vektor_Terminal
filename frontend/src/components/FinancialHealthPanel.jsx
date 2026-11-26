@@ -619,13 +619,13 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-600">FCF Reportado ({fiscal_year_curr}):</span>
                   <span className="font-bold text-gray-900 tabular-nums">
-                    US$ {capital_allocation.fcf_reported_mm.toLocaleString("en-US", { maximumFractionDigits: 0 })} MM
+                    US$ {capital_allocation.fcf_reported_mm.toLocaleString("es-AR", { maximumFractionDigits: 0 })} MM
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-gray-100">
                   <span className="text-gray-600">(-) Compensación en Acciones (SBC):</span>
                   <span className="font-semibold text-red-600 tabular-nums">
-                    -US$ {capital_allocation.sbc_mm.toLocaleString("en-US", { maximumFractionDigits: 0 })} MM
+                    -US$ {capital_allocation.sbc_mm.toLocaleString("es-AR", { maximumFractionDigits: 0 })} MM
                   </span>
                 </div>
                 <div className="flex justify-between py-1">
@@ -637,7 +637,7 @@ export default function FinancialHealthPanel({ ticker, onOpenInfo }) {
                         : "text-red-700"
                     }`}
                   >
-                    US$ {capital_allocation.fcf_adj_sbc_mm.toLocaleString("en-US", { maximumFractionDigits: 0 })} MM
+                    US$ {capital_allocation.fcf_adj_sbc_mm.toLocaleString("es-AR", { maximumFractionDigits: 0 })} MM
                   </span>
                 </div>
               </div>

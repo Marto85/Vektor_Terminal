@@ -483,7 +483,7 @@ function analyzeElliottMode(candles, pivots, volInfo) {
       if (avgVolW3 > 0 && avgVolW5 > 0) {
         volumeWaveNote =
           avgVolW5 < avgVolW3
-            ? `Firma ortodoxa de volumen en Elliott: el volumen promedio de Onda 5 (${Math.round(avgVolW5).toLocaleString('en-US')}) es menor al de Onda 3 (${Math.round(avgVolW3).toLocaleString('en-US')}), señalando agotamiento de impulso y alta probabilidad de corrección A-B-C. ${volInfo.summary}`
+            ? `Firma ortodoxa de volumen en Elliott: el volumen promedio de Onda 5 (${Math.round(avgVolW5).toLocaleString('es-AR')}) es menor al de Onda 3 (${Math.round(avgVolW3).toLocaleString('es-AR')}), señalando agotamiento de impulso y alta probabilidad de corrección A-B-C. ${volInfo.summary}`
             : `Expansión sostenida de volumen en Onda 5 respecto a Onda 3: momentum extendido. ${volInfo.summary}`;
       }
     } else {

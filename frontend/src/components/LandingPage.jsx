@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import apiClient from "../api/client";
 import {
   ArrowRight,
   BarChart3,
@@ -35,7 +36,7 @@ const FEATURE_CARDS = [
   {
     icon: Briefcase,
     title: "Carteras CRM, PPP y TWR",
-    desc: "Gestión multi-moneda de clientes y portafolios con Precio Promedio Ponderado, flujo de caja y TWR valuado con cierres históricos diarios.",
+    desc: "Gestión de carteras en moneda base configurable con conversión FX automática, Precio Promedio Ponderado y TWR con cierres históricos.",
   },
   {
     icon: Globe,
@@ -82,6 +83,24 @@ const SHOWCASE_VIEWS = [
 
 export default function LandingPage({ onGoToLogin, onGoToRegister }) {
   const [activePreview, setActivePreview] = useState(SHOWCASE_VIEWS[0]);
+  const [regMode, setRegMode] = useState("open");
+
+  useEffect(() => {
+    let cancelled = false;
+    apiClient
+      .get("/auth/providers")
+      .then((res) => {
+        if (!cancelled && res.data?.registration_mode) {
+          setRegMode(res.data.registration_mode);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isRegistrationClosed = regMode === "closed";
 
   return (
     <div className="min-h-screen bg-[#141416] text-gray-100 flex flex-col">
@@ -115,14 +134,16 @@ export default function LandingPage({ onGoToLogin, onGoToRegister }) {
             >
               Iniciar Sesión
             </button>
-            <button
-              type="button"
-              onClick={onGoToRegister}
-              className="px-4 py-2 rounded-lg text-xs font-semibold bg-orange-500 hover:bg-orange-600 text-white shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
-            >
-              <span>Crear Cuenta</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            {!isRegistrationClosed && (
+              <button
+                type="button"
+                onClick={onGoToRegister}
+                className="px-4 py-2 rounded-lg text-xs font-semibold bg-orange-500 hover:bg-orange-600 text-white shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <span>{regMode === "invite" ? "Tengo Invitación" : "Crear Cuenta"}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -271,6 +292,7 @@ export default function LandingPage({ onGoToLogin, onGoToRegister }) {
             <img
               src={activePreview.image}
               alt={activePreview.label}
+              loading="lazy"
               className="w-full max-h-[540px] object-cover object-top"
             />
             <div className="px-5 py-4 bg-[#1e1e1e] border-t border-gray-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -390,7 +412,9 @@ export default function LandingPage({ onGoToLogin, onGoToRegister }) {
       <footer className="py-6 bg-[#111113] text-xs text-gray-500">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <span>VektorTerminal · Equity Research & Portfolio Analytics</span>
-          <span>Datos oficiales SEC EDGAR + Mercado Global · Uso informativo</span>
+          <span>
+            Datos SEC EDGAR + Mercado Global · Fines informativos, no constituye asesoramiento financiero.
+          </span>
         </div>
       </footer>
     </div>
