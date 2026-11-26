@@ -287,7 +287,10 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
   }, [overview]);
 
   const filteredBonds = useMemo(() => {
-    const list = overview?.sovereign_bonds || [];
+    const list = [
+      ...(overview?.sovereign_bonds || []),
+      ...(overview?.provincial_bonds || []),
+    ];
     if (bondLawFilter === "ALL") return list;
     return list.filter((b) => b.law === bondLawFilter);
   }, [overview, bondLawFilter]);
@@ -758,15 +761,15 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
         </section>
       )}
 
-      {/* BLOQUE C: BONOS SOBERANOS NACIONALES EN USD */}
+      {/* BLOQUE C: BONOS SOBERANOS Y PROVINCIALES EN USD */}
       <section className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 shadow-2xs">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div>
             <h3 className="text-sm font-bold text-gray-900">
-              Bonos Soberanos Nacionales en Dólares (USD cada 100 VN)
+              Bonos Soberanos y Provinciales en Dólares (USD cada 100 VN)
             </h3>
             <p className="text-[11px] text-gray-500">
-              Legislación Nueva York (GD) y Ley Argentina (AL). Hacé clic en &quot;Trayectoria&quot; para ver velas o línea histórica.
+              Legislación Nueva York (GD), Ley Argentina (AL) y Provinciales en USD. Hacé clic en &quot;Trayectoria&quot; para ver velas o línea histórica.
             </p>
           </div>
           <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
@@ -774,6 +777,7 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
               { id: "ALL", label: "Todos" },
               { id: "Ley NY", label: "Ley NY" },
               { id: "Ley Local", label: "Ley Local" },
+              { id: "Provincial", label: "Provinciales" },
             ].map((f) => (
               <button
                 key={f.id}

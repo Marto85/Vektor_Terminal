@@ -163,6 +163,9 @@ describe("Bloque 4 — Smoke & Interacción de Componentes Clave", () => {
             sovereign_bonds: [
               { ticker: "GD30", series_id: "bond_GD30", name: "Bonar Global 2030", law: "Ley NY", maturity: "2030-07-09", coupon_pct: 0.75, price_usd: 68.5, change_pct: 1.2 },
             ],
+            provincial_bonds: [
+              { ticker: "BA37D", series_id: "bond_BA37D", name: "Prov. Buenos Aires 2037", law: "Provincial", maturity: "2037-09-01", coupon_pct: 6.375, price_usd: 58.2, change_pct: 0.6 },
+            ],
             macro_indicators: [
               { series_id: "ipc_mensual", label: "IPC Mensual", value: 2.7, unit: "%", date: "2026-10-01", source: "INDEC" },
             ],
@@ -183,6 +186,7 @@ describe("Bloque 4 — Smoke & Interacción de Componentes Clave", () => {
     render(wrapProviders(<ArgentinaTab isSuperadmin />));
     await waitFor(() => {
       expect(screen.getByText("Bonar Global 2030")).toBeInTheDocument();
+      expect(screen.getByText("Prov. Buenos Aires 2037")).toBeInTheDocument();
       expect(screen.getAllByText("IPC Mensual").length).toBeGreaterThan(0);
       expect(screen.getAllByText("Pobreza (Personas · INDEC)").length).toBeGreaterThan(0);
       expect(screen.getByText("Editar / Cargar dato")).toBeInTheDocument();

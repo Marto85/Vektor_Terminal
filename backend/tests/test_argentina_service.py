@@ -73,6 +73,8 @@ def test_argentina_overview_brechas_and_news_parsing(monkeypatch):
     assert res["cards"]["riesgo_pais"]["value"] == 750.0
     assert res["cards"]["merval_usd"]["value"] == 1850.0
     assert len(res["sovereign_bonds"]) == 10
+    assert len(res["provincial_bonds"]) == 6
+    assert res["provincial_bonds"][0]["law"] == "Provincial"
     assert res["news"][0]["title"] == "Sube el Riesgo Pais tras datos fiscales"
     assert res["news"][0]["image_url"] == "https://www.infobae.com/img1.jpg"
 

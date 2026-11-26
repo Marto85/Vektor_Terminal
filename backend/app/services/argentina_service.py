@@ -35,6 +35,15 @@ SOVEREIGN_BONDS: list[dict[str, Any]] = [
     {"ticker": "AL41", "name": "Bonar 2041", "law": "Ley Local", "maturity": "2041-07-09", "coupon_pct": 3.50},
 ]
 
+PROVINCIAL_BONDS: list[dict[str, Any]] = [
+    {"ticker": "BA37D", "name": "Prov. Buenos Aires 2037", "law": "Provincial", "issuer": "Buenos Aires", "maturity": "2037-09-01", "coupon_pct": 6.375, "yf_candidates": ["BA37D.BA", "BA37.BA"]},
+    {"ticker": "BDC28", "name": "CABA Tango 2028", "law": "Provincial", "issuer": "CABA", "maturity": "2028-02-22", "coupon_pct": 7.50, "yf_candidates": ["BDC28D.BA", "BDC28.BA"]},
+    {"ticker": "CO26D", "name": "Prov. Córdoba 2027", "law": "Provincial", "issuer": "Córdoba", "maturity": "2027-12-10", "coupon_pct": 6.875, "yf_candidates": ["CO26D.BA", "CO26.BA"]},
+    {"ticker": "PMM29", "name": "Prov. Mendoza 2029", "law": "Provincial", "issuer": "Mendoza", "maturity": "2029-03-19", "coupon_pct": 5.75, "yf_candidates": ["PMM29D.BA", "PMM29.BA"]},
+    {"ticker": "NQN30", "name": "Prov. Neuquén 2030", "law": "Provincial", "issuer": "Neuquén", "maturity": "2030-04-27", "coupon_pct": 6.625, "yf_candidates": ["NQN30D.BA", "NQN30.BA", "NDT25.BA"]},
+    {"ticker": "SF27D", "name": "Prov. Santa Fe 2027", "law": "Provincial", "issuer": "Santa Fe", "maturity": "2027-11-01", "coupon_pct": 6.90, "yf_candidates": ["SF27D.BA", "SF27.BA"]},
+]
+
 ARG_NEWS_FEEDS: list[dict[str, str]] = [
     {"source": "Infobae", "topic": "Economía", "url": "https://www.infobae.com/arc/outboundfeeds/rss/category/economia/"},
     {"source": "Infobae", "topic": "Política", "url": "https://www.infobae.com/arc/outboundfeeds/rss/category/politica/"},
@@ -307,7 +316,13 @@ def _fetch_single_sovereign_bond(bond_cfg: dict[str, Any], mep_rate: float | Non
     change_pct: float | None = None
     source_used = "BYMA/Yahoo"
 
-    for suffix, needs_fx in ((f"{sym}D.BA", False), (f"{sym}.BA", True)):
+    raw_candidates = bond_cfg.get("yf_candidates") or [f"{sym}D.BA", f"{sym}.BA"]
+    candidates = [
+        (c, not c.upper().endswith("D.BA"))
+        for c in raw_candidates
+    ]
+
+    for suffix, needs_fx in candidates:
         if needs_fx and (not mep_rate or mep_rate <= 0):
             continue
         try:
@@ -334,6 +349,7 @@ def _fetch_single_sovereign_bond(bond_cfg: dict[str, Any], mep_rate: float | Non
         "series_id": f"bond_{sym}",
         "name": bond_cfg["name"],
         "law": bond_cfg["law"],
+        "issuer": bond_cfg.get("issuer", "Nación"),
         "maturity": bond_cfg["maturity"],
         "coupon_pct": bond_cfg["coupon_pct"],
         "price_usd": price_usd,
@@ -656,12 +672,14 @@ def build_argentina_overview(db: Session | None = None) -> dict[str, Any]:
     merval = _fetch_merval_usd(ccl)
 
     with ThreadPoolExecutor(max_workers=8) as pool:
-        f_bonds = pool.submit(lambda: [ _fetch_single_sovereign_bond(cfg, mep) for cfg in SOVEREIGN_BONDS ])
+        f_bonds = pool.submit(lambda: [_fetch_single_sovereign_bond(cfg, mep) for cfg in SOVEREIGN_BONDS])
+        f_prov = pool.submit(lambda: [_fetch_single_sovereign_bond(cfg, mep) for cfg in PROVINCIAL_BONDS])
         f_macro = {
             sid: pool.submit(_fetch_single_macro_card, sid, cfg)
             for sid, cfg in MACRO_SERIES_CONFIG.items()
         }
         bonds = f_bonds.result()
+        provincial_bonds = f_prov.result()
         macro_indicators = [fut.result() for fut in f_macro.values()]
 
     out = {
@@ -722,6 +740,7 @@ def build_argentina_overview(db: Session | None = None) -> dict[str, Any]:
         "macro_indicators": macro_indicators,
         "social_indicators": _build_social_cards(db=db),
         "sovereign_bonds": bonds,
+        "provincial_bonds": provincial_bonds,
         "news": news,
     }
 
@@ -851,34 +870,46 @@ def get_argentina_series(series_id: str, range_key: str = "1y", db: Session | No
     elif sid.startswith("bond_"):
         sym = sid.replace("bond_", "", 1).upper()
         pts = []
-        used_sym = f"{sym}D.BA"
-        hist = yf.Ticker(used_sym).history(period=yf_period, interval="1d")
-        if hist is None or hist.empty:
-            used_sym = f"{sym}.BA"
-            hist_ars = yf.Ticker(used_sym).history(period=yf_period, interval="1d")
-            mep_pts = {p["date"]: p["value"] for p in _fetch_argentinadatos_fx_series("bolsa")}
-            sorted_mep = sorted(mep_pts.keys())
-            last_mep = mep_pts[sorted_mep[-1]] if sorted_mep else 1100.0
-            if hist_ars is not None and not hist_ars.empty:
-                for idx, row in hist_ars.iterrows():
-                    dt = idx.strftime("%Y-%m-%d")
-                    prior = [d for d in sorted_mep if d <= dt]
-                    fx = mep_pts.get(dt) or (mep_pts[prior[-1]] if prior else last_mep)
-                    if fx and fx > 0 and pd.notna(row["Close"]):
-                        o = _normalize_bond_price_100vn(float(row["Open"]) / fx)
-                        h = _normalize_bond_price_100vn(float(row["High"]) / fx)
-                        l = _normalize_bond_price_100vn(float(row["Low"]) / fx)
-                        c = _normalize_bond_price_100vn(float(row["Close"]) / fx)
-                        pts.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "value": c})
-        else:
-            for idx, row in hist.iterrows():
-                if pd.notna(row["Close"]):
-                    dt = idx.strftime("%Y-%m-%d")
-                    o = _normalize_bond_price_100vn(float(row["Open"]))
-                    h = _normalize_bond_price_100vn(float(row["High"]))
-                    l = _normalize_bond_price_100vn(float(row["Low"]))
-                    c = _normalize_bond_price_100vn(float(row["Close"]))
-                    pts.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "value": c})
+        bond_cfg = next((b for b in PROVINCIAL_BONDS + SOVEREIGN_BONDS if b["ticker"] == sym), None)
+        candidates = (bond_cfg.get("yf_candidates") if bond_cfg else None) or [f"{sym}D.BA", f"{sym}.BA"]
+        used_sym = candidates[0]
+        mep_pts: dict[str, float] | None = None
+
+        for cand in candidates:
+            try:
+                hist = yf.Ticker(cand).history(period=yf_period, interval="1d")
+                if hist is None or hist.empty:
+                    continue
+                used_sym = cand
+                needs_fx = not cand.upper().endswith("D.BA")
+                if needs_fx:
+                    if mep_pts is None:
+                        mep_pts = {p["date"]: p["value"] for p in _fetch_argentinadatos_fx_series("bolsa")}
+                    sorted_mep = sorted(mep_pts.keys())
+                    last_mep = mep_pts[sorted_mep[-1]] if sorted_mep else 1100.0
+                    for idx, row in hist.iterrows():
+                        dt = idx.strftime("%Y-%m-%d")
+                        prior = [d for d in sorted_mep if d <= dt]
+                        fx = mep_pts.get(dt) or (mep_pts[prior[-1]] if prior else last_mep)
+                        if fx and fx > 0 and pd.notna(row["Close"]):
+                            o = _normalize_bond_price_100vn(float(row["Open"]) / fx)
+                            h = _normalize_bond_price_100vn(float(row["High"]) / fx)
+                            l = _normalize_bond_price_100vn(float(row["Low"]) / fx)
+                            c = _normalize_bond_price_100vn(float(row["Close"]) / fx)
+                            pts.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "value": c})
+                else:
+                    for idx, row in hist.iterrows():
+                        if pd.notna(row["Close"]):
+                            dt = idx.strftime("%Y-%m-%d")
+                            o = _normalize_bond_price_100vn(float(row["Open"]))
+                            h = _normalize_bond_price_100vn(float(row["High"]))
+                            l = _normalize_bond_price_100vn(float(row["Low"]))
+                            c = _normalize_bond_price_100vn(float(row["Close"]))
+                            pts.append({"date": dt, "open": o, "high": h, "low": l, "close": c, "value": c})
+                if pts:
+                    break
+            except Exception:
+                continue
 
         payload.update(
             {
