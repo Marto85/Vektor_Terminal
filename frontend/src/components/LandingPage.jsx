@@ -54,28 +54,28 @@ const SHOWCASE_VIEWS = [
   {
     id: "chart",
     label: "Gráfico y Análisis Técnico",
-    image: "/landing/03_resumen_grafico_at.png",
+    image: "/landing/03_resumen_grafico_at.webp",
     caption:
       "Velas OHLCV con medias móviles, Bollinger, VWAP, osciladores (RSI/MACD/ATR) y lentes metodológicas automáticas validadas por volumen relativo (RVOL).",
   },
   {
     id: "valuation",
     label: "Valoración y DCF Inverso",
-    image: "/landing/05_valoracion_dcf.png",
+    image: "/landing/05_valoracion_dcf.webp",
     caption:
       "Auditoría contable de calidad, consenso Wall Street, múltiplos históricos 5Y y simulador interactivo de valor intrínseco.",
   },
   {
     id: "screener",
     label: "Screener Fundamental",
-    image: "/landing/08_screener.png",
+    image: "/landing/08_screener.webp",
     caption:
       "Filtrá el universo por ROIC, FCF Yield, múltiplos NTM/LTM, endeudamiento y potencial de consenso con actualización en segundo plano.",
   },
   {
     id: "home",
     label: "Inicio y Mercado Global",
-    image: "/landing/02_inicio_mercado.png",
+    image: "/landing/02_inicio_mercado.webp",
     caption:
       "Radar fundamental diario, benchmarks principales (SPY, QQQ, ARGT, ^TNX) y titulares financieros relevantes.",
   },
@@ -215,7 +215,7 @@ export default function LandingPage({ onGoToLogin, onGoToRegister }) {
                 </span>
               </div>
               <img
-                src="/landing/03_resumen_grafico_at.png"
+                src="/landing/03_resumen_grafico_at.webp"
                 alt="Vista previa de VektorTerminal"
                 className="w-full h-auto object-cover"
               />

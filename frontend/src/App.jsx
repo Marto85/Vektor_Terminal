@@ -781,7 +781,7 @@ function App() {
       <div>
         {!sidebarCollapsed && (
           <div className="px-3 mb-2">
-            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            <p className="text-[11px] font-bold text-slate-300 uppercase tracking-widest">
               Mercado y Descubrimiento
             </p>
           </div>
@@ -830,7 +830,7 @@ function App() {
       <div>
         {!sidebarCollapsed && (
           <div className="px-3 mb-2">
-            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+            <p className="text-[11px] font-bold text-slate-300 uppercase tracking-widest">
               {currentTicker} · Análisis
             </p>
           </div>
@@ -864,7 +864,7 @@ function App() {
         <div>
           {!sidebarCollapsed && (
             <div className="px-3 mb-2">
-              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+              <p className="text-[11px] font-bold text-slate-300 uppercase tracking-widest">
                 Gestión & Accesos
               </p>
             </div>
