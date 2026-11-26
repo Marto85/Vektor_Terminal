@@ -272,3 +272,40 @@ def test_detect_reporting_currency_falls_back_to_yf_currency():
 
     raw = {"facts": {}, "_yf_fallback": {"currency": "CAD", "annual": {}, "quarterly": {}}}
     assert detect_reporting_currency(raw) == "CAD"
+
+
+def test_sga_consolidates_ga_and_marketing_and_opex_closes_without_da():
+    curr_y = datetime.now().year - 1
+    raw = {
+        "facts": {
+            "us-gaap": {
+                "Revenues": {
+                    "units": {"USD": [{"fy": curr_y, "fp": "FY", "form": "10-K", "start": f"{curr_y}-01-01", "end": f"{curr_y}-12-31", "val": 100_000_000_000}]}
+                },
+                "CostOfRevenue": {
+                    "units": {"USD": [{"fy": curr_y, "fp": "FY", "form": "10-K", "start": f"{curr_y}-01-01", "end": f"{curr_y}-12-31", "val": 30_000_000_000}]}
+                },
+                "GeneralAndAdministrativeExpense": {
+                    "units": {"USD": [{"fy": curr_y, "fp": "FY", "form": "10-K", "start": f"{curr_y}-01-01", "end": f"{curr_y}-12-31", "val": 5_000_000_000}]}
+                },
+                "SellingAndMarketingExpense": {
+                    "units": {"USD": [{"fy": curr_y, "fp": "FY", "form": "10-K", "start": f"{curr_y}-01-01", "end": f"{curr_y}-12-31", "val": 15_000_000_000}]}
+                },
+                "ResearchAndDevelopmentExpense": {
+                    "units": {"USD": [{"fy": curr_y, "fp": "FY", "form": "10-K", "start": f"{curr_y}-01-01", "end": f"{curr_y}-12-31", "val": 10_000_000_000}]}
+                },
+                "OperatingIncomeLoss": {
+                    "units": {"USD": [{"fy": curr_y, "fp": "FY", "form": "10-K", "start": f"{curr_y}-01-01", "end": f"{curr_y}-12-31", "val": 40_000_000_000}]}
+                },
+                "DepreciationDepletionAndAmortization": {
+                    "units": {"USD": [{"fy": curr_y, "fp": "FY", "form": "10-K", "start": f"{curr_y}-01-01", "end": f"{curr_y}-12-31", "val": 8_000_000_000}]}
+                },
+            }
+        }
+    }
+    rows = extract_annual_metrics(raw)
+    by_m = {r["Métrica"]: r[str(curr_y)] for r in rows if not r.get("is_header")}
+    assert by_m["Beneficio Bruto"] == 70_000.0
+    assert by_m["Gastos de Venta, Generales y Administrativos"] == 20_000.0
+    assert by_m["Gastos Operativos Totales"] == 30_000.0
+    assert by_m["Beneficio Bruto"] - by_m["Gastos Operativos Totales"] == by_m["Beneficio Operativo"]

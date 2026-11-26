@@ -100,21 +100,22 @@ def list_public_advisors(db: Session) -> list[dict]:
     ]
 
 
-def ensure_default_superadmin() -> None:
-    db = SessionLocal()
+def ensure_default_superadmin(db: Session | None = None) -> None:
+    own_db = db is None
+    session = SessionLocal() if own_db else db
     try:
-        existing_admin = db.query(User).filter(User.role == "superadmin").first()
+        existing_admin = session.query(User).filter(User.role == "superadmin").first()
         if existing_admin:
             return
         normalized_email = VEKTOR_ADMIN_EMAIL.strip().lower()
-        existing_by_email = db.query(User).filter(func.lower(User.email) == normalized_email).first()
+        existing_by_email = session.query(User).filter(func.lower(User.email) == normalized_email).first()
         if existing_by_email:
             existing_by_email.role = "superadmin"
             existing_by_email.is_active = True
-            db.commit()
+            session.commit()
             return
 
-        uname = _generate_unique_username(db, normalized_email.split("@")[0])
+        uname = _generate_unique_username(session, normalized_email.split("@")[0])
         admin_user = User(
             username=uname,
             email=normalized_email,
@@ -125,10 +126,11 @@ def ensure_default_superadmin() -> None:
             is_active=True,
             must_change_password=False,
         )
-        db.add(admin_user)
-        db.commit()
+        session.add(admin_user)
+        session.commit()
     finally:
-        db.close()
+        if own_db:
+            session.close()
 
 
 def authenticate_user(db: Session, identifier: str, password: str) -> User:

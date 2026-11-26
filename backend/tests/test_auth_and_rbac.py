@@ -1,32 +1,8 @@
-from fastapi.testclient import TestClient
-from app.main import app
 from app.core.config import VEKTOR_ADMIN_EMAIL, VEKTOR_ADMIN_PASSWORD
-from app.models.database import SessionLocal, User
-from app.services.auth_service import ensure_default_superadmin
-
-client = TestClient(app)
 
 
-def _cleanup_test_users():
-    db = SessionLocal()
-    try:
-        db.query(User).filter(
-            User.email.in_(
-                [
-                    "advisor.test@vektor.local",
-                    "client.test@vektor.local",
-                ]
-            )
-        ).delete(synchronize_session=False)
-        db.commit()
-    finally:
-        db.close()
-
-
-def test_login_superadmin_and_rbac_user_lifecycle():
-    ensure_default_superadmin()
-    _cleanup_test_users()
-
+def test_login_superadmin_and_rbac_user_lifecycle(api_client):
+    client = api_client
     try:
         # 1. Login fallido devuelve 401
         bad_login = client.post(
@@ -143,12 +119,14 @@ def test_login_superadmin_and_rbac_user_lifecycle():
         )
         assert blocked_login.status_code == 403
     finally:
-        _cleanup_test_users()
+        pass
 
 
-def test_registration_modes_closed_and_invite(monkeypatch):
+def test_registration_modes_closed_and_invite(api_client, monkeypatch):
     from app.core import config
     from app.services import auth_service
+
+    client = api_client
 
     # 1. Modo closed en producción sin código de invitación
     monkeypatch.setattr(config, "VEKTOR_ENV", "production")
@@ -184,17 +162,17 @@ def test_registration_modes_closed_and_invite(monkeypatch):
     assert res_bad_code.status_code == 403
 
 
-def test_malformed_non_numeric_jwt_sub_returns_401():
+def test_malformed_non_numeric_jwt_sub_returns_401(api_client):
     import jwt
     from app.core.config import JWT_ALGORITHM, VEKTOR_SECRET_KEY
 
     bad_token = jwt.encode({"sub": "not-an-integer", "role": "client"}, VEKTOR_SECRET_KEY, algorithm=JWT_ALGORITHM)
-    res = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {bad_token}"})
+    res = api_client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {bad_token}"})
     assert res.status_code == 401
 
 
-def test_password_over_72_bytes_returns_400_instead_of_500():
-    res = client.post(
+def test_password_over_72_bytes_returns_400_instead_of_500(api_client):
+    res = api_client.post(
         "/api/v1/auth/register",
         json={
             "username": "longpassuser",
@@ -204,3 +182,57 @@ def test_password_over_72_bytes_returns_400_instead_of_500():
         },
     )
     assert res.status_code == 400
+
+
+def test_verify_email_endpoint_and_auth_rate_limit(api_client, db_session, monkeypatch):
+    from datetime import datetime, timedelta
+    from app.api import auth_routes
+    from app.models.database import EmailVerificationToken, User
+    from app.services.auth_service import _hash_reset_token, hash_password
+
+    # 1. Verificación de email con token válido e inválido
+    u = User(
+        username="verifyme",
+        email="verifyme@vektor.local",
+        full_name="Verify User",
+        hashed_password=hash_password("Password123!"),
+        auth_provider="local",
+        role="client",
+        is_active=True,
+        email_verified=False,
+    )
+    db_session.add(u)
+    db_session.commit()
+    db_session.refresh(u)
+
+    db_session.add(
+        EmailVerificationToken(
+            user_id=u.id,
+            token_hash=_hash_reset_token("tok-valid-1234567890"),
+            expires_at=datetime.utcnow() + timedelta(hours=24),
+            used=False,
+        )
+    )
+    db_session.commit()
+
+    bad_res = api_client.post("/api/v1/auth/verify-email", json={"token": "tok-wrong-1234567890"})
+    assert bad_res.status_code == 400
+
+    ok_res = api_client.post("/api/v1/auth/verify-email", json={"token": "tok-valid-1234567890"})
+    assert ok_res.status_code == 200
+    db_session.refresh(u)
+    assert u.email_verified is True
+
+    # 2. Rate limit en /login devuelve 429 al superar umbral (max_calls=20)
+    auth_routes._AUTH_RATE_BUCKETS.clear()
+    for i in range(20):
+        r = api_client.post(
+            "/api/v1/auth/login",
+            json={"email": f"nonexistent{i}@vektor.local", "password": "wrong"},
+        )
+        assert r.status_code == 401
+    blocked = api_client.post(
+        "/api/v1/auth/login",
+        json={"email": "nonexistent21@vektor.local", "password": "wrong"},
+    )
+    assert blocked.status_code == 429

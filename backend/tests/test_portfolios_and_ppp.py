@@ -1,43 +1,14 @@
 from unittest.mock import patch
-from fastapi.testclient import TestClient
 
-from app.main import app
 from app.core.config import VEKTOR_ADMIN_EMAIL, VEKTOR_ADMIN_PASSWORD
-from app.models.database import ClientProfile, PortfolioTransaction, SessionLocal, User
-from app.services.auth_service import ensure_default_superadmin
-
-client = TestClient(app)
-
-
-def _cleanup():
-    db = SessionLocal()
-    try:
-        emails = ["asesor.crm@vektor.local", "cliente.crm@vektor.local"]
-        users = db.query(User).filter(User.email.in_(emails)).all()
-        user_ids = [u.id for u in users]
-        if user_ids:
-            db.query(PortfolioTransaction).filter(
-                PortfolioTransaction.client_id.in_(user_ids)
-            ).delete(synchronize_session=False)
-            db.query(ClientProfile).filter(
-                ClientProfile.user_id.in_(user_ids)
-            ).delete(synchronize_session=False)
-            db.query(User).filter(User.id.in_(user_ids)).delete(
-                synchronize_session=False
-            )
-            db.commit()
-    finally:
-        db.close()
 
 
 @patch("app.services.portfolio_service.fetch_live_quotes")
-def test_ppp_calculation_and_portfolio_rbac(mock_quotes):
+def test_ppp_calculation_and_portfolio_rbac(mock_quotes, api_client):
+    client = api_client
     mock_quotes.return_value = {
         "MSFT": {"price": 450.0, "day_change_pct": 1.25},
     }
-
-    ensure_default_superadmin()
-    _cleanup()
 
     try:
         # 1. Login superadmin
@@ -238,5 +209,49 @@ def test_ppp_calculation_and_portfolio_rbac(mock_quotes):
             },
         )
         assert overflow_res.status_code == 422
+
+        # 12. Rechazar retiro mayor al saldo disponible y fecha futura; aceptar SPLIT 2:1
+        overdraw_res = client.post(
+            f"/api/v1/portfolios/{client_id}/transactions",
+            headers=cli_headers,
+            json={
+                "tx_type": "WITHDRAWAL",
+                "ticker": "USD",
+                "tx_date": "2026-03-11",
+                "quantity": 999999.0,
+                "unit_price": 1.0,
+            },
+        )
+        assert overdraw_res.status_code == 400
+
+        future_res = client.post(
+            f"/api/v1/portfolios/{client_id}/transactions",
+            headers=cli_headers,
+            json={
+                "tx_type": "DEPOSIT",
+                "ticker": "USD",
+                "tx_date": "2099-01-01",
+                "quantity": 100.0,
+                "unit_price": 1.0,
+            },
+        )
+        assert future_res.status_code in (400, 422)
+
+        split_res = client.post(
+            f"/api/v1/portfolios/{client_id}/transactions",
+            headers=cli_headers,
+            json={
+                "tx_type": "SPLIT",
+                "ticker": "MSFT",
+                "tx_date": "2026-03-12",
+                "quantity": 2.0,
+                "unit_price": 1.0,
+            },
+        )
+        assert split_res.status_code == 200
+        msft_pos = next(
+            p for p in split_res.json()["holdings"] if p["ticker"] == "MSFT"
+        )
+        assert msft_pos["quantity"] > 0
     finally:
-        _cleanup()
+        pass

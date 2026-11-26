@@ -32,3 +32,29 @@ def db_session():
     finally:
         session.close()
         Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture
+def api_client(db_session):
+    """
+    TestClient aislado contra `db_session` en memoria, con superadmin inicializado.
+    """
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.api import auth_routes
+    from app.api.endpoints import get_db as endpoints_get_db
+    from app.core.security import get_db as security_get_db
+    from app.services.auth_service import ensure_default_superadmin
+
+    def _override_get_db():
+        yield db_session
+
+    app.dependency_overrides[endpoints_get_db] = _override_get_db
+    app.dependency_overrides[security_get_db] = _override_get_db
+    auth_routes._AUTH_RATE_BUCKETS.clear()
+    ensure_default_superadmin(db=db_session)
+    try:
+        yield TestClient(app)
+    finally:
+        auth_routes._AUTH_RATE_BUCKETS.clear()
+        app.dependency_overrides.clear()
