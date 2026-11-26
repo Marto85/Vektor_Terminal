@@ -265,3 +265,10 @@ def test_ifrs_taxonomy_prioritized_over_stray_us_gaap_tag():
     assets_row = next(r for r in rows if r["Métrica"] == "Total activo")
     assert rev_row[str(curr_y)] == 13_400.0
     assert assets_row[str(curr_y)] == 62_300.0
+
+
+def test_detect_reporting_currency_falls_back_to_yf_currency():
+    from app.services.financial_parser import detect_reporting_currency
+
+    raw = {"facts": {}, "_yf_fallback": {"currency": "CAD", "annual": {}, "quarterly": {}}}
+    assert detect_reporting_currency(raw) == "CAD"

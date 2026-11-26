@@ -218,6 +218,9 @@ def detect_reporting_currency(raw_facts: dict) -> str:
             for uk in units_keys:
                 if isinstance(uk, str) and len(uk) == 3 and uk.isalpha():
                     return uk.upper()
+    yf_curr = str((raw_facts.get("_yf_fallback") or {}).get("currency") or "").strip().upper()
+    if len(yf_curr) == 3 and yf_curr.isalpha():
+        return yf_curr
     return "USD"
 
 

@@ -38,32 +38,44 @@ html.dark main .bg-\[\#fcfcfc\] {
 }
 
 html.dark main .bg-gray-50,
-html.dark main .bg-gray-100 {
+html.dark main .bg-gray-50\/70,
+html.dark main .bg-gray-100,
+html.dark main .bg-slate-50,
+html.dark main .bg-slate-100 {
   background-color: #27272a;
 }
 
 html.dark main .border-gray-200,
 html.dark main .border-gray-100,
-html.dark main .border-gray-300 {
+html.dark main .border-gray-300,
+html.dark main .border-slate-200,
+html.dark main .border-slate-200\/90,
+html.dark main .border-slate-300 {
   border-color: #3f3f46;
 }
 
 html.dark main .text-gray-900,
-html.dark main .text-gray-800 {
+html.dark main .text-gray-800,
+html.dark main .text-slate-900,
+html.dark main .text-slate-800 {
   color: #f4f4f5;
 }
 
 html.dark main .text-gray-700,
-html.dark main .text-gray-600 {
+html.dark main .text-gray-600,
+html.dark main .text-slate-700,
+html.dark main .text-slate-600 {
   color: #d4d4d8;
 }
 
 html.dark main .text-gray-500,
-html.dark main .text-gray-400 {
+html.dark main .text-gray-400,
+html.dark main .text-slate-500,
+html.dark main .text-slate-400 {
   color: #a1a1aa;
 }
 
-html.dark main input:not([type="checkbox"]):not([type="radio"]),
+html.dark main input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
 html.dark main select,
 html.dark main textarea {
   background-color: #18181b;
@@ -78,14 +90,28 @@ html.dark main .bg-orange-50\/70 {
 }
 html.dark main .bg-emerald-50,
 html.dark main .bg-emerald-50\/40,
+html.dark main .bg-emerald-50\/70,
+html.dark main .bg-emerald-100,
 html.dark main .bg-green-50 {
   background-color: rgba(16, 185, 129, 0.14);
+}
+html.dark main .border-emerald-200,
+html.dark main .border-emerald-300 {
+  border-color: rgba(16, 185, 129, 0.4);
 }
 html.dark main .bg-red-50 {
   background-color: rgba(239, 68, 68, 0.14);
 }
-html.dark main .bg-amber-50 {
+html.dark main .border-red-200 {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+html.dark main .bg-amber-50,
+html.dark main .bg-amber-50\/80 {
   background-color: rgba(245, 158, 11, 0.14);
+}
+html.dark main .border-amber-200,
+html.dark main .border-amber-300 {
+  border-color: rgba(245, 158, 11, 0.4);
 }
 html.dark main .bg-blue-50,
 html.dark main .bg-blue-50\/70 {
@@ -95,16 +121,15 @@ html.dark main .bg-purple-50,
 html.dark main .bg-purple-100 {
   background-color: rgba(168, 85, 247, 0.16);
 }
-html.dark main .bg-slate-50 {
-  background-color: #27272a;
-}
 
+html.dark main .text-emerald-950,
+html.dark main .text-emerald-800,
 html.dark main .text-emerald-700,
 html.dark main .text-emerald-600,
-html.dark main .text-emerald-800,
 html.dark main .text-green-600 {
   color: #34d399;
 }
+html.dark main .text-red-950,
 html.dark main .text-red-700,
 html.dark main .text-red-600,
 html.dark main .text-\[\#d93025\] {
@@ -114,10 +139,13 @@ html.dark main .text-orange-700,
 html.dark main .text-orange-600 {
   color: #fb923c;
 }
+html.dark main .text-amber-950,
+html.dark main .text-amber-900,
 html.dark main .text-amber-800,
 html.dark main .text-amber-700 {
   color: #fbbf24;
 }
+html.dark main .text-blue-900,
 html.dark main .text-blue-700 {
   color: #60a5fa;
 }

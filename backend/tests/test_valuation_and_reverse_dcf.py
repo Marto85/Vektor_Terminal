@@ -140,6 +140,8 @@ def test_country_risk_premium_for_emerging_markets():
 
     assert _estimate_country_risk_premium_pct("Brazil", "BRL") == 2.5
     assert _estimate_country_risk_premium_pct(None, "BRL") == 2.5
+    assert _estimate_country_risk_premium_pct("Uruguay", "USD") == 1.2
+    assert _estimate_country_risk_premium_pct(None, "TWD") == 0.6
     assert _estimate_country_risk_premium_pct("United States", "USD") == 0.0
 
 

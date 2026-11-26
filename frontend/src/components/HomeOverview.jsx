@@ -351,12 +351,12 @@ export default function HomeOverview({
                 title={`Abrir gráfico histórico de ${bm.symbol}`}
                 className="bg-white border border-gray-200 rounded-xl p-3 sm:p-4 shadow-2xs hover:border-orange-300 transition-colors cursor-pointer flex items-center justify-between gap-1.5"
               >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold text-gray-900 truncate">{bm.name}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs font-bold text-gray-900 leading-snug">{bm.name}</span>
                     <span className="text-[10px] font-semibold text-gray-400 shrink-0">{bm.symbol}</span>
                   </div>
-                  <p className="text-[11px] text-gray-500 mb-2 truncate">{bm.subtitle}</p>
+                  <p className="text-[11px] text-gray-500 mb-2 leading-snug">{bm.subtitle}</p>
                   <p className="text-base sm:text-lg font-bold text-gray-900 tabular-nums leading-none">
                     {bm.price > 0
                       ? bm.unit === "%"

@@ -151,6 +151,50 @@ function evaluateSuitability(modelId, routingProfile, hasDividends) {
   };
 }
 
+function RangeSliderWithNumber({
+  value,
+  min,
+  max,
+  step,
+  onChange,
+  accentClass = "accent-orange-500",
+  unit = "%",
+  ariaLabel,
+}) {
+  return (
+    <div className="flex items-center gap-2 mt-1.5">
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        aria-label={ariaLabel}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className={`flex-1 ${accentClass} cursor-pointer`}
+      />
+      <div className="flex items-center gap-0.5 shrink-0">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          value={Number.isFinite(value) ? value : 0}
+          aria-label={ariaLabel ? `${ariaLabel} numérico` : undefined}
+          onChange={(e) => {
+            const parsed = parseFloat(e.target.value);
+            if (!Number.isNaN(parsed)) {
+              onChange(Math.min(Math.max(parsed, min), max));
+            }
+          }}
+          className="w-16 px-1.5 py-0.5 text-right text-[11px] font-semibold tabular-nums rounded border border-gray-300 bg-white text-gray-800 focus:outline-none focus:border-orange-500"
+        />
+        {unit && <span className="text-[11px] font-semibold text-gray-500">{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
 export default function ValuationModelsTab({
   initialTicker = "",
   recentTickers = [],
@@ -1025,14 +1069,13 @@ export default function ValuationModelsTab({
                       </span>
                     </div>
                     {workMode === "manual" && (
-                      <input
-                        type="range"
-                        min="-5"
-                        max="35"
-                        step="0.5"
+                      <RangeSliderWithNumber
+                        min={-5}
+                        max={35}
+                        step={0.5}
                         value={revGrowth}
-                        onChange={(e) => setRevGrowth(parseFloat(e.target.value))}
-                        className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                        onChange={setRevGrowth}
+                        ariaLabel="Crecimiento Anual Ventas"
                       />
                     )}
                     <p className="text-[11px] text-gray-500 mt-1">
@@ -1049,16 +1092,13 @@ export default function ValuationModelsTab({
                       </span>
                     </div>
                     {workMode === "manual" && (
-                      <input
-                        type="range"
-                        min="2"
-                        max="60"
-                        step="0.5"
+                      <RangeSliderWithNumber
+                        min={2}
+                        max={60}
+                        step={0.5}
                         value={targetEbitMargin}
-                        onChange={(e) =>
-                          setTargetEbitMargin(parseFloat(e.target.value))
-                        }
-                        className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                        onChange={setTargetEbitMargin}
+                        ariaLabel="Margen Operativo EBIT Objetivo"
                       />
                     )}
                     <p className="text-[11px] text-gray-500 mt-1">
@@ -1074,16 +1114,13 @@ export default function ValuationModelsTab({
                         <span>{capexStage1Pct.toFixed(1)}%</span>
                       </div>
                       {workMode === "manual" && (
-                        <input
-                          type="range"
-                          min="1"
-                          max="45"
-                          step="0.5"
+                        <RangeSliderWithNumber
+                          min={1}
+                          max={45}
+                          step={0.5}
                           value={capexStage1Pct}
-                          onChange={(e) =>
-                            setCapexStage1Pct(parseFloat(e.target.value))
-                          }
-                          className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                          onChange={setCapexStage1Pct}
+                          ariaLabel="CapEx Etapa 1"
                         />
                       )}
                       <p className="text-[10px] text-gray-500 mt-1">
@@ -1097,16 +1134,14 @@ export default function ValuationModelsTab({
                         <span>{capexTerminalPct.toFixed(1)}%</span>
                       </div>
                       {workMode === "manual" && (
-                        <input
-                          type="range"
-                          min="1"
-                          max="30"
-                          step="0.5"
+                        <RangeSliderWithNumber
+                          min={1}
+                          max={30}
+                          step={0.5}
                           value={capexTerminalPct}
-                          onChange={(e) =>
-                            setCapexTerminalPct(parseFloat(e.target.value))
-                          }
-                          className="w-full accent-emerald-600 mt-1.5 cursor-pointer"
+                          onChange={setCapexTerminalPct}
+                          accentClass="accent-emerald-600"
+                          ariaLabel="CapEx Terminal"
                         />
                       )}
                       <p className="text-[10px] text-gray-500 mt-1">
@@ -1124,14 +1159,13 @@ export default function ValuationModelsTab({
                         </span>
                       </div>
                       {workMode === "manual" && (
-                        <input
-                          type="range"
-                          min="5.5"
-                          max="18"
-                          step="0.5"
+                        <RangeSliderWithNumber
+                          min={5.5}
+                          max={18}
+                          step={0.5}
                           value={wacc}
-                          onChange={(e) => setWacc(parseFloat(e.target.value))}
-                          className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                          onChange={setWacc}
+                          ariaLabel="Tasa WACC"
                         />
                       )}
                       <p className="text-[10px] text-gray-500 mt-1">
@@ -1145,16 +1179,13 @@ export default function ValuationModelsTab({
                         <span>{terminalGrowth.toFixed(1)}%</span>
                       </div>
                       {workMode === "manual" && (
-                        <input
-                          type="range"
-                          min="0"
-                          max="5.5"
-                          step="0.25"
+                        <RangeSliderWithNumber
+                          min={0}
+                          max={5.5}
+                          step={0.25}
                           value={terminalGrowth}
-                          onChange={(e) =>
-                            setTerminalGrowth(parseFloat(e.target.value))
-                          }
-                          className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                          onChange={setTerminalGrowth}
+                          ariaLabel="Crecimiento Perpetuo"
                         />
                       )}
                       <p className="text-[10px] text-gray-500 mt-1">
@@ -1170,16 +1201,14 @@ export default function ValuationModelsTab({
                         <span>{exitMultiple.toFixed(1)}x</span>
                       </div>
                       {workMode === "manual" && (
-                        <input
-                          type="range"
-                          min="8"
-                          max="40"
-                          step="0.5"
+                        <RangeSliderWithNumber
+                          min={8}
+                          max={40}
+                          step={0.5}
                           value={exitMultiple}
-                          onChange={(e) =>
-                            setExitMultiple(parseFloat(e.target.value))
-                          }
-                          className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                          onChange={setExitMultiple}
+                          unit="x"
+                          ariaLabel="EV/FCF Salida"
                         />
                       )}
                       <p className="text-[10px] text-gray-500 mt-1">
@@ -1439,14 +1468,13 @@ export default function ValuationModelsTab({
                       </span>
                     </div>
                     {workMode === "manual" && (
-                      <input
-                        type="range"
-                        min="4"
-                        max="30"
-                        step="0.5"
+                      <RangeSliderWithNumber
+                        min={4}
+                        max={30}
+                        step={0.5}
                         value={bankRoe}
-                        onChange={(e) => setBankRoe(parseFloat(e.target.value))}
-                        className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                        onChange={setBankRoe}
+                        ariaLabel="ROE Sostenible Esperado"
                       />
                     )}
                     <p className="text-[11px] text-gray-500 mt-1">
@@ -1463,14 +1491,13 @@ export default function ValuationModelsTab({
                       </span>
                     </div>
                     {workMode === "manual" && (
-                      <input
-                        type="range"
-                        min="6"
-                        max="16"
-                        step="0.5"
+                      <RangeSliderWithNumber
+                        min={6}
+                        max={16}
+                        step={0.5}
                         value={bankKe}
-                        onChange={(e) => setBankKe(parseFloat(e.target.value))}
-                        className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                        onChange={setBankKe}
+                        ariaLabel="Costo del Capital Accionario"
                       />
                     )}
                     <p className="text-[11px] text-gray-500 mt-1">
@@ -1486,16 +1513,13 @@ export default function ValuationModelsTab({
                         <span>{bankPayout.toFixed(0)}%</span>
                       </div>
                       {workMode === "manual" && (
-                        <input
-                          type="range"
-                          min="10"
-                          max="80"
-                          step="2.5"
+                        <RangeSliderWithNumber
+                          min={10}
+                          max={80}
+                          step={2.5}
                           value={bankPayout}
-                          onChange={(e) =>
-                            setBankPayout(parseFloat(e.target.value))
-                          }
-                          className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                          onChange={setBankPayout}
+                          ariaLabel="Payout Ratio"
                         />
                       )}
                       <p className="text-[10px] text-gray-500 mt-1">
@@ -1509,16 +1533,14 @@ export default function ValuationModelsTab({
                         <span>{bankExitPtbv.toFixed(2)}x</span>
                       </div>
                       {workMode === "manual" && (
-                        <input
-                          type="range"
-                          min="0.8"
-                          max="3.5"
-                          step="0.1"
+                        <RangeSliderWithNumber
+                          min={0.8}
+                          max={3.5}
+                          step={0.1}
                           value={bankExitPtbv}
-                          onChange={(e) =>
-                            setBankExitPtbv(parseFloat(e.target.value))
-                          }
-                          className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                          onChange={setBankExitPtbv}
+                          unit="x"
+                          ariaLabel="P/TBV Salida"
                         />
                       )}
                       <p className="text-[10px] text-gray-500 mt-1">
@@ -1648,16 +1670,13 @@ export default function ValuationModelsTab({
                       <span>{ddmGrowthStage1.toFixed(1)}%</span>
                     </div>
                     {workMode === "manual" && (
-                      <input
-                        type="range"
-                        min="0"
-                        max="18"
-                        step="0.5"
+                      <RangeSliderWithNumber
+                        min={0}
+                        max={18}
+                        step={0.5}
                         value={ddmGrowthStage1}
-                        onChange={(e) =>
-                          setDdmGrowthStage1(parseFloat(e.target.value))
-                        }
-                        className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                        onChange={setDdmGrowthStage1}
+                        ariaLabel="Crecimiento Dividendo Etapa 1"
                       />
                     )}
                   </div>
@@ -1669,14 +1688,13 @@ export default function ValuationModelsTab({
                         <span>{ddmKe.toFixed(1)}%</span>
                       </div>
                       {workMode === "manual" && (
-                        <input
-                          type="range"
-                          min="6"
-                          max="16"
-                          step="0.5"
+                        <RangeSliderWithNumber
+                          min={6}
+                          max={16}
+                          step={0.5}
                           value={ddmKe}
-                          onChange={(e) => setDdmKe(parseFloat(e.target.value))}
-                          className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                          onChange={setDdmKe}
+                          ariaLabel="Costo Equity DDM"
                         />
                       )}
                     </div>
@@ -1687,16 +1705,13 @@ export default function ValuationModelsTab({
                         <span>{ddmTerminalGrowth.toFixed(1)}%</span>
                       </div>
                       {workMode === "manual" && (
-                        <input
-                          type="range"
-                          min="0"
-                          max="5.5"
-                          step="0.25"
+                        <RangeSliderWithNumber
+                          min={0}
+                          max={5.5}
+                          step={0.25}
                           value={ddmTerminalGrowth}
-                          onChange={(e) =>
-                            setDdmTerminalGrowth(parseFloat(e.target.value))
-                          }
-                          className="w-full accent-orange-500 mt-1.5 cursor-pointer"
+                          onChange={setDdmTerminalGrowth}
+                          ariaLabel="Crecimiento Perpetuo DDM"
                         />
                       )}
                     </div>

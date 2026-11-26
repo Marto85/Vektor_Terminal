@@ -145,7 +145,13 @@ def _extract_yf_statements_fallback(ticker_upper: str) -> dict[str, Any]:
     except Exception:
         quarterly_fb = {}
 
+    try:
+        fin_curr = str((tk.info or {}).get("financialCurrency") or "").strip().upper()
+    except Exception:
+        fin_curr = ""
+
     return {
+        "currency": fin_curr,
         "annual": annual_fb,
         "quarterly": quarterly_fb,
     }
