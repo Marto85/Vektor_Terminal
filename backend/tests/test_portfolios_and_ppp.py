@@ -253,5 +253,19 @@ def test_ppp_calculation_and_portfolio_rbac(mock_quotes, api_client):
             p for p in split_res.json()["holdings"] if p["ticker"] == "MSFT"
         )
         assert msft_pos["quantity"] > 0
+
+        # 13. Rechazar SPLIT sobre un ticker sin posición abierta (400)
+        orphan_split = client.post(
+            f"/api/v1/portfolios/{client_id}/transactions",
+            headers=cli_headers,
+            json={
+                "tx_type": "SPLIT",
+                "ticker": "NVDA",
+                "tx_date": "2026-03-12",
+                "quantity": 10.0,
+                "unit_price": 1.0,
+            },
+        )
+        assert orphan_split.status_code == 400
     finally:
         pass

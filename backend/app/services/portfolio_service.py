@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import re
 import secrets
-from typing import Optional
+from typing import Any, Optional
 from fastapi import HTTPException, status
 import pandas as pd
 from sqlalchemy import func
@@ -153,6 +153,91 @@ def fetch_live_quotes(tickers: list[str], target_currency: str = "USD") -> dict[
 
 _TWR_HIST_CACHE_TTL = timedelta(hours=6)
 _TWR_HIST_CACHE: dict[tuple[str, str, str], tuple[datetime, dict[str, float]]] = {}
+_TWR_FX_CACHE: dict[tuple[str, str, str], tuple[datetime, dict[str, float]]] = {}
+
+_SUFFIX_CURRENCY_MAP: tuple[tuple[str, str], ...] = (
+    (".BA", "ARS"),
+    (".SA", "BRL"),
+    (".MX", "MXN"),
+    (".TO", "CAD"),
+    (".V", "CAD"),
+    (".L", "GBP"),
+    (".DE", "EUR"),
+    (".PA", "EUR"),
+    (".MC", "EUR"),
+    (".AS", "EUR"),
+    (".MI", "EUR"),
+    (".HK", "HKD"),
+    (".T", "JPY"),
+)
+
+
+def _infer_symbol_currency(symbol: str, tk: Any = None) -> str:
+    sym_u = (symbol or "").strip().upper()
+    for suffix, ccy in _SUFFIX_CURRENCY_MAP:
+        if sym_u.endswith(suffix):
+            return ccy
+    if tk is not None:
+        try:
+            fi = getattr(tk, "fast_info", None)
+            ccy = getattr(fi, "currency", None) if fi is not None else None
+            if not ccy and isinstance(fi, dict):
+                ccy = fi.get("currency")
+            if isinstance(ccy, str) and len(ccy.strip()) == 3 and ccy.strip().isalpha():
+                return ccy.strip().upper()
+        except Exception:
+            pass
+    return "USD"
+
+
+def _fetch_historical_fx_map(
+    from_currency: str,
+    to_currency: str,
+    start_date: str,
+    end_date: str,
+) -> dict[str, float]:
+    src = (from_currency or "USD").strip().upper()
+    dst = (to_currency or "USD").strip().upper()
+    if src == dst or not start_date or not end_date or start_date >= end_date:
+        return {}
+    now_utc = datetime.now(timezone.utc)
+    cache_k = (src, dst, start_date)
+    cached = _TWR_FX_CACHE.get(cache_k)
+    if cached and (now_utc - cached[0]) < _TWR_HIST_CACHE_TTL:
+        return cached[1]
+
+    date_map: dict[str, float] = {}
+    for pair_sym, invert in ((f"{src}{dst}=X", False), (f"{dst}{src}=X", True)):
+        try:
+            hist = yf.Ticker(pair_sym).history(start=start_date, end=end_date, interval="1d", auto_adjust=False)
+            if hist is not None and not hist.empty and "Close" in hist.columns:
+                for idx, val in hist["Close"].items():
+                    if pd.notna(val) and float(val) > 0:
+                        rate = (1.0 / float(val)) if invert else float(val)
+                        date_map[idx.strftime("%Y-%m-%d")] = rate
+                if date_map:
+                    break
+        except Exception:
+            continue
+
+    if date_map:
+        if len(_TWR_FX_CACHE) >= 128:
+            oldest_k = min(_TWR_FX_CACHE, key=lambda k: _TWR_FX_CACHE[k][0])
+            _TWR_FX_CACHE.pop(oldest_k, None)
+        _TWR_FX_CACHE[cache_k] = (now_utc, date_map)
+    return date_map
+
+
+def _lookup_rate_on_date(rate_map: dict[str, float], target_date: str, fallback_rate: float) -> float:
+    if not rate_map:
+        return fallback_rate
+    if target_date in rate_map:
+        return rate_map[target_date]
+    prior = [dt for dt in rate_map.keys() if dt <= target_date]
+    if prior:
+        return rate_map[max(prior)]
+    earliest = min(rate_map.keys())
+    return rate_map[earliest] if earliest else fallback_rate
 
 
 def _fetch_historical_close_map(
@@ -162,16 +247,13 @@ def _fetch_historical_close_map(
     target_currency: str = "USD",
 ) -> dict[str, dict[str, float]]:
     """
-    Obtiene cierres diarios históricos por símbolo (con caché de 6h y conversión FX)
-    para valuar tenencias en fechas intermedias de flujos externos del TWR.
+    Obtiene cierres diarios históricos por símbolo (con caché de 6h, detección de moneda nativa
+    y conversión por tipo de cambio histórico diario cuando corresponde).
     """
     if not symbols or not start_date or not end_date or start_date >= end_date:
         return {}
     now_utc = datetime.now(timezone.utc)
     curr = (target_currency or "USD").strip().upper()
-    fx_mult = _lookup_fx_multiplier("USD", curr) if curr != "USD" else 1.0
-    if not fx_mult or fx_mult <= 0:
-        fx_mult = 1.0
 
     result: dict[str, dict[str, float]] = {}
     for sym in symbols:
@@ -181,12 +263,25 @@ def _fetch_historical_close_map(
             result[sym] = cached[1]
             continue
         try:
-            hist = yf.Ticker(sym).history(start=start_date, end=end_date, interval="1d", auto_adjust=False)
+            tk = yf.Ticker(sym)
+            sym_curr = _infer_symbol_currency(sym, tk=tk)
+            hist = tk.history(start=start_date, end=end_date, interval="1d", auto_adjust=False)
             if hist is not None and not hist.empty and "Close" in hist.columns:
+                if sym_curr == curr:
+                    fx_map: dict[str, float] = {}
+                    fallback_fx = 1.0
+                else:
+                    fx_map = _fetch_historical_fx_map(sym_curr, curr, start_date, end_date)
+                    fallback_fx = _lookup_fx_multiplier(sym_curr, curr)
+                    if not fallback_fx or fallback_fx <= 0:
+                        fallback_fx = 1.0
+
                 date_map: dict[str, float] = {}
                 for idx, val in hist["Close"].items():
                     if pd.notna(val) and float(val) > 0:
-                        date_map[idx.strftime("%Y-%m-%d")] = float(val) * fx_mult
+                        dt_str = idx.strftime("%Y-%m-%d")
+                        rate = 1.0 if sym_curr == curr else _lookup_rate_on_date(fx_map, dt_str, fallback_fx)
+                        date_map[dt_str] = float(val) * rate
                 if date_map:
                     if len(_TWR_HIST_CACHE) >= 256:
                         oldest_k = min(_TWR_HIST_CACHE, key=lambda k: _TWR_HIST_CACHE[k][0])
@@ -203,14 +298,25 @@ def _lookup_historical_price(
     target_date: str,
     historical_prices_by_sym: dict[str, dict[str, float]] | None,
     fallback_price: float,
+    splits_by_sym: dict[str, list[tuple[str, float]]] | None = None,
 ) -> float:
     if historical_prices_by_sym and sym in historical_prices_by_sym:
         series = historical_prices_by_sym[sym]
+        raw_px: float | None = None
         if target_date in series:
-            return series[target_date]
-        prior_dates = [dt for dt in series.keys() if dt <= target_date]
-        if prior_dates:
-            return series[max(prior_dates)]
+            raw_px = series[target_date]
+        else:
+            prior_dates = [dt for dt in series.keys() if dt <= target_date]
+            if prior_dates:
+                raw_px = series[max(prior_dates)]
+        if raw_px is not None:
+            # Desajustar cierres históricos de Yahoo por splits ocurridos en o después de `target_date`
+            # para mantener consistencia con las cantidades pre-split registradas en la cartera.
+            if splits_by_sym and sym in splits_by_sym:
+                for split_date, ratio in splits_by_sym[sym]:
+                    if split_date >= target_date and ratio > 0:
+                        raw_px *= ratio
+            return raw_px
     return fallback_price
 
 
@@ -236,9 +342,14 @@ def _compute_twr_metrics(
         }
 
     by_date: dict[str, list[PortfolioTransaction]] = {}
+    splits_by_sym: dict[str, list[tuple[str, float]]] = {}
     for tx in ordered_txs:
         d = (tx.tx_date or "").strip()
         by_date.setdefault(d, []).append(tx)
+        if (tx.tx_type or "").upper() == "SPLIT" and (tx.ticker or "").strip():
+            ratio = float(tx.quantity or 0.0)
+            if ratio > 0:
+                splits_by_sym.setdefault((tx.ticker or "").strip().upper(), []).append((d, ratio))
 
     sorted_dates = sorted(by_date.keys())
     qty_by_sym: dict[str, float] = {}
@@ -295,6 +406,7 @@ def _compute_twr_metrics(
                 d,
                 historical_prices_by_sym,
                 last_known_price.get(s, 0.0),
+                splits_by_sym=splits_by_sym,
             )
             for s in qty_by_sym
         )
@@ -391,6 +503,7 @@ def compute_portfolio_positions(
     transactions: list[PortfolioTransaction],
     quotes_map: Optional[dict[str, dict]] = None,
     target_currency: str = "USD",
+    strict_validation: bool = False,
 ) -> dict:
     """
     Motor contable de Precio Promedio Ponderado (PPP) + Time-Weighted Return (TWR).
@@ -423,11 +536,14 @@ def compute_portfolio_positions(
         if ttype == "WITHDRAWAL":
             net_wdr = qty * price + comm
             if cash_balance - net_wdr < -1e-6:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Saldo de caja insuficiente para el retiro ({round(net_wdr, 2)} solicitado vs. {round(max(0.0, cash_balance), 2)} disponible).",
-                )
-            cash_balance -= net_wdr
+                if strict_validation:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Saldo de caja insuficiente para el retiro ({round(net_wdr, 2)} solicitado vs. {round(max(0.0, cash_balance), 2)} disponible).",
+                    )
+                cash_balance = 0.0
+            else:
+                cash_balance -= net_wdr
             net_external_deposits -= net_wdr
             continue
 
@@ -488,9 +604,15 @@ def compute_portfolio_positions(
             cash_balance += net_div
 
         elif ttype == "SPLIT" and qty > 0:
-            if pos["quantity"] > 0:
-                pos["quantity"] = pos["quantity"] * qty
-                pos["ppp"] = pos["total_cost"] / pos["quantity"] if pos["quantity"] > 1e-9 else 0.0
+            if pos["quantity"] <= 1e-6:
+                if strict_validation:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"No existe posición abierta en {sym} para registrar un SPLIT.",
+                    )
+                continue
+            pos["quantity"] = pos["quantity"] * qty
+            pos["ppp"] = pos["total_cost"] / pos["quantity"] if pos["quantity"] > 1e-9 else 0.0
 
     open_symbols = [s for s, p in ledger.items() if p["quantity"] > 1e-6]
     resolved_quotes = (
@@ -882,7 +1004,7 @@ def add_portfolio_transaction(
         .filter(PortfolioTransaction.client_id == target.id)
         .all()
     )
-    compute_portfolio_positions([*existing_txs, new_tx], quotes_map={})
+    compute_portfolio_positions([*existing_txs, new_tx], quotes_map={}, strict_validation=True)
 
     db.add(new_tx)
     db.commit()

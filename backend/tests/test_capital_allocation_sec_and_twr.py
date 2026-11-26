@@ -238,3 +238,52 @@ def test_portfolio_twr_isolates_external_cashflows():
     assert summary["total_unrealized_pnl"] == -2200.0
     assert summary["twr_pct"] == 8.0
     assert summary["subperiods_count"] == 2
+
+
+def test_portfolio_twr_unadjusts_yahoo_split_prices_and_handles_historical_fx():
+    from app.services.portfolio_service import (
+        _compute_twr_metrics,
+        _infer_symbol_currency,
+        _lookup_rate_on_date,
+    )
+
+    # 1) Compra 10 acciones a $100 el 2024-01-01 ($1.000). El 2024-05-01 sube a $110 (+10%) y hay un depósito de $1.000.
+    #    El 2024-06-01 hay SPLIT 10:1 (pasa a 100 acciones). Yahoo reporta precios ajustados ($11 en 2024-05-01).
+    #    El cierre final post-split es $11 -> sin retorno adicional en tramo 2. TWR real = +10.0%.
+    txs = [
+        PortfolioTransaction(id=1, client_id=1, tx_type="DEPOSIT", ticker=None, tx_date="2024-01-01", quantity=1000.0, unit_price=1.0, commission=0.0),
+        PortfolioTransaction(id=2, client_id=1, tx_type="BUY", ticker="NVDA", tx_date="2024-01-01", quantity=10.0, unit_price=100.0, commission=0.0),
+        PortfolioTransaction(id=3, client_id=1, tx_type="DEPOSIT", ticker=None, tx_date="2024-05-01", quantity=1000.0, unit_price=1.0, commission=0.0),
+        PortfolioTransaction(id=4, client_id=1, tx_type="SPLIT", ticker="NVDA", tx_date="2024-06-01", quantity=10.0, unit_price=1.0, commission=0.0),
+    ]
+    hist_yahoo_adjusted = {
+        "NVDA": {
+            "2024-01-01": 10.0,
+            "2024-05-01": 11.0,
+            "2024-06-01": 11.0,
+        }
+    }
+    twr = _compute_twr_metrics(
+        ordered_txs=txs,
+        ending_holdings_value=100.0 * 11.0,
+        net_external_deposits=2000.0,
+        historical_prices_by_sym=hist_yahoo_adjusted,
+    )
+    assert twr["twr_pct"] == 10.0
+
+    # 2) Detección de moneda nativa por sufijo y lookup FX histórico por fecha
+    assert _infer_symbol_currency("YPFD.BA") == "ARS"
+    assert _infer_symbol_currency("PETR4.SA") == "BRL"
+    assert _infer_symbol_currency("MSFT") == "USD"
+    fx_map = {"2024-01-01": 810.0, "2024-06-01": 900.0}
+    assert _lookup_rate_on_date(fx_map, "2024-03-15", 1000.0) == 810.0
+    assert _lookup_rate_on_date(fx_map, "2024-06-01", 1000.0) == 900.0
+
+
+def test_legacy_overdraw_does_not_crash_non_strict_portfolio_read():
+    txs = [
+        PortfolioTransaction(id=1, client_id=1, tx_type="DEPOSIT", ticker=None, tx_date="2025-01-01", quantity=100.0, unit_price=1.0, commission=0.0),
+        PortfolioTransaction(id=2, client_id=1, tx_type="WITHDRAWAL", ticker=None, tx_date="2025-01-02", quantity=500.0, unit_price=1.0, commission=0.0),
+    ]
+    res = compute_portfolio_positions(txs, quotes_map={}, strict_validation=False)
+    assert res["summary"]["cash_balance"] == 0.0
