@@ -76,6 +76,8 @@ export default function HomeOverview({
 }) {
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [wakingServer, setWakingServer] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [heroQuery, setHeroQuery] = useState("");
   const [heroResults, setHeroResults] = useState([]);
   const [showHeroDropdown, setShowHeroDropdown] = useState(false);
@@ -85,24 +87,93 @@ export default function HomeOverview({
   const [radarTab, setRadarTab] = useState("upside");
   const [newsFilter, setNewsFilter] = useState("ALL");
 
+  const loadOverview = async (isCancelled = () => false, setInitialLoading = true) => {
+    if (setInitialLoading) {
+      setLoading(true);
+      setLoadError("");
+    }
+    const slowTimer = setTimeout(() => {
+      if (!isCancelled()) setWakingServer(true);
+    }, 3000);
+
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const res = await apiClient.get("/market-overview");
+          if (!isCancelled()) {
+            setOverview(res.data);
+            setWakingServer(false);
+          }
+          return;
+        } catch (err) {
+          const status = err?.response?.status;
+          const isTransient = !status || status >= 500 || err?.code === "ECONNABORTED";
+          if (attempt < 2 && isTransient && !isCancelled()) {
+            setWakingServer(true);
+            await new Promise((r) => setTimeout(r, 1800));
+            continue;
+          }
+          throw err;
+        }
+      }
+    } catch (err) {
+      if (!isCancelled()) {
+        setWakingServer(false);
+        setLoadError(
+          err?.response?.data?.detail ||
+            "El servidor tardó más de lo habitual en responder. Podés reintentar ahora."
+        );
+      }
+    } finally {
+      clearTimeout(slowTimer);
+      if (!isCancelled()) {
+        setLoading(false);
+      }
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
-    const loadOverview = async () => {
-      setLoading(true);
+    const init = async () => {
+      const slowTimer = setTimeout(() => {
+        if (!cancelled) setWakingServer(true);
+      }, 3000);
       try {
-        const res = await apiClient.get("/market-overview");
-        if (!cancelled) {
-          setOverview(res.data);
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          try {
+            const res = await apiClient.get("/market-overview");
+            if (!cancelled) {
+              setOverview(res.data);
+              setWakingServer(false);
+            }
+            return;
+          } catch (err) {
+            const status = err?.response?.status;
+            const isTransient = !status || status >= 500 || err?.code === "ECONNABORTED";
+            if (attempt < 2 && isTransient && !cancelled) {
+              setWakingServer(true);
+              await new Promise((r) => setTimeout(r, 1800));
+              continue;
+            }
+            throw err;
+          }
         }
       } catch (err) {
-        console.error("Error cargando portal inicial:", err);
+        if (!cancelled) {
+          setWakingServer(false);
+          setLoadError(
+            err?.response?.data?.detail ||
+              "El servidor tardó más de lo habitual en responder. Podés reintentar ahora."
+          );
+        }
       } finally {
+        clearTimeout(slowTimer);
         if (!cancelled) {
           setLoading(false);
         }
       }
     };
-    loadOverview();
+    init();
     return () => {
       cancelled = true;
     };
@@ -248,6 +319,36 @@ export default function HomeOverview({
             </div>
           </div>
         </div>
+
+        {loading && wakingServer && !overview && (
+          <div className="mt-4 rounded-xl border border-orange-200 bg-orange-50/70 px-4 py-3.5 flex items-center gap-3">
+            <div className="relative flex items-center justify-center w-9 h-9 rounded-full bg-orange-100 text-orange-600 shrink-0">
+              <Loader2 className="w-5 h-5 animate-spin" />
+            </div>
+            <div>
+              <p className="text-xs sm:text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-orange-600" />
+                Despertando el servidor... Aguarde un momento por favor
+              </p>
+              <p className="text-xs text-gray-600 mt-0.5">
+                Estamos iniciando los servicios en la nube y cargando los datos de mercado. Esto puede demorar unos segundos la primera vez.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {loadError && !overview && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-amber-900 font-medium">{loadError}</p>
+            <button
+              type="button"
+              onClick={() => loadOverview()}
+              className="px-3 py-1.5 rounded-lg bg-orange-600 text-white text-xs font-semibold hover:bg-orange-700 cursor-pointer"
+            >
+              Reintentar
+            </button>
+          </div>
+        )}
 
         {/* 4 Tarjetas de Flujos de Trabajo */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 mt-4 sm:mt-6 pt-4 sm:pt-5 border-t border-gray-100">

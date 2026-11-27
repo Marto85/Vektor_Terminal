@@ -58,6 +58,7 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
   const { isDark } = useTheme();
   const [overview, setOverview] = useState(null);
   const [loadingOverview, setLoadingOverview] = useState(true);
+  const [wakingServer, setWakingServer] = useState(false);
   const [overviewError, setOverviewError] = useState("");
 
   const [selectedSeriesId, setSelectedSeriesId] = useState("riesgo_pais");
@@ -98,16 +99,26 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
 
   const chartContainerRef = useRef(null);
 
-  const requestOverviewWithRetry = async () => {
+  const requestOverviewWithRetry = async (isCancelled = () => false) => {
+    const slowTimer = setTimeout(() => {
+      if (!isCancelled()) setWakingServer(true);
+    }, 3000);
     try {
-      return await apiClient.get("/argentina/overview");
+      const res = await apiClient.get("/argentina/overview");
+      if (!isCancelled()) setWakingServer(false);
+      return res;
     } catch (err) {
       const status = err?.response?.status;
       if (!status || status >= 500 || err?.code === "ECONNABORTED") {
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-        return await apiClient.get("/argentina/overview");
+        if (!isCancelled()) setWakingServer(true);
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const retryRes = await apiClient.get("/argentina/overview");
+        if (!isCancelled()) setWakingServer(false);
+        return retryRes;
       }
       throw err;
+    } finally {
+      clearTimeout(slowTimer);
     }
   };
 
@@ -118,6 +129,7 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
       const res = await requestOverviewWithRetry();
       setOverview(res.data);
     } catch (err) {
+      setWakingServer(false);
       setOverviewError(
         err.response?.data?.detail || "No se pudo cargar el panel de Argentina."
       );
@@ -130,10 +142,11 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
     let cancelled = false;
     const init = async () => {
       try {
-        const res = await requestOverviewWithRetry();
+        const res = await requestOverviewWithRetry(() => cancelled);
         if (!cancelled) setOverview(res.data);
       } catch (err) {
         if (!cancelled) {
+          setWakingServer(false);
           setOverviewError(
             err.response?.data?.detail || "No se pudo cargar el panel de Argentina."
           );
@@ -551,9 +564,30 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
         </button>
       </div>
 
+      {loadingOverview && wakingServer && !overview && (
+        <div className="bg-orange-50/70 border border-orange-200 rounded-xl px-4 py-3.5 flex items-center gap-3">
+          <Loader2 className="w-5 h-5 animate-spin text-orange-600 shrink-0" />
+          <div>
+            <p className="text-xs sm:text-sm font-bold text-gray-900">
+              Despertando el servidor y consultando fuentes de Argentina... Aguarde un momento por favor
+            </p>
+            <p className="text-xs text-gray-600 mt-0.5">
+              La primera carga tras un período de inactividad puede demorar unos segundos mientras se inician los servicios.
+            </p>
+          </div>
+        </div>
+      )}
+
       {overviewError && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-xs text-red-700 font-medium">
-          {overviewError}
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-xs text-red-700 font-medium flex flex-wrap items-center justify-between gap-3">
+          <span>{overviewError}</span>
+          <button
+            type="button"
+            onClick={fetchOverview}
+            className="px-3 py-1 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 cursor-pointer"
+          >
+            Reintentar
+          </button>
         </div>
       )}
 
