@@ -146,6 +146,24 @@ def _extract_comparable_row(ticker_upper: str, db: Session, is_base: bool = Fals
     if fcf_mm is not None and mcap_mm and mcap_mm > 0:
         fcf_yield_pct = round((float(fcf_mm) / float(mcap_mm)) * 100.0, 2)
 
+    capex_mm = gcf.get("capex_ltm_mm")
+    da_mm = gcf.get("da_ltm_mm")
+    cfo_mm = gcf.get("cfo_ltm_mm")
+    has_extraordinary_events = False
+    fcf_yield_adjusted_pct: float | None = fcf_yield_pct
+    if (
+        isinstance(capex_mm, (int, float))
+        and isinstance(da_mm, (int, float))
+        and isinstance(cfo_mm, (int, float))
+        and abs(float(da_mm)) > 0
+        and abs(float(capex_mm)) >= abs(float(da_mm)) * 1.8
+        and mcap_mm
+        and mcap_mm > 0
+    ):
+        has_extraordinary_events = True
+        adj_fcf = float(cfo_mm) - abs(float(da_mm)) * 0.9
+        fcf_yield_adjusted_pct = round((adj_fcf / float(mcap_mm)) * 100.0, 2)
+
     rev_mm = ((info.get("totalRevenue") or 0) * fx_rate) / 1_000_000.0 if info.get("totalRevenue") is not None else sec_fb.get("revenue_mm")
     rev_g = info.get("revenueGrowth")
     rev_ntm = float(rev_mm) * (1.0 + float(rev_g)) if (rev_mm and float(rev_mm) > 0 and rev_g is not None) else None
@@ -194,6 +212,8 @@ def _extract_comparable_row(ticker_upper: str, db: Session, is_base: bool = Fals
         "enterprise_value_mm": ev_mm,
         "fcf_ltm_mm": fcf_mm,
         "fcf_yield_pct": fcf_yield_pct,
+        "fcf_yield_adjusted_pct": fcf_yield_adjusted_pct,
+        "has_extraordinary_events": has_extraordinary_events,
         "ev_sales_ltm": val.get("ev_to_sales_ltm"),
         "ev_sales_ntm": ev_sales_ntm,
         "ev_ebitda_ltm": val.get("ev_to_ebitda_ltm"),

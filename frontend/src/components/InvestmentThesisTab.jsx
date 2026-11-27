@@ -542,6 +542,22 @@ export default function InvestmentThesisTab({
                 </p>
               </div>
             </div>
+            {data?.audit?.has_anomalies && data?.dcf_engine?.reported?.solvable && (
+              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div>
+                  <span className="font-bold text-amber-950">
+                    Eventos extraordinarios detectados ({data.audit.flags?.length || 0})
+                  </span>
+                  <span className="text-amber-800 ml-2">
+                    Realidad fría: US$ {data.dcf_engine.reported.intrinsic_price} vs Normalizado: US$ {data.dcf_engine.normalized.intrinsic_price}
+                  </span>
+                </div>
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold tabular-nums">
+                  {data.dcf_engine.total_delta_per_share >= 0 ? "+" : ""}
+                  {data.dcf_engine.total_delta_per_share} US$/acc
+                </span>
+              </div>
+            )}
 
             {/* 3. RESUMEN DEL NEGOCIO Y TESIS EN 3 PILARES */}
             <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-5 space-y-4">

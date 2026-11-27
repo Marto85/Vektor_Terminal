@@ -535,6 +535,58 @@ def build_company_workbook_bytes(
         )
     _auto_fit_columns(ws_val)
 
+    # Solapa adicional: Reportado vs normalizado (Eventos Extraordinarios & Puente DCF)
+    ws_dual = wb.create_sheet(title="Reportado vs normalizado")
+    dcf_eng = _as_dict(val_dict.get("dcf_engine"))
+    rep_eng = _as_dict(dcf_eng.get("reported"))
+    norm_eng = _as_dict(dcf_eng.get("normalized"))
+    dual_rows = [
+        ("Valor Intrínseco Reportado Frío (US$/acc)", rep_eng.get("intrinsic_price"), "$#,##0.00"),
+        ("Valor Intrínseco Normalizado Bis (US$/acc)", norm_eng.get("intrinsic_price"), "$#,##0.00"),
+        ("Diferencia Total (US$/acc)", dcf_eng.get("total_delta_per_share"), "+$#,##0.00;-$#,##0.00;$0.00"),
+        ("Margen EBIT Reportado (%)", rep_eng.get("ebit_margin_start_pct"), '0.00"%"'),
+        ("Margen EBIT Normalizado Final (%)", norm_eng.get("ebit_margin_end_pct"), '0.00"%"'),
+        ("CapEx Reportado Etapa 1 (%)", rep_eng.get("capex_stage1_pct"), '0.00"%"'),
+        ("CapEx Normalizado (%)", norm_eng.get("capex_stage1_pct"), '0.00"%"'),
+    ]
+    dual_r = _write_kv_table(
+        ws_dual,
+        1,
+        "Comparativa Reportado Frío vs Escenario Normalizado (Bis)",
+        dual_rows,
+        header_fill,
+        section_fill,
+        header_font,
+        section_font,
+        border,
+    )
+    bridge_steps = dcf_eng.get("bridge") if isinstance(dcf_eng.get("bridge"), list) else []
+    if bridge_steps:
+        b_headers = ["Regla", "Parámetro", "Desde", "Hasta", "Delta / acción (US$)", "Acumulado (US$)"]
+        b_rows = [
+            [
+                s.get("title"),
+                s.get("param"),
+                s.get("from"),
+                s.get("to"),
+                s.get("delta_per_share"),
+                s.get("price_after"),
+            ]
+            for s in bridge_steps
+        ]
+        _write_kv_table(
+            ws_dual,
+            dual_r + 1,
+            "Puente Acumulativo por Ajuste",
+            [(f"{r[0]} ({r[1]}: {r[2]} -> {r[3]})", r[4], "$#,##0.00") for r in b_rows],
+            header_fill,
+            section_fill,
+            header_font,
+            section_font,
+            border,
+        )
+    _auto_fit_columns(ws_dual)
+
     # Solapa 7: Propiedad Institucional (13F) e Insiders (Form 4)
     ws_own = wb.create_sheet(title="Propiedad e Insiders")
     own_dict = _as_dict(ownership)
@@ -869,6 +921,24 @@ def build_company_pdf_bytes(
         pdf.set_font("Helvetica", "I", 8)
         pdf.set_text_color(30, 41, 59)
         pdf.multi_cell(0, 4.2, _safe_text(f"DCF Inverso: {verdict_txt}"))
+    dcf_eng_pdf = _as_dict(val_dict.get("dcf_engine"))
+    rep_pdf = _as_dict(dcf_eng_pdf.get("reported"))
+    norm_pdf = _as_dict(dcf_eng_pdf.get("normalized"))
+    if rep_pdf.get("intrinsic_price") is not None:
+        pdf.ln(1.5)
+        pdf.set_font("Helvetica", "B", 8.2)
+        pdf.set_text_color(15, 23, 42)
+        pdf.cell(
+            0,
+            5.0,
+            _safe_text(
+                f"Reportado vs Normalizado: Frio US$ {rep_pdf.get('intrinsic_price')} | "
+                f"Normalizado US$ {norm_pdf.get('intrinsic_price')} "
+                f"(Delta {dcf_eng_pdf.get('total_delta_per_share', 0):+.2f}/acc)"
+            ),
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
     pdf.ln(3)
 
     # Sección 3: Propiedad Institucional (13F) e Insiders (Form 4)

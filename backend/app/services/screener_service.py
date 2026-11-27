@@ -137,6 +137,25 @@ def _extract_screener_row(
     if not is_financial and fcf_mm is not None and mcap_mm and mcap_mm > 0:
         fcf_yield_pct = round((float(fcf_mm) / float(mcap_mm)) * 100.0, 2)
 
+    capex_mm = gcf.get("capex_ltm_mm")
+    da_mm = gcf.get("da_ltm_mm")
+    cfo_mm = gcf.get("cfo_ltm_mm")
+    has_extraordinary_events = False
+    fcf_yield_adjusted_pct: float | None = fcf_yield_pct
+    if (
+        not is_financial
+        and isinstance(capex_mm, (int, float))
+        and isinstance(da_mm, (int, float))
+        and isinstance(cfo_mm, (int, float))
+        and abs(float(da_mm)) > 0
+        and abs(float(capex_mm)) >= abs(float(da_mm)) * 1.8
+        and mcap_mm
+        and mcap_mm > 0
+    ):
+        has_extraordinary_events = True
+        adj_fcf = float(cfo_mm) - abs(float(da_mm)) * 0.9
+        fcf_yield_adjusted_pct = round((adj_fcf / float(mcap_mm)) * 100.0, 2)
+
     target_price = val.get("target_price")
     upside_ws_pct = round(((float(target_price) - price) / price) * 100.0, 1) if (target_price and price > 0) else None
 
@@ -157,6 +176,8 @@ def _extract_screener_row(
         "pb_ltm": val.get("pb_ltm"),
         "p_fcf_ltm": None if is_financial else val.get("p_to_fcf_ltm"),
         "fcf_yield_pct": fcf_yield_pct,
+        "fcf_yield_adjusted_pct": fcf_yield_adjusted_pct,
+        "has_extraordinary_events": has_extraordinary_events,
         "ebit_margin_pct": eff.get("ebit_margin_pct"),
         "net_margin_pct": eff.get("net_margin_pct"),
         "roe_pct": eff.get("roe_pct"),

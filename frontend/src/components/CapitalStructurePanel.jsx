@@ -53,7 +53,7 @@ function SectionTitle({ children }) {
   );
 }
 
-export default function CapitalStructurePanel({ summaryMetrics, onOpenInfo }) {
+export default function CapitalStructurePanel({ summaryMetrics, onOpenInfo, anomalyCount = 0 }) {
   if (!summaryMetrics) {
     return (
       <div className="w-full lg:w-[53%] p-6 flex items-center justify-center text-gray-400 text-xs">
@@ -63,6 +63,7 @@ export default function CapitalStructurePanel({ summaryMetrics, onOpenInfo }) {
   }
 
   const { market_data, capital_structure, efficiency, growth_cashflow, valuation } = summaryMetrics;
+  const totalAnomalies = anomalyCount || summaryMetrics?.anomaly_count || 0;
   const isBankSector =
     efficiency?.gross_margin_pct === null && efficiency?.roic_pct === null;
 
@@ -127,7 +128,14 @@ export default function CapitalStructurePanel({ summaryMetrics, onOpenInfo }) {
 
       {/* FILA 3: Valoración (Título único arriba + 2 columnas de métricas) */}
       <div className="mt-4">
-        <SectionTitle>Valoración</SectionTitle>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <SectionTitle>Valoración</SectionTitle>
+          {totalAnomalies > 0 && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[11px] font-bold">
+              Eventos extraordinarios ({totalAnomalies})
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8">
           <div>
             <TikrRow label="Precio objetivo de Wall Street" value={valuation?.target_price} prefix="US$ " onOpenInfo={onOpenInfo} />

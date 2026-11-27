@@ -1091,6 +1091,21 @@ def build_investment_thesis_onepager(ticker_symbol: str, db: Session) -> dict[st
 
     inp = val_report.get("dcf_inputs", {})
     shares_mm = float(inp.get("shares_mm") or 0.0)
+    rev_ttm_mm = float(inp.get("revenue_base_mm") or 0.0)
+    fcf_ttm_mm = float(inp.get("fcf_reported_mm") or 0.0)
+    ttm_fcf_margin = round((fcf_ttm_mm / rev_ttm_mm) * 100.0, 1) if rev_ttm_mm > 0 else None
+    ttm_ebit_margin = float(inp.get("ebit_margin_pct")) if inp.get("ebit_margin_pct") is not None else latest_om
+
+    audit_flags = audit.get("flags") or []
+    margin_flag = next(
+        (f for f in audit_flags if f.get("canonical_code") in ("MARGEN_COMPRIMIDO", "CAPEX_CICLO", "PICO_CICLICO") or f.get("code") in ("MARGIN_COMPRESSION_REINVESTMENT", "CAPEX_EXPANSION")),
+        None,
+    )
+    margin_narrative = (
+        f"Evento extraordinario detectado: {margin_flag.get('title')}."
+        if margin_flag
+        else trajectory.get("leverage_label", "Mantiene disciplina operativa y generación recurrente de caja.")
+    )
     market_cap_mm = valuation_bridge["current_price"] * shares_mm
     market_cap_formatted = (
         summary_metrics.get("capital_structure", {}).get("market_cap")
@@ -1122,8 +1137,8 @@ def build_investment_thesis_onepager(ticker_symbol: str, db: Session) -> dict[st
             "body": (
                 f"{profile.get('name', ticker_upper)} opera en {sector_es}"
                 f"{f' ({industry_es})' if industry_es else ''}, generando ventas anuales de "
-                f"US$ {latest_rev:,.0f} MM con un margen operativo del {latest_om:.1f}%. "
-                f"{trajectory.get('leverage_label', 'Mantiene disciplina operativa y generación recurrente de caja.')}"
+                f"US$ {latest_rev:,.0f} MM con un margen operativo del {ttm_ebit_margin:.1f}%. "
+                f"{margin_narrative}"
             ),
         },
         {
@@ -1191,14 +1206,16 @@ def build_investment_thesis_onepager(ticker_symbol: str, db: Session) -> dict[st
         },
         "kpis": {
             "rev_cagr_5y_pct": rev_cagr_5y,
-            "operating_margin_pct": latest_om,
-            "fcf_margin_pct": financial_trend[-1]["fcf_margin_pct"] if financial_trend else None,
+            "operating_margin_pct": round(ttm_ebit_margin, 1),
+            "fcf_margin_pct": ttm_fcf_margin if ttm_fcf_margin is not None else (financial_trend[-1]["fcf_margin_pct"] if financial_trend else None),
             "roic_pct": roic_latest,
             "roe_pct": roe_latest,
             "piotroski_score": piotroski_score,
             "altman_z": altman_score,
             "altman_zone": altman_zone,
         },
+        "audit": audit,
+        "dcf_engine": val_report.get("dcf_engine"),
         "quarterly_momentum": quarterly_momentum,
         "business_segments": business_segments,
         "geo_segments": geo_segments,

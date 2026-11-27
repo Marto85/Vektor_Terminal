@@ -151,6 +151,7 @@ def test_build_company_workbook_bytes_generates_seven_populated_sheets():
         "Flujo de Efectivo",
         "Ratios",
         "Valoración",
+        "Reportado vs normalizado",
         "Propiedad e Insiders",
     ]
 

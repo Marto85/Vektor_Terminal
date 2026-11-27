@@ -325,13 +325,18 @@ export default function ComparatorTab({ currentTicker, onOpenInfo }) {
                   </th>
                   {companies.map((c) => (
                     <th key={c.ticker} className="py-3 px-4 text-right min-w-36">
-                      <div className="font-bold text-orange-400 text-sm">{c.ticker}</div>
+                      <div className="font-bold text-orange-400 text-sm flex items-center justify-end gap-1">
+                        {c.has_extraordinary_events && (
+                          <span title="Evento extraordinario de CapEx / flujo detectado" className="text-amber-300 text-xs">⚑</span>
+                        )}
+                        <span>{c.ticker}</span>
+                      </div>
                       <div className="text-[11px] font-normal text-gray-300 truncate max-w-36 ml-auto">
                         {c.name}
                       </div>
                     </th>
                   ))}
-                  {companies.length > 1 && (
+                  {companies.length >= 3 && (
                     <>
                       <th className="py-3 px-4 font-bold text-right bg-[#262626] min-w-28">
                         Promedio
@@ -354,7 +359,7 @@ export default function ComparatorTab({ currentTicker, onOpenInfo }) {
                       {c.sector || '-'}
                     </td>
                   ))}
-                  {companies.length > 1 && (
+                  {companies.length >= 3 && (
                     <>
                       <td className="py-2 px-4 text-right bg-gray-100/60">-</td>
                       <td className="py-2 px-4 text-right bg-gray-100/60">-</td>
@@ -366,7 +371,7 @@ export default function ComparatorTab({ currentTicker, onOpenInfo }) {
                   <Fragment key={sec.section}>
                     <tr className="border-b border-gray-100 bg-gray-100/80">
                       <td
-                        colSpan={companies.length + (companies.length > 1 ? 3 : 1)}
+                        colSpan={companies.length + (companies.length >= 3 ? 3 : 1)}
                         className="py-2 px-4 font-bold text-gray-900 sticky left-0"
                       >
                         {sec.section}
@@ -380,7 +385,7 @@ export default function ComparatorTab({ currentTicker, onOpenInfo }) {
                       const positiveVals = validVals.filter((v) => v > 0);
 
                       const bestVal =
-                        companies.length > 1
+                        companies.length >= 3
                           ? row.highlightLowest && positiveVals.length > 0
                             ? Math.min(...positiveVals)
                             : row.highlightHighest && validVals.length > 0
@@ -440,7 +445,7 @@ export default function ComparatorTab({ currentTicker, onOpenInfo }) {
                             );
                           })}
 
-                          {companies.length > 1 && (
+                          {companies.length >= 3 && (
                             <>
                               <td className="py-2.5 px-4 text-right tabular-nums font-semibold bg-gray-50/80 text-gray-700">
                                 {formatCellValue(activeCompData.group_avg?.[row.key], row.type)}
