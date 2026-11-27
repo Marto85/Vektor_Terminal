@@ -918,6 +918,58 @@ export default function ValuationTab({ ticker, onOpenInfo, onOpenValuationModels
                       </table>
                     </div>
                   )}
+
+                  {valData?.valuation_comparison?.has_material_diff && (
+                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      <div className="bg-white border border-gray-200 rounded-lg p-3 text-xs">
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                          {valData.valuation_comparison.as_reported.label}
+                        </span>
+                        <div className="flex items-baseline justify-between mt-1">
+                          <span className="text-base font-extrabold text-gray-900 tabular-nums">
+                            {formatMoney(valData.valuation_comparison.as_reported.intrinsic_value_per_share)}
+                          </span>
+                          {valData.valuation_comparison.as_reported.upside_pct != null && (
+                            <span className="text-xs font-semibold text-gray-600 tabular-nums">
+                              {valData.valuation_comparison.as_reported.upside_pct >= 0 ? "+" : ""}
+                              {valData.valuation_comparison.as_reported.upside_pct.toFixed(1)}% vs. precio
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-gray-500 mt-1">
+                          Margen EBIT {valData.valuation_comparison.as_reported.ebit_margin_pct}% · CapEx {valData.valuation_comparison.as_reported.capex_pct}% · Imp. {valData.valuation_comparison.as_reported.tax_rate_pct}%
+                        </p>
+                      </div>
+
+                      <div className="bg-emerald-50/70 border border-emerald-200 rounded-lg p-3 text-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-800">
+                            {valData.valuation_comparison.normalized.label}
+                          </span>
+                          {valData.valuation_comparison.delta_pct != null && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold tabular-nums">
+                              {valData.valuation_comparison.delta_pct >= 0 ? "+" : ""}
+                              {valData.valuation_comparison.delta_pct.toFixed(1)}% impacto
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-baseline justify-between mt-1">
+                          <span className="text-base font-extrabold text-emerald-900 tabular-nums">
+                            {formatMoney(valData.valuation_comparison.normalized.intrinsic_value_per_share)}
+                          </span>
+                          {valData.valuation_comparison.normalized.upside_pct != null && (
+                            <span className="text-xs font-semibold text-emerald-700 tabular-nums">
+                              {valData.valuation_comparison.normalized.upside_pct >= 0 ? "+" : ""}
+                              {valData.valuation_comparison.normalized.upside_pct.toFixed(1)}% vs. precio
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-emerald-800/80 mt-1">
+                          Margen EBIT obj. {valData.valuation_comparison.normalized.target_ebit_margin_pct}% · CapEx mant. {valData.valuation_comparison.normalized.capex_pct}% · Imp. {valData.valuation_comparison.normalized.tax_rate_pct}%
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

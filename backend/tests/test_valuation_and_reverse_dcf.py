@@ -223,3 +223,46 @@ def test_looks_english_detects_short_headlines_and_spanish_text():
     assert _looks_english("Nu Holdings Beats Q3 Profit Estimates") is True
     assert _looks_english("Nu Holdings supera estimaciones del tercer trimestre") is False
     assert _has_spanish_signals("Vistra sube tras acuerdo energético en EE.UU.") is True
+
+
+def test_audit_detects_reinvestment_margin_compression_and_quarterly_shift():
+    from app.services.valuation_service import _audit_anomalies_and_adjustments
+
+    years = ["2023", "2024", "2025", "2026"]
+    data = {
+        "Ingresos Totales": {"2023": 1000.0, "2024": 1300.0, "2025": 1700.0, "2026": 2200.0},
+        "Beneficio Bruto": {"2023": 500.0, "2024": 650.0, "2025": 850.0, "2026": 1078.0},
+        "Beneficio Operativo": {"2023": 160.0, "2024": 208.0, "2025": 255.0, "2026": 176.0},
+        "Gastos por Intereses": {"2023": 10.0, "2024": 10.0, "2025": 10.0, "2026": 10.0},
+        "Depreciación y Amortización": {"2023": 40.0, "2024": 52.0, "2025": 68.0, "2026": 88.0},
+        "Beneficio Neto": {"2023": 115.0, "2024": 150.0, "2025": 185.0, "2026": 120.0},
+        "Beneficio antes de Impuestos": {"2023": 150.0, "2024": 198.0, "2025": 245.0, "2026": 166.0},
+        "Gasto por Impuesto a las Ganancias": {"2023": 35.0, "2024": 48.0, "2025": 60.0, "2026": 46.0},
+        "Efectivo de Operaciones (CFO)": {"2023": 180.0, "2024": 220.0, "2025": 270.0, "2026": 210.0},
+        "Gastos de capital (CapEx)": {"2023": 60.0, "2024": 78.0, "2025": 102.0, "2026": 132.0},
+        "Flujo de caja libre (FCF)": {"2023": 120.0, "2024": 142.0, "2025": 168.0, "2026": 78.0},
+        "Compensación basada en acciones": {"2023": 10.0, "2024": 12.0, "2025": 15.0, "2026": 18.0},
+        "Cambios en el capital de trabajo": {"2023": 5.0, "2024": 6.0, "2025": 8.0, "2026": -10.0},
+    }
+    quarterly_rows = [
+        {"Métrica": "Ingresos Totales", "Q1 26": 500.0, "Q2 26": 540.0, "Q3 26": 570.0, "Q4 26": 590.0},
+        {"Métrica": "Beneficio Operativo", "Q1 26": 70.0, "Q2 26": 72.0, "Q3 26": 74.0, "Q4 26": 35.4},
+    ]
+
+    audit = _audit_anomalies_and_adjustments(
+        valid_years=years,
+        get_m=lambda m, y: data.get(m, {}).get(y, 0.0),
+        current_mcap_mm=10000.0,
+        current_ev_mm=10000.0,
+        ltm_multiples={"ev_ebit": 56.8, "pe": 83.3, "pfcf": 128.2},
+        is_financial=False,
+        quarterly_rows=quarterly_rows,
+        fx_rate=1.0,
+    )
+    codes = {f["code"] for f in audit["flags"]}
+    assert "OPEX_SPIKE" in codes
+    assert "MARGIN_COMPRESSION_REINVESTMENT" in codes
+    assert "QUARTERLY_RUN_RATE_SHIFT" in codes
+    assert audit["normalized_ebit_margin_pct"] > audit["ebit_margin_pct"]
+    assert audit["normalized_ebit_mm"] > 176.0
+    assert any(c["metric"] == "EV / EBIT (LTM)" for c in audit["comparisons"])

@@ -12,6 +12,7 @@ from app.services.company_service import get_raw_financials
 from app.services.financial_parser import (
     detect_reporting_currency,
     extract_annual_metrics,
+    extract_quarterly_metrics,
     is_foreign_adr_filer,
     normalize_historical_shares,
 )
@@ -438,6 +439,8 @@ def _audit_anomalies_and_adjustments(
     ltm_multiples: dict[str, float | None],
     is_financial: bool = False,
     fallback_ebit_margin_pct: float = 15.0,
+    quarterly_rows: list[dict[str, Any]] | None = None,
+    fx_rate: float = 1.0,
 ) -> dict[str, Any]:
     if not valid_years:
         return {
@@ -449,6 +452,12 @@ def _audit_anomalies_and_adjustments(
             "capex_maint_pct": 8.0,
             "ebit_margin_pct": round(fallback_ebit_margin_pct, 2),
             "tax_rate_pct": 21.0,
+            "normalized_ebit_margin_pct": round(fallback_ebit_margin_pct, 2),
+            "normalized_tax_rate_pct": 21.0,
+            "normalized_ebit_mm": 0.0,
+            "normalized_net_inc_mm": 0.0,
+            "normalized_fcf_mm": 0.0,
+            "rev_growth_yoy_pct": None,
         }
 
     latest_y = valid_years[-1]
@@ -604,6 +613,193 @@ def _audit_anomalies_and_adjustments(
             "impact_mm": round(wc_curr, 2),
         })
 
+    # --- DETECTOR GENERAL DE RUBROS OPERATIVOS / FISCALES ANUALES Y TRIMESTRALES ---
+    rev_prev_y = get_m("Ingresos Totales", prev_years[-1]) if len(valid_years) > 1 else 0.0
+    rev_growth_yoy = (
+        round(((rev_curr - rev_prev_y) / rev_prev_y) * 100.0, 2)
+        if (len(valid_years) > 1 and rev_prev_y > 0 and rev_curr > 0)
+        else None
+    )
+
+    hist_ebit_margins = [
+        (get_m("Beneficio Operativo", y) / get_m("Ingresos Totales", y)) * 100.0
+        for y in prev_years
+        if get_m("Ingresos Totales", y) > 0 and get_m("Beneficio Operativo", y) != 0.0
+    ]
+    med_ebit_margin = round(median(hist_ebit_margins), 2) if hist_ebit_margins else ebit_margin_pct
+
+    hist_gm = [
+        (get_m("Beneficio Bruto", y) / get_m("Ingresos Totales", y)) * 100.0
+        for y in prev_years
+        if get_m("Ingresos Totales", y) > 0 and get_m("Beneficio Bruto", y) > 0
+    ]
+    gp_curr = get_m("Beneficio Bruto", latest_y)
+    gm_curr = round((gp_curr / rev_curr) * 100.0, 2) if (rev_curr > 0 and gp_curr > 0) else None
+    if not is_financial and gm_curr is not None and len(hist_gm) >= 2:
+        med_gm = round(median(hist_gm), 2)
+        gm_diff = round(gm_curr - med_gm, 2)
+        if abs(gm_diff) >= 2.5:
+            gm_impact_mm = round((gm_diff / 100.0) * rev_curr, 2)
+            flags.append({
+                "code": "GROSS_MARGIN_SHIFT",
+                "severity": "warning" if gm_diff < 0 else "info",
+                "title": (
+                    "Compresión extraordinaria de Margen Bruto"
+                    if gm_diff < 0
+                    else "Expansión extraordinaria de Margen Bruto"
+                ),
+                "detail": (
+                    f"El margen bruto del último ejercicio ({gm_curr:.1f}%) se desvió {gm_diff:+.1f} pp "
+                    f"respecto a la mediana de años previos ({med_gm:.1f}%)."
+                ),
+                "impact_mm": gm_impact_mm,
+            })
+
+    # Salto extraordinario en Gastos Operativos (SG&A + R&D o GP - EBIT)
+    opex_curr = max(gp_curr - effective_operating_profit, 0.0) if (gp_curr > 0) else 0.0
+    hist_opex_ratios = [
+        ((get_m("Beneficio Bruto", y) - get_m("Beneficio Operativo", y)) / get_m("Ingresos Totales", y)) * 100.0
+        for y in prev_years
+        if get_m("Ingresos Totales", y) > 0 and get_m("Beneficio Bruto", y) > 0
+    ]
+    if not is_financial and rev_curr > 0 and opex_curr > 0 and len(hist_opex_ratios) >= 2:
+        opex_curr_pct = round((opex_curr / rev_curr) * 100.0, 2)
+        med_opex_pct = round(median(hist_opex_ratios), 2)
+        opex_diff = round(opex_curr_pct - med_opex_pct, 2)
+        if opex_diff >= 2.5:
+            opex_excess_mm = round((opex_diff / 100.0) * rev_curr, 2)
+            flags.append({
+                "code": "OPEX_SPIKE",
+                "severity": "warning",
+                "title": "Salto extraordinario en Gastos Operativos (SG&A / Expansión)",
+                "detail": (
+                    f"Los gastos operativos sobre ventas ({opex_curr_pct:.1f}%) superan en +{opex_diff:.1f} pp "
+                    f"su mediana histórica ({med_opex_pct:.1f}%), absorbiendo US$ {opex_excess_mm:,.2f} MM de margen."
+                ),
+                "impact_mm": round(-opex_excess_mm, 2),
+            })
+
+    # Tasa impositiva efectiva atípica
+    hist_tax_rates = [
+        (get_m("Gasto por Impuesto a las Ganancias", y) / get_m("Beneficio antes de Impuestos", y)) * 100.0
+        for y in prev_years
+        if get_m("Beneficio antes de Impuestos", y) > 0 and get_m("Gasto por Impuesto a las Ganancias", y) > 0
+    ]
+    med_tax_pct = round(min(max(median(hist_tax_rates), 10.0), 35.0), 1) if hist_tax_rates else round(eff_tax * 100.0, 1)
+    raw_tax_curr_pct = round((tax_curr / ebt_curr) * 100.0, 1) if (ebt_curr > 0 and tax_curr >= 0) else round(eff_tax * 100.0, 1)
+    if not is_financial and len(hist_tax_rates) >= 2 and abs(raw_tax_curr_pct - med_tax_pct) >= 7.0 and ebt_curr > 0:
+        tax_impact_mm = round(ebt_curr * ((med_tax_pct - raw_tax_curr_pct) / 100.0), 2)
+        flags.append({
+            "code": "TAX_RATE_ANOMALY",
+            "severity": "info",
+            "title": "Tasa impositiva efectiva atípica (cargo/crédito puntual)",
+            "detail": (
+                f"La tasa impositiva efectiva ({raw_tax_curr_pct:.1f}%) difiere significativamente de su mediana histórica ({med_tax_pct:.1f}%)."
+            ),
+            "impact_mm": tax_impact_mm,
+        })
+
+    # Compresión de margen operativo EBIT vs mediana histórica (distinguiendo reinversión con crecimiento vs deterioro)
+    norm_ebit_margin_pct = ebit_margin_pct
+    normalized_ebit_mm = round(effective_operating_profit, 2)
+    if not is_financial and rev_curr > 0 and len(hist_ebit_margins) >= 2 and (med_ebit_margin - ebit_margin_pct) >= 2.5:
+        norm_ebit_margin_pct = med_ebit_margin
+        normalized_ebit_mm = round(rev_curr * (med_ebit_margin / 100.0), 2)
+        ebit_gap_mm = round(normalized_ebit_mm - effective_operating_profit, 2)
+        is_reinvest = rev_growth_yoy is not None and rev_growth_yoy >= 8.0
+        flags.append({
+            "code": "MARGIN_COMPRESSION_REINVESTMENT" if is_reinvest else "MARGIN_COMPRESSION_DECLINE",
+            "severity": "warning",
+            "title": (
+                "Compresión de margen operativo por reinversión / expansión"
+                if is_reinvest
+                else "Compresión de margen operativo respecto a mediana histórica"
+            ),
+            "detail": (
+                f"El margen EBIT actual ({ebit_margin_pct:.1f}%) está {med_ebit_margin - ebit_margin_pct:.1f} pp por debajo "
+                f"de su mediana histórica ({med_ebit_margin:.1f}%)"
+                + (
+                    f" mientras los ingresos crecen {rev_growth_yoy:+.1f}% YoY (señal de inversión en market share)."
+                    if is_reinvest
+                    else "."
+                )
+            ),
+            "impact_mm": round(-ebit_gap_mm, 2),
+        })
+
+        rep_ev_ebit = ltm_multiples.get("ev_ebit")
+        adj_ev_ebit = _safe_multiple(current_ev_mm, normalized_ebit_mm)
+        if rep_ev_ebit is not None and adj_ev_ebit is not None:
+            comparisons.append({
+                "metric": "EV / EBIT (LTM)",
+                "reported": f"{rep_ev_ebit:.2f}x",
+                "adjusted": f"{adj_ev_ebit:.2f}x",
+                "note": f"Normalizando margen EBIT ({ebit_margin_pct:.1f}% → {med_ebit_margin:.1f}%)",
+            })
+
+    # Chequeo trimestral reciente (Run-Rate) para detectar cambios en trimestres antes del cierre anual
+    if not is_financial and quarterly_rows:
+        q_rev_row = next((r for r in quarterly_rows if r.get("Métrica") == "Ingresos Totales"), None)
+        q_ebit_row = next((r for r in quarterly_rows if r.get("Métrica") == "Beneficio Operativo"), None)
+        if q_rev_row and q_ebit_row:
+            q_cols = [
+                k for k in q_rev_row.keys()
+                if k not in ("Métrica", "is_pct")
+                and float(q_rev_row.get(k) or 0.0) > 0
+                and q_ebit_row.get(k) is not None
+            ]
+            if len(q_cols) >= 4:
+                q_margins = [
+                    (k, (float(q_ebit_row[k]) * fx_rate) / (float(q_rev_row[k]) * fx_rate) * 100.0)
+                    for k in q_cols
+                ]
+                recent_q = q_margins[-1]
+                prior_med_q = median([m for _, m in q_margins[:-1]])
+                q_diff = round(recent_q[1] - prior_med_q, 2)
+                if abs(q_diff) >= 2.5:
+                    last_q_rev_mm = float(q_rev_row[recent_q[0]]) * fx_rate
+                    flags.append({
+                        "code": "QUARTERLY_RUN_RATE_SHIFT",
+                        "severity": "warning" if q_diff < 0 else "info",
+                        "title": f"Desvío notable en último trimestre ({recent_q[0]})",
+                        "detail": (
+                            f"El margen EBIT del trimestre {recent_q[0]} ({recent_q[1]:.1f}%) muestra una variación de "
+                            f"{q_diff:+.1f} pp frente a la mediana de trimestres previos ({prior_med_q:.1f}%)."
+                        ),
+                        "impact_mm": round((q_diff / 100.0) * last_q_rev_mm, 2),
+                    })
+
+    # Beneficio neto y FCF normalizados combinados (sin circunstancias extraordinarias)
+    norm_tax_dec = med_tax_pct / 100.0
+    normalized_net_inc_mm = round(
+        max(normalized_ebit_mm - int_exp_curr, 0.0) * (1.0 - norm_tax_dec)
+        if normalized_ebit_mm > 0
+        else adjusted_net_inc,
+        2,
+    )
+    maint_capex_final_mm = (
+        max(rev_curr * med_capex_ratio, da_curr * 0.85)
+        if (rev_curr > 0 and capex_curr > 0)
+        else capex_curr
+    )
+    normalized_fcf_mm = round(
+        (normalized_ebit_mm * (1.0 - norm_tax_dec) + da_curr - maint_capex_final_mm)
+        if rev_curr > 0
+        else adjusted_fcf,
+        2,
+    )
+
+    if norm_ebit_margin_pct > ebit_margin_pct and current_mcap_mm:
+        rep_pe = ltm_multiples.get("pe")
+        norm_pe = _safe_multiple(current_mcap_mm, normalized_net_inc_mm)
+        if rep_pe is not None and norm_pe is not None and abs(norm_pe - rep_pe) >= 0.5:
+            comparisons.append({
+                "metric": "P / E (Normalizado)",
+                "reported": f"{rep_pe:.2f}x",
+                "adjusted": f"{norm_pe:.2f}x",
+                "note": f"Margen EBIT {med_ebit_margin:.1f}% + tasa {med_tax_pct:.1f}%",
+            })
+
     return {
         "has_anomalies": len(flags) > 0,
         "flags": flags,
@@ -613,6 +809,12 @@ def _audit_anomalies_and_adjustments(
         "capex_maint_pct": max(capex_maint_pct, 2.0),
         "ebit_margin_pct": ebit_margin_pct,
         "tax_rate_pct": round(eff_tax * 100.0, 1),
+        "normalized_ebit_margin_pct": norm_ebit_margin_pct,
+        "normalized_tax_rate_pct": med_tax_pct,
+        "normalized_ebit_mm": normalized_ebit_mm,
+        "normalized_net_inc_mm": normalized_net_inc_mm,
+        "normalized_fcf_mm": normalized_fcf_mm,
+        "rev_growth_yoy_pct": rev_growth_yoy,
     }
 
 
@@ -891,6 +1093,10 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         annual_rows = extract_annual_metrics(raw_facts)
     except ValueError:
         annual_rows = []
+    try:
+        quarterly_rows = extract_quarterly_metrics(raw_facts)
+    except Exception:
+        quarterly_rows = []
 
     market_snapshot = get_cached_market_snapshot(ticker_upper, db)
     estimates_data = get_cached_estimates_and_guidance(ticker_upper, db)
@@ -1088,6 +1294,8 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         ltm_multiples=ltm_multiples,
         is_financial=is_financial,
         fallback_ebit_margin_pct=fallback_ebit_margin_pct,
+        quarterly_rows=quarterly_rows,
+        fx_rate=sec_fx_rate,
     )
 
     trajectory = _analyze_trajectory_and_margins(
@@ -1247,36 +1455,48 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
 
     base_ebit_margin = float(audit["ebit_margin_pct"])
     step_yr = float(trajectory["margin_step_pct_yr"])
+    raw_step_yr = step_yr
     hist_med_ebit = trajectory.get("hist_med_ebit_margin_pct")
     hist_margins = [
         float(m["operating_margin_pct"])
         for m in (trajectory.get("margin_history") or [])
         if m.get("operating_margin_pct") is not None
     ]
+    rev_growth_yoy = audit.get("rev_growth_yoy_pct")
+    rec_growth_pct = float(trajectory.get("recommended_rev_growth_pct") or 0.0)
+    has_strong_rev_growth = (rev_growth_yoy is not None and rev_growth_yoy >= 8.0) or rec_growth_pct >= 8.0
+
     is_structural_decline = (
         len(hist_margins) >= 3
         and hist_margins[-1] < hist_margins[-2] < hist_margins[-3]
         and (hist_margins[-3] - hist_margins[-1]) >= 3.0
+        and not has_strong_rev_growth
     )
     consensus_target_ebit = base_ebit_margin + (5.0 * step_yr)
     margin_reversion_applied = False
     margin_reversion_note: str | None = None
     if hist_med_ebit is not None and float(hist_med_ebit) > base_ebit_margin + 4.0 and not is_structural_decline:
-        # Reversión parcial (75%) hacia la mediana histórica ante caídas cíclicas/transitorias de EBIT
+        # Reversión parcial (75%) hacia la mediana histórica ante compresión transitoria o por reinversión
         reversion_target = base_ebit_margin + (float(hist_med_ebit) - base_ebit_margin) * 0.75
         target_ebit_margin_pct = round(min(max(max(consensus_target_ebit, reversion_target), -20.0), 60.0), 1)
         step_yr = round((target_ebit_margin_pct - base_ebit_margin) / 5.0, 2)
         trajectory["margin_step_pct_yr"] = step_yr
         margin_reversion_applied = True
-        margin_reversion_note = (
-            f"Margen EBIT objetivo normalizado hacia mediana histórica "
-            f"({base_ebit_margin:.1f}% → {target_ebit_margin_pct:.1f}%)."
-        )
+        if has_strong_rev_growth and len(hist_margins) >= 3 and hist_margins[-1] < hist_margins[-2]:
+            margin_reversion_note = (
+                f"Compresión de margen durante expansión de ventas: margen EBIT normalizado hacia mediana histórica "
+                f"({base_ebit_margin:.1f}% → {target_ebit_margin_pct:.1f}%)."
+            )
+        else:
+            margin_reversion_note = (
+                f"Margen EBIT objetivo normalizado hacia mediana histórica "
+                f"({base_ebit_margin:.1f}% → {target_ebit_margin_pct:.1f}%)."
+            )
     else:
         target_ebit_margin_pct = round(min(max(consensus_target_ebit, -20.0), 60.0), 1)
         if is_structural_decline and hist_med_ebit is not None and float(hist_med_ebit) > base_ebit_margin + 4.0:
             margin_reversion_note = (
-                "Sin reversión automática a mediana histórica: el margen EBIT muestra deterioro continuo en los últimos 3 años."
+                "Sin reversión automática a mediana histórica: margen EBIT y ventas muestran deterioro continuo sin señales de expansión."
             )
 
     sector_txt = f"{classification.get('sector') or ''} {classification.get('industry') or ''}".lower()
@@ -1343,6 +1563,89 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         recommended_growth_pct=trajectory["recommended_rev_growth_pct"],
     )
 
+    # Doble entrega: Valuación "Realidad Fría" (números reportados actuales) vs "Sin Circunstancia Extraordinaria" (normalizado)
+    cold_dcf_inputs = {
+        **dcf_inputs_payload,
+        "margin_step_pct_yr": min(raw_step_yr, 0.0) if (audit.get("has_anomalies") and raw_step_yr < 0) else 0.0,
+        "target_ebit_margin_pct": base_ebit_margin,
+        "capex_expansion_pct": audit["capex_current_pct"],
+        "tax_rate_pct": audit["tax_rate_pct"],
+        "fcf_adjusted_mm": round(fcf_ltm, 2),
+    }
+    cold_reverse = _compute_reverse_dcf(
+        is_financial=is_financial,
+        dcf_inputs=cold_dcf_inputs,
+        financial_inputs=financial_inputs_payload,
+        hist_avg_growth_pct=trajectory["hist_avg_growth_pct"],
+        recommended_growth_pct=trajectory["recommended_rev_growth_pct"],
+    )
+
+    norm_ebit_target = float(audit.get("normalized_ebit_margin_pct") or target_ebit_margin_pct)
+    norm_target_margin = max(target_ebit_margin_pct, round(base_ebit_margin + (norm_ebit_target - base_ebit_margin) * 0.75, 1))
+    norm_step_yr = round((norm_target_margin - base_ebit_margin) / 5.0, 2)
+    norm_dcf_inputs = {
+        **dcf_inputs_payload,
+        "margin_step_pct_yr": norm_step_yr,
+        "target_ebit_margin_pct": norm_target_margin,
+        "capex_expansion_pct": audit["capex_maint_pct"],
+        "tax_rate_pct": float(audit.get("normalized_tax_rate_pct") or audit["tax_rate_pct"]),
+        "fcf_adjusted_mm": float(audit.get("normalized_fcf_mm") or audit["adjusted_fcf_mm"]),
+    }
+    norm_reverse = _compute_reverse_dcf(
+        is_financial=is_financial,
+        dcf_inputs=norm_dcf_inputs,
+        financial_inputs=financial_inputs_payload,
+        hist_avg_growth_pct=trajectory["hist_avg_growth_pct"],
+        recommended_growth_pct=trajectory["recommended_rev_growth_pct"],
+    )
+
+    cold_iv = float(cold_reverse.get("intrinsic_value_per_share") or 0.0)
+    norm_iv = float(norm_reverse.get("intrinsic_value_per_share") or 0.0)
+    delta_iv = round(norm_iv - cold_iv, 2)
+    delta_pct = round(((norm_iv - cold_iv) / cold_iv) * 100.0, 1) if cold_iv > 0 else None
+
+    norm_ebit_mm = float(audit.get("normalized_ebit_mm") or 0.0)
+    norm_net_mm = float(audit.get("normalized_net_inc_mm") or 0.0)
+    norm_fcf_mm = float(audit.get("normalized_fcf_mm") or 0.0)
+    da_ltm_mm = rev_base * (da_sales_pct / 100.0)
+    norm_ebitda_mm = round(norm_ebit_mm + da_ltm_mm, 2) if norm_ebit_mm > 0 else None
+
+    valuation_comparison = {
+        "has_material_diff": bool(audit.get("has_anomalies") or (delta_pct is not None and abs(delta_pct) >= 5.0)),
+        "as_reported": {
+            "label": "Realidad fría (números actuales)",
+            "intrinsic_value_per_share": cold_iv,
+            "upside_pct": cold_reverse.get("upside_pct"),
+            "ebit_margin_pct": base_ebit_margin,
+            "target_ebit_margin_pct": base_ebit_margin,
+            "capex_pct": audit["capex_current_pct"],
+            "tax_rate_pct": audit["tax_rate_pct"],
+        },
+        "normalized": {
+            "label": "Sin circunstancia extraordinaria (normalizado)",
+            "intrinsic_value_per_share": norm_iv,
+            "upside_pct": norm_reverse.get("upside_pct"),
+            "ebit_margin_pct": norm_ebit_target,
+            "target_ebit_margin_pct": norm_target_margin,
+            "capex_pct": audit["capex_maint_pct"],
+            "tax_rate_pct": float(audit.get("normalized_tax_rate_pct") or audit["tax_rate_pct"]),
+        },
+        "delta_per_share": delta_iv,
+        "delta_pct": delta_pct,
+        "normalized_ltm_metrics": {
+            "ebit_mm": norm_ebit_mm,
+            "ebitda_mm": norm_ebitda_mm,
+            "net_income_mm": norm_net_mm,
+            "fcf_mm": norm_fcf_mm,
+            "ebit_margin_pct": norm_ebit_target,
+            "pe": _safe_multiple(current_mcap_mm, norm_net_mm),
+            "ev_ebit": _safe_multiple(current_ev_mm, norm_ebit_mm),
+            "ev_ebitda": _safe_multiple(current_ev_mm, norm_ebitda_mm),
+            "pfcf": _safe_multiple(current_mcap_mm, norm_fcf_mm),
+            "fcf_yield": round((norm_fcf_mm / current_mcap_mm) * 100.0, 2) if (current_mcap_mm and current_mcap_mm > 0) else None,
+        },
+    }
+
     return {
         "ticker": ticker_upper,
         "classification": classification,
@@ -1352,6 +1655,7 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         "audit": audit,
         "trajectory": trajectory,
         "reverse_dcf": reverse_dcf,
+        "valuation_comparison": valuation_comparison,
         "dcf_inputs": dcf_inputs_payload,
         "financial_sector_inputs": financial_inputs_payload,
     }

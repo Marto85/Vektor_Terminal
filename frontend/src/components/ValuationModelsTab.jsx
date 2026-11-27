@@ -608,6 +608,13 @@ export default function ValuationModelsTab({
       "Precio / Valor Libros (P/BV)",
     ];
 
+    const normLtm = valData?.valuation_comparison?.normalized_ltm_metrics || {};
+    const normMap = {
+      "EV / EBITDA (LTM)": normLtm.ev_ebitda,
+      "Precio / Beneficio (P/E)": normLtm.pe,
+      "Precio / Flujo de Caja Libre (P/FCF)": normLtm.pfcf,
+    };
+
     candidateLabels.forEach((label) => {
       const r = rows.find((item) => item.metric === label);
       if (
@@ -618,11 +625,18 @@ export default function ValuationModelsTab({
         r.med_5y > 0
       ) {
         const implied = curPrice * (r.med_5y / r.ltm);
+        const normVal = normMap[label];
+        const normImplied =
+          typeof normVal === "number" && normVal > 0
+            ? curPrice * (r.med_5y / normVal)
+            : null;
         impliedTargets.push({
           metric: label,
           ltm: r.ltm,
           med5y: r.med_5y,
           impliedPrice: implied,
+          normLtm: typeof normVal === "number" && normVal > 0 ? normVal : null,
+          normImpliedPrice: normImplied,
         });
       }
     });
@@ -996,6 +1010,39 @@ export default function ValuationModelsTab({
                     </div>
                   ))}
                 </div>
+                {valData?.valuation_comparison?.has_material_diff && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+                    <div className="bg-white border border-amber-200 rounded-lg p-3 text-xs">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
+                        {valData.valuation_comparison.as_reported.label}
+                      </span>
+                      <div className="flex items-baseline justify-between mt-1">
+                        <span className="text-base font-extrabold text-gray-900 tabular-nums">
+                          {formatMoney(valData.valuation_comparison.as_reported.intrinsic_value_per_share)}
+                        </span>
+                        <span className="text-[11px] text-gray-600 tabular-nums">
+                          EBIT {valData.valuation_comparison.as_reported.ebit_margin_pct}% · CapEx {valData.valuation_comparison.as_reported.capex_pct}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-800">
+                        {valData.valuation_comparison.normalized.label}
+                      </span>
+                      <div className="flex items-baseline justify-between mt-1">
+                        <span className="text-base font-extrabold text-emerald-900 tabular-nums">
+                          {formatMoney(valData.valuation_comparison.normalized.intrinsic_value_per_share)}
+                        </span>
+                        {valData.valuation_comparison.delta_pct != null && (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold tabular-nums">
+                            {valData.valuation_comparison.delta_pct >= 0 ? "+" : ""}
+                            {valData.valuation_comparison.delta_pct.toFixed(1)}% vs. realidad fría
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1803,7 +1850,8 @@ export default function ValuationModelsTab({
                         <th className="py-2.5 px-4 text-left">Múltiplo</th>
                         <th className="py-2.5 px-4">Actual (LTM)</th>
                         <th className="py-2.5 px-4">Mediana 5Y</th>
-                        <th className="py-2.5 px-4">Precio Implícito</th>
+                        <th className="py-2.5 px-4">Precio Implícito (Frío)</th>
+                        <th className="py-2.5 px-4">Sin Extraordinarios</th>
                         <th className="py-2.5 px-4">Potencial vs. Actual</th>
                       </tr>
                     </thead>
@@ -1824,6 +1872,11 @@ export default function ValuationModelsTab({
                             </td>
                             <td className="py-2.5 px-4 tabular-nums font-bold text-gray-900">
                               {formatMoney(t.impliedPrice)}
+                            </td>
+                            <td className="py-2.5 px-4 tabular-nums font-bold text-emerald-700">
+                              {t.normImpliedPrice != null
+                                ? `${formatMoney(t.normImpliedPrice)} (${t.normLtm?.toFixed(1)}x)`
+                                : "-"}
                             </td>
                             <td
                               className={`py-2.5 px-4 tabular-nums font-bold ${
