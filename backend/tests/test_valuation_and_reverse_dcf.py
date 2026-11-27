@@ -245,8 +245,8 @@ def test_audit_detects_reinvestment_margin_compression_and_quarterly_shift():
         "Cambios en el capital de trabajo": {"2023": 5.0, "2024": 6.0, "2025": 8.0, "2026": -10.0},
     }
     quarterly_rows = [
-        {"Métrica": "Ingresos Totales", "Q1 26": 500.0, "Q2 26": 540.0, "Q3 26": 570.0, "Q4 26": 590.0},
-        {"Métrica": "Beneficio Operativo", "Q1 26": 70.0, "Q2 26": 72.0, "Q3 26": 74.0, "Q4 26": 35.4},
+        {"Sección": "Cuenta de Resultados", "Métrica": "Ingresos Totales", "Q1 26": 500.0, "Q2 26": 540.0, "Q3 26": 570.0, "Q4 26": 590.0},
+        {"Sección": "Cuenta de Resultados", "Métrica": "Beneficio Operativo", "Q1 26": 70.0, "Q2 26": 72.0, "Q3 26": 74.0, "Q4 26": 35.4},
     ]
 
     audit = _audit_anomalies_and_adjustments(

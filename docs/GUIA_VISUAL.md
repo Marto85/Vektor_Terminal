@@ -87,7 +87,7 @@ Esta guía complementa al [Manual de Usuario](MANUAL_USUARIO.md) mostrando **qu�
   - Evaluar si la acción está barata o cara respecto a su propia historia (5 años) y qué crecimiento está descontando el precio actual del mercado.
 - **Qué información brinda:**
   - **Enrutamiento Sectorial:** usa **DCF en 2 Etapas** para empresas corporativas estándar y **Excess Return (`ROE vs. Ke`) + `P/TBV`** para bancos/entidades financieras.
-  - **Auditoría de Calidad Contable:** detecta ciclos extraordinarios de CapEx de crecimiento (recalculando `P/FCF` normalizado), partidas no operativas, alta dilución por `SBC` y swings de capital de trabajo.
+  - **Auditoría de Calidad Contable y Rubros Extraordinarios (Anual y Trimestral):** detecta automáticamente eventos extraordinarios (compresión de margen bruto u operativo por reinversión vs. deterioro, saltos de SG&A/OpEx, CapEx de crecimiento, tasa impositiva atípica, alta SBC y swings de capital de trabajo), entregando la doble comparación **Realidad Fría (Reportado)** vs. **Sin Circunstancia Extraordinaria (Normalizado)** en DCF y en Múltiplos Normalizados.
   - **Consenso de Wall Street:** estimaciones `0Q`, `+1Q`, `0Y`, `+1Y` de ingresos y EPS (convertidas a USD en ADRs extranjeros) + enlaces a `8-K` recientes.
   - **DCF Inverso (Expectations Investing):** calcula la tasa de crecimiento anual (o ROE sostenible en bancos) implícita en el precio actual a 5 y 10 años, comparándola contra historia y consenso.
 - **Cómo interpretarlo:**
@@ -200,3 +200,18 @@ Esta guía complementa al [Manual de Usuario](MANUAL_USUARIO.md) mostrando **qu�
 - **Cómo interpretarlo:**
   - **PPP:** muestra tu costo promedio real incluyendo comisiones; sirve para medir ganancia/pérdida fiscal y económica por posición.
   - **TWR:** mide qué tan bien elegiste activos aislando el efecto de cuándo pusiste o sacaste dinero (depósitos y retiros), permitiéndote comparar tu gestión directamente contra `SPY` o `QQQ`.
+
+---
+
+## 14. Argentina (FX, Visor de Trayectoria, Dólar Real, Macro, Social y Bonos)
+
+![Módulo Argentina](images/14_argentina.png)
+
+- **Qué se hace acá:**
+  - Monitorear en un solo tablero los tipos de cambio locales (`Mayorista`, `Oficial`, `MEP`, `CCL` en base venta homogénea), `Riesgo País`, Renta Variable USD, indicadores macro oficiales (`BCRA`, `INDEC`, `MECON`), indicadores sociales/políticos, bonos soberanos y provinciales USD, calcular el **Dólar Histórico a pesos de hoy** y leer noticias económicas/políticas.
+- **Qué información brinda:**
+  - **Visor de Trayectoria Interactiva:** permite graficar cualquier tarjeta, indicador o bono en **Línea (+ SMA 20)**, **Barras** o **Velas** (diarias en bonos/renta variable y semanales en FX/Riesgo País), con comparativa dual de dos series.
+  - **Calculadora de Dólar Actual vs. Dólar Histórico:** calcula el valor equivalente en pesos del último IPC publicado para cualquier fecha o rango desde 2002, con toggle opcional **Incluir IPC EE.UU. (bilateral)** y tabla de hitos históricos (*Abril 2002*, *2003–2007*, *2018–2019*, *Diciembre 2023*).
+  - **Bonos Soberanos y Provinciales USD:** tabla con **Cupón vigente** (incluyendo *step-ups*), **Paridad real (%)**, **TIR (%)** y **Duration modificada**, más acceso directo a velas históricas.
+- **Cómo interpretarlo:**
+  - Usá la **comparativa dual** para contrastar por ejemplo *Riesgo País* vs. *Dólar CCL* o *Pobreza INDEC* vs. *ICG UTDT*, y la calculadora de **Dólar Real Histórico** (con y sin IPC EE.UU.) para evaluar si el tipo de cambio actual está atrasado o competitivo frente a ciclos históricos argentinos.

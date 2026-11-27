@@ -742,15 +742,23 @@ def _audit_anomalies_and_adjustments(
         q_rev_row = next((r for r in quarterly_rows if r.get("Métrica") == "Ingresos Totales"), None)
         q_ebit_row = next((r for r in quarterly_rows if r.get("Métrica") == "Beneficio Operativo"), None)
         if q_rev_row and q_ebit_row:
+            def _as_float(v: Any) -> float | None:
+                if v is None or isinstance(v, bool):
+                    return None
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    return None
+
             q_cols = [
                 k for k in q_rev_row.keys()
-                if k not in ("Métrica", "is_pct")
-                and float(q_rev_row.get(k) or 0.0) > 0
-                and q_ebit_row.get(k) is not None
+                if k not in ("Métrica", "Sección", "is_pct")
+                and (_as_float(q_rev_row.get(k)) or 0.0) > 0
+                and _as_float(q_ebit_row.get(k)) is not None
             ]
             if len(q_cols) >= 4:
                 q_margins = [
-                    (k, (float(q_ebit_row[k]) * fx_rate) / (float(q_rev_row[k]) * fx_rate) * 100.0)
+                    (k, (_as_float(q_ebit_row[k]) * fx_rate) / (_as_float(q_rev_row[k]) * fx_rate) * 100.0)
                     for k in q_cols
                 ]
                 recent_q = q_margins[-1]
@@ -914,10 +922,15 @@ def _compute_reverse_dcf(
                 f"en línea con su rentabilidad operativa actual ({expected_bank_g:.1f}%)."
             )
 
+        bank_iv = round(eval_bank_price(base_roe_pct / 100.0, 5), 2) if bvps > 0 else 0.0
+        bank_upside = round(((bank_iv - cur_price) / cur_price) * 100.0, 1) if (cur_price > 0 and bank_iv > 0) else None
+
         return {
             "mode": "financial",
             "model_label": "Excess Return Inverso (ROE y Crecimiento Patrimonial Implícito)",
             "current_price": round(cur_price, 2),
+            "intrinsic_value_per_share": bank_iv,
+            "upside_pct": bank_upside,
             "horizon_5y": res_5y,
             "horizon_10y": res_10y,
             "benchmarks": {
@@ -1064,10 +1077,15 @@ def _compute_reverse_dcf(
             f"alineado con la proyección ponderada ({recommended_growth_pct:.1f}%) y su historia ({hist_avg_growth_pct:.1f}%)."
         )
 
+    corp_iv = round(eval_corp_price(recommended_growth_pct / 100.0, 5, "blend"), 2) if (rev0 > 0 and shares > 0) else 0.0
+    corp_upside = round(((corp_iv - cur_price) / cur_price) * 100.0, 1) if (cur_price > 0 and corp_iv > 0) else None
+
     return {
         "mode": "standard",
         "model_label": "DCF Inverso 2 Etapas (Crecimiento Anual Implícito en Precio)",
         "current_price": round(cur_price, 2),
+        "intrinsic_value_per_share": corp_iv,
+        "upside_pct": corp_upside,
         "horizon_5y": res_5y,
         "horizon_10y": res_10y,
         "benchmarks": {
