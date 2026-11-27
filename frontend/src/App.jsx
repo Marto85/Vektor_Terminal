@@ -46,6 +46,7 @@ import LandingPage from "./components/LandingPage";
 import BrandLogo from "./components/BrandLogo";
 import ErrorBoundary from "./components/ErrorBoundary";
 import HomeOverview from "./components/HomeOverview";
+import ServerWakeupBanner from "./components/ServerWakeupBanner";
 import { ALERTABLE_METRICS } from "./data/watchlistConstants";
 import StockChart from "./components/StockChart";
 import CapitalStructurePanel from "./components/CapitalStructurePanel";
@@ -215,7 +216,8 @@ function App() {
 
   if (loadingAuth) {
     return (
-      <div className="min-h-screen bg-[#1f242d] flex flex-col items-center justify-center text-gray-300">
+      <div className="min-h-screen bg-[#1f242d] flex flex-col items-center justify-center text-gray-300 px-4 text-center">
+        <ServerWakeupBanner />
         <Loader2 className="w-8 h-8 text-orange-500 animate-spin mb-3" />
         <p className="text-xs font-medium tracking-wide">
           Verificando sesión en VektorTerminal...
@@ -227,17 +229,23 @@ function App() {
   if (!isAuthenticated) {
     if (unauthView === "landing" && !pendingResetToken) {
       return (
-        <LandingPage
-          onGoToLogin={() => setUnauthView("login")}
-          onGoToRegister={() => setUnauthView("register")}
-        />
+        <>
+          <ServerWakeupBanner />
+          <LandingPage
+            onGoToLogin={() => setUnauthView("login")}
+            onGoToRegister={() => setUnauthView("register")}
+          />
+        </>
       );
     }
     return (
-      <LoginScreen
-        initialMode={unauthView === "register" ? "register" : "login"}
-        onBackToLanding={() => setUnauthView("landing")}
-      />
+      <>
+        <ServerWakeupBanner />
+        <LoginScreen
+          initialMode={unauthView === "register" ? "register" : "login"}
+          onBackToLanding={() => setUnauthView("landing")}
+        />
+      </>
     );
   }
 
@@ -2186,6 +2194,7 @@ function App() {
           currentValue={activeGlossaryInfo?.currentValue}
           onClose={() => setActiveGlossaryInfo(null)}
         />
+        <ServerWakeupBanner />
       </main>
     </div>
   );
