@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 from datetime import datetime
 
@@ -714,3 +715,135 @@ def extract_quarterly_metrics(raw_facts: dict) -> list:
                 r[p] = round(r[p], 2)
             
     return ordered_rows
+
+
+_QUARTER_COL_RE = re.compile(r"^(\d{4})-Q([1-4])$")
+
+
+def _quarter_index(col: str) -> int | None:
+    m = _QUARTER_COL_RE.match(str(col).strip())
+    if not m:
+        return None
+    return int(m.group(1)) * 4 + int(m.group(2))
+
+
+def build_ttm_series(
+    raw_facts: dict,
+    fx_rate: float = 1.0,
+    quarterly_rows: list | None = None,
+) -> dict:
+    """
+    Construye agregados TTM reales sumando los últimos 4 trimestres consecutivos aislados
+    para rubros de flujo, más RUNRATE2 (últimos 2 trimestres × 2) y saldos de balance
+    del último trimestre. Si faltan trimestres consecutivos, marca is_complete=False.
+    """
+    rows = quarterly_rows
+    if rows is None:
+        try:
+            rows = extract_quarterly_metrics(raw_facts)
+        except Exception:
+            rows = []
+
+    if not rows:
+        return {
+            "is_complete": False,
+            "source": "annual_fallback",
+            "cutoff_label": None,
+            "quarters_used": [],
+            "ttm": {},
+            "runrate2": {},
+            "latest_balance": {},
+            "rev_yoy_2q_pct": None,
+            "quality_warning": "Sin serie trimestral SEC; se utiliza ejercicio anual o respaldo Yahoo.",
+        }
+
+    rev_row = next((r for r in rows if r.get("Métrica") == "Ingresos Totales"), None)
+    all_q_cols = sorted(
+        {
+            k
+            for r in rows
+            for k in r.keys()
+            if _quarter_index(k) is not None
+        },
+        key=lambda c: _quarter_index(c) or 0,
+    )
+    active_q = [
+        c for c in all_q_cols
+        if rev_row is not None and float(rev_row.get(c) or 0.0) > 0.0
+    ]
+
+    if len(active_q) < 4:
+        return {
+            "is_complete": False,
+            "source": "annual_fallback",
+            "cutoff_label": active_q[-1] if active_q else None,
+            "quarters_used": active_q,
+            "ttm": {},
+            "runrate2": {},
+            "latest_balance": {},
+            "rev_yoy_2q_pct": None,
+            "quality_warning": "Menos de 4 trimestres consecutivos con ingresos; se usa ejercicio anual.",
+        }
+
+    last_4 = active_q[-4:]
+    q_indices = [_quarter_index(c) for c in last_4]
+    is_consecutive = all(
+        q_indices[i] is not None and q_indices[i - 1] is not None and (q_indices[i] - q_indices[i - 1] == 1)
+        for i in range(1, 4)
+    )
+    if not is_consecutive:
+        return {
+            "is_complete": False,
+            "source": "annual_fallback",
+            "cutoff_label": last_4[-1],
+            "quarters_used": last_4,
+            "ttm": {},
+            "runrate2": {},
+            "latest_balance": {},
+            "rev_yoy_2q_pct": None,
+            "quality_warning": f"Hueco en la secuencia trimestral ({', '.join(last_4)}); se usa anual.",
+        }
+
+    last_2 = last_4[-2:]
+    last_q = last_4[-1]
+    ttm_flows: dict[str, float] = {}
+    runrate2: dict[str, float] = {}
+    latest_balance: dict[str, float] = {}
+
+    for r in rows:
+        m_name = str(r.get("Métrica") or "")
+        cat = str(r.get("Categoría") or "")
+        if not m_name or r.get("is_pct"):
+            continue
+        is_share_metric = "Acciones" in m_name or "BPA" in m_name
+        mult = 1.0 if is_share_metric else float(fx_rate or 1.0)
+
+        if cat == "Balance de Situación":
+            latest_balance[m_name] = round(float(r.get(last_q) or 0.0) * mult, 2)
+        else:
+            s4 = sum(float(r.get(c) or 0.0) for c in last_4) * mult
+            s2 = sum(float(r.get(c) or 0.0) for c in last_2) * 2.0 * mult
+            ttm_flows[m_name] = round(s4, 2)
+            runrate2[m_name] = round(s2, 2)
+
+    rev_yoy_2q_pct = None
+    if rev_row is not None and len(active_q) >= 6:
+        idx_map = {_quarter_index(c): c for c in active_q}
+        prev_pairs = [idx_map.get((_quarter_index(c) or 0) - 4) for c in last_2]
+        if all(prev_pairs):
+            cur_2 = sum(float(rev_row.get(c) or 0.0) for c in last_2)
+            prv_2 = sum(float(rev_row.get(c) or 0.0) for c in prev_pairs if c)
+            if prv_2 > 0:
+                rev_yoy_2q_pct = round(((cur_2 - prv_2) / prv_2) * 100.0, 2)
+
+    return {
+        "is_complete": True,
+        "source": "sec_ttm",
+        "cutoff_label": last_q,
+        "quarters_used": last_4,
+        "ttm": ttm_flows,
+        "runrate2": runrate2,
+        "latest_balance": latest_balance,
+        "rev_yoy_2q_pct": rev_yoy_2q_pct,
+        "quality_warning": None,
+    }

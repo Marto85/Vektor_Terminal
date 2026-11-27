@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.database import PriceHistoryCache, is_sqlite
 from app.services.company_service import get_raw_financials
 from app.services.financial_parser import (
+    build_ttm_series,
     detect_reporting_currency,
     extract_annual_metrics,
     extract_quarterly_metrics,
@@ -314,9 +315,11 @@ def _analyze_trajectory_and_margins(
             g_5y_raw = row_g.get("stockTrend") or row_g.get("stock")
             if g_5y_raw is not None:
                 break
-    consensus_5y_pct = round(float(g_5y_raw) * 100.0, 2) if g_5y_raw is not None else None
+    # V5: stockTrend de Yahoo es crecimiento esperado de EPS a 5Y, no de ventas.
+    # No mezclarlo en forward_candidates de crecimiento de ingresos.
+    consensus_5y_eps_pct = round(float(g_5y_raw) * 100.0, 2) if g_5y_raw is not None else None
 
-    forward_candidates = [v for v in (rev_0y_pct, rev_1y_pct, consensus_5y_pct) if v is not None]
+    forward_candidates = [v for v in (rev_0y_pct, rev_1y_pct) if v is not None]
     forward_avg_growth = round(mean(forward_candidates), 2) if forward_candidates else hist_avg_growth
 
     if forward_candidates:
@@ -414,7 +417,8 @@ def _analyze_trajectory_and_margins(
         "hist_avg_growth_pct": hist_avg_growth,
         "is_consistent_hist": is_consistent_hist,
         "forward_avg_growth_pct": forward_avg_growth,
-        "consensus_5y_pct": consensus_5y_pct,
+        "consensus_5y_pct": consensus_5y_eps_pct,
+        "consensus_5y_eps_pct": consensus_5y_eps_pct,
         "recommended_rev_growth_pct": recommended_rev_growth,
         "margin_history": margin_history,
         "margin_deltas": {
@@ -1258,7 +1262,19 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
     yf_ocf = ((info.get("operatingCashflow") or 0) * yf_fx_rate) / 1_000_000.0
     yf_fcf = ((info.get("freeCashflow") or 0) * yf_fx_rate) / 1_000_000.0
 
-    fcf_ltm = latest_sec_fcf if latest_sec_fcf != 0.0 else (yf_fcf if yf_fcf != 0.0 else yf_ocf)
+    # V1: TTM real de 4 trimestres aislados para flujos (reemplaza latest_sec_fcf anual)
+    ttm_data = build_ttm_series(raw_facts, fx_rate=sec_fx_rate, quarterly_rows=quarterly_rows)
+    ttm_flows = ttm_data.get("ttm") or {}
+    ttm_fcf = float(ttm_flows.get("Flujo de caja libre (FCF)") or 0.0) if ttm_data.get("is_complete") else 0.0
+    if ttm_data.get("is_complete") and ttm_fcf == 0.0:
+        ttm_cfo = float(ttm_flows.get("Efectivo de Operaciones (CFO)") or 0.0)
+        ttm_capex = abs(float(ttm_flows.get("Gastos de capital (CapEx)") or 0.0))
+        if ttm_cfo != 0.0:
+            ttm_fcf = round(ttm_cfo - ttm_capex, 2)
+
+    fcf_ltm = ttm_fcf if ttm_fcf != 0.0 else (yf_fcf if yf_fcf != 0.0 else (latest_sec_fcf if latest_sec_fcf != 0.0 else yf_ocf))
+    if ttm_data.get("is_complete") and float(ttm_flows.get("Ingresos Totales") or 0.0) > 0 and rev_ltm <= 0:
+        rev_ltm = float(ttm_flows["Ingresos Totales"])
     rev_base = rev_ltm if rev_ltm > 0 else latest_sec_rev
 
     latest_equity_mm = get_m("Patrimonio neto", latest_y_sec) if latest_y_sec else float(sec_fb.get("book_equity_mm") or 0.0)
@@ -1382,11 +1398,17 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
 
         table_rows.append(row_obj)
 
-    da_sales_pct = round((latest_sec_da / latest_sec_rev) * 100.0, 2) if latest_sec_rev > 0 else 8.0
+    da_ltm_src = (
+        float(ttm_flows.get("Depreciación y Amortización") or 0.0)
+        if ttm_data.get("is_complete") and float(ttm_flows.get("Depreciación y Amortización") or 0.0) > 0
+        else latest_sec_da
+    )
+    da_sales_pct = round((da_ltm_src / rev_base) * 100.0, 2) if rev_base > 0 else 8.0
 
-    adj_ev_fcf = _safe_multiple(current_ev_mm, audit["adjusted_fcf_mm"])
+    # V6: Múltiplo de salida basado en mediana histórica propia (no circular al EV de hoy)
+    med_ev_fcf = med_by_key.get("ev_fcf")
     med_ev_ebitda = med_by_key.get("ev_ebitda")
-    raw_exit = adj_ev_fcf or med_ev_ebitda or med_by_key.get("ev_fcf") or 20.0
+    raw_exit = med_ev_fcf or med_ev_ebitda or 18.0
     exit_ev_fcf_default = min(max(float(raw_exit), 12.0), 28.0)
 
     rf_pct = 4.25
@@ -1534,6 +1556,7 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         "shares_mm": round(current_shares_mm, 2),
         "net_debt_mm": round(current_net_debt_mm, 2),
         "revenue_base_mm": round(rev_base, 2),
+        "ebitda_ltm_mm": round(ebitda_ltm, 2),
         "recommended_rev_growth_pct": trajectory["recommended_rev_growth_pct"],
         "suggested_wacc_pct": suggested_wacc_pct,
         "country_risk_premium_pct": crp_pct,
@@ -1674,6 +1697,14 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         "trajectory": trajectory,
         "reverse_dcf": reverse_dcf,
         "valuation_comparison": valuation_comparison,
+        "ttm_meta": {
+            "is_complete": ttm_data.get("is_complete"),
+            "source": ttm_data.get("source"),
+            "cutoff_label": ttm_data.get("cutoff_label"),
+            "quarters_used": ttm_data.get("quarters_used"),
+            "rev_yoy_2q_pct": ttm_data.get("rev_yoy_2q_pct"),
+            "quality_warning": ttm_data.get("quality_warning"),
+        },
         "dcf_inputs": dcf_inputs_payload,
         "financial_sector_inputs": financial_inputs_payload,
     }

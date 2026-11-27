@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getMultipleHighlight } from '../utils/valuationHelpers';
+import { evMultipleToPrice, getMultipleHighlight } from '../utils/valuationHelpers';
 
 describe('Semáforo de Múltiplos Históricos (Actual LTM vs. Mediana 5Y)', () => {
   it('marca como barato (cheap) cuando EV/EBITDA actual es menor a la mediana 5Y', () => {
@@ -60,5 +60,17 @@ describe('Semáforo de Múltiplos Históricos (Actual LTM vs. Mediana 5Y)', () =
     });
     expect(neutral?.status).toBe('neutral');
     expect(priceFactor).toBeNull();
+  });
+
+  it('convierte EV/EBITDA a precio por acción descontando deuda neta (V3)', () => {
+    const implied = evMultipleToPrice({
+      currentPrice: 100,
+      sharesMm: 10,
+      netDebtMm: 600,
+      currentMultiple: 16,
+      targetMultiple: 20,
+      metricMm: 100,
+    });
+    expect(implied).toBeCloseTo(140, 4);
   });
 });

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import apiClient from "../api/client";
+import { evMultipleToPrice } from "../utils/valuationHelpers";
 import {
   Calculator,
   Search,
@@ -597,16 +598,25 @@ export default function ValuationModelsTab({
   const multiplesOutput = useMemo(() => {
     const rows = valData?.rows || [];
     const inp = valData?.dcf_inputs || {};
+    const isFinancial = valData?.sector_routing?.profile === "financial";
     const curPrice = Number(inp.current_price || 0);
+    const sharesMm = Number(inp.shares_mm || 0);
+    const netDebtMm = Number(inp.net_debt_mm || 0);
     if (!rows.length || curPrice <= 0) return null;
 
     const impliedTargets = [];
-    const candidateLabels = [
-      "EV / EBITDA (LTM)",
-      "Precio / Beneficio (P/E)",
-      "Precio / Flujo de Caja Libre (P/FCF)",
-      "Precio / Valor Libros (P/BV)",
-    ];
+    // V4: Descartar P/BV en empresas corporativas de activos livianos (evita distorsión por recompras/intangibles)
+    const candidateLabels = isFinancial
+      ? [
+          "Precio / Beneficio (P/E)",
+          "Precio / Valor Libros (P/BV)",
+          "Precio / Valor Contable Tangible (P/TBV)",
+        ]
+      : [
+          "EV / EBITDA (LTM)",
+          "Precio / Beneficio (P/E)",
+          "Precio / Flujo de Caja Libre (P/FCF)",
+        ];
 
     const normLtm = valData?.valuation_comparison?.normalized_ltm_metrics || {};
     const normMap = {
@@ -624,12 +634,31 @@ export default function ValuationModelsTab({
         typeof r.med_5y === "number" &&
         r.med_5y > 0
       ) {
-        const implied = curPrice * (r.med_5y / r.ltm);
+        const isEvMetric = label.startsWith("EV /");
+        const implied = isEvMetric
+          ? evMultipleToPrice({
+              currentPrice: curPrice,
+              sharesMm,
+              netDebtMm,
+              currentMultiple: r.ltm,
+              targetMultiple: r.med_5y,
+              metricMm: inp.ebitda_ltm_mm,
+            })
+          : curPrice * (r.med_5y / r.ltm);
         const normVal = normMap[label];
-        const normImplied =
-          typeof normVal === "number" && normVal > 0
-            ? curPrice * (r.med_5y / normVal)
-            : null;
+        let normImplied = null;
+        if (typeof normVal === "number" && normVal > 0) {
+          normImplied = isEvMetric
+            ? evMultipleToPrice({
+                currentPrice: curPrice,
+                sharesMm,
+                netDebtMm,
+                currentMultiple: normVal,
+                targetMultiple: r.med_5y,
+                metricMm: normLtm.ebitda_mm,
+              })
+            : curPrice * (r.med_5y / normVal);
+        }
         impliedTargets.push({
           metric: label,
           ltm: r.ltm,

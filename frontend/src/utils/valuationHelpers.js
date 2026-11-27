@@ -38,3 +38,26 @@ export function getMultipleHighlight(row) {
     badgeText: `${diffPct > 0 ? '+' : ''}${diffPct.toFixed(1)}% vs. Med. 5Y`,
   };
 }
+
+/**
+ * Convierte un múltiplo de Enterprise Value (EV/EBITDA, EV/EBIT, EV/FCF) a precio por acción
+ * respetando EV_objetivo = Métrica * Mediana y Precio = (EV_objetivo - Deuda Neta) / Acciones.
+ */
+export function evMultipleToPrice({
+  currentPrice,
+  sharesMm,
+  netDebtMm,
+  currentMultiple,
+  targetMultiple,
+  metricMm = null,
+}) {
+  if (!sharesMm || sharesMm <= 0 || !currentMultiple || currentMultiple <= 0 || !targetMultiple || targetMultiple <= 0) {
+    return currentPrice * (targetMultiple / currentMultiple);
+  }
+  const baseMetric =
+    typeof metricMm === 'number' && metricMm > 0
+      ? metricMm
+      : (currentPrice * sharesMm + (netDebtMm || 0)) / currentMultiple;
+  const targetEv = baseMetric * targetMultiple;
+  return (targetEv - (netDebtMm || 0)) / sharesMm;
+}

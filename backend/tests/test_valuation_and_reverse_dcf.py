@@ -266,3 +266,43 @@ def test_audit_detects_reinvestment_margin_compression_and_quarterly_shift():
     assert audit["normalized_ebit_margin_pct"] > audit["ebit_margin_pct"]
     assert audit["normalized_ebit_mm"] > 176.0
     assert any(c["metric"] == "EV / EBIT (LTM)" for c in audit["comparisons"])
+
+
+def test_build_ttm_series_and_v5_eps_separation():
+    from app.services.financial_parser import build_ttm_series
+    from app.services.valuation_service import _analyze_trajectory_and_margins
+
+    q_rows = [
+        {"Categoría": "Cuenta de Resultados", "Métrica": "Ingresos Totales", "2025-Q1": 100.0, "2025-Q2": 110.0, "2025-Q3": 120.0, "2025-Q4": 130.0, "2026-Q1": 140.0, "2026-Q2": 150.0},
+        {"Categoría": "Flujo de Efectivo", "Métrica": "Flujo de caja libre (FCF)", "2025-Q1": 10.0, "2025-Q2": 12.0, "2025-Q3": 15.0, "2025-Q4": 18.0, "2026-Q1": 20.0, "2026-Q2": 22.0},
+        {"Categoría": "Balance de Situación", "Métrica": "Deuda Total", "2025-Q1": 50.0, "2025-Q2": 50.0, "2025-Q3": 50.0, "2025-Q4": 50.0, "2026-Q1": 55.0, "2026-Q2": 60.0},
+    ]
+    ttm = build_ttm_series({}, fx_rate=1.0, quarterly_rows=q_rows)
+    assert ttm["is_complete"] is True
+    assert ttm["cutoff_label"] == "2026-Q2"
+    assert ttm["ttm"]["Ingresos Totales"] == 540.0
+    assert ttm["ttm"]["Flujo de caja libre (FCF)"] == 75.0
+    assert ttm["runrate2"]["Ingresos Totales"] == 580.0
+    assert ttm["latest_balance"]["Deuda Total"] == 60.0
+    assert ttm["rev_yoy_2q_pct"] == 38.1
+
+    # Hueco en trimestres -> fallback anual
+    q_gap = [
+        {"Categoría": "Cuenta de Resultados", "Métrica": "Ingresos Totales", "2025-Q1": 100.0, "2025-Q3": 120.0, "2025-Q4": 130.0, "2026-Q1": 140.0},
+    ]
+    ttm_gap = build_ttm_series({}, fx_rate=1.0, quarterly_rows=q_gap)
+    assert ttm_gap["is_complete"] is False
+    assert ttm_gap["quality_warning"] is not None
+
+    # V5: stockTrend (50% EPS growth) no contamina el crecimiento de ventas (10%)
+    traj = _analyze_trajectory_and_margins(
+        valid_years=["2024", "2025"],
+        get_m=lambda m, y: {"2024": 100.0, "2025": 110.0}.get(y, 0.0) if m == "Ingresos Totales" else 15.0,
+        estimates_data={
+            "revenue_estimate": {"0y": {"growth": 0.10}, "+1y": {"growth": 0.10}},
+            "earnings_estimate": {},
+            "growth_estimates": {"+5y": {"stockTrend": 0.50}},
+            "consensus_summary": {},
+        },
+    )
+    assert traj["recommended_rev_growth_pct"] == 10.0
