@@ -1196,6 +1196,19 @@ def get_cached_estimates_and_guidance(ticker_symbol: str, db: Session) -> dict[s
     except Exception:
         growth_est = {}
 
+    target_mean = _to_float(info.get("targetMeanPrice"), 2)
+    target_low = _to_float(info.get("targetLowPrice"), 2)
+    target_high = _to_float(info.get("targetHighPrice"), 2)
+    if target_mean is None:
+        try:
+            apt = getattr(tk, "analyst_price_targets", None)
+            if isinstance(apt, dict):
+                target_mean = _to_float(apt.get("mean") or apt.get("median"), 2)
+                target_low = target_low or _to_float(apt.get("low"), 2)
+                target_high = target_high or _to_float(apt.get("high"), 2)
+        except Exception:
+            pass
+
     sec_8k_filings = _fetch_sec_8k_item_202(cik_str)
 
     payload: dict[str, Any] = {
@@ -1212,9 +1225,9 @@ def get_cached_estimates_and_guidance(ticker_symbol: str, db: Session) -> dict[s
             "forward_pe": _to_float(info.get("forwardPE"), 2),
             "revenue_growth_yoy_pct": _to_pct(info.get("revenueGrowth"), 2),
             "earnings_growth_yoy_pct": _to_pct(info.get("earningsGrowth"), 2),
-            "target_mean_price": _to_float(info.get("targetMeanPrice"), 2),
-            "target_low_price": _to_float(info.get("targetLowPrice"), 2),
-            "target_high_price": _to_float(info.get("targetHighPrice"), 2),
+            "target_mean_price": target_mean,
+            "target_low_price": target_low,
+            "target_high_price": target_high,
             "analyst_count": info.get("numberOfAnalystOpinions"),
         },
         "revenue_estimate": rev_est,

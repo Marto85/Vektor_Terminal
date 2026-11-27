@@ -1597,6 +1597,17 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
     else:
         nwc_pct_of_delta_rev = 0.05
 
+    target_price_ws = info.get("targetMeanPrice") or (
+        (estimates_data.get("consensus_summary") or {}).get("target_mean_price")
+    )
+    if target_price_ws is None:
+        try:
+            apt = getattr(yf.Ticker(ticker_upper), "analyst_price_targets", None)
+            if isinstance(apt, dict):
+                target_price_ws = apt.get("mean") or apt.get("median")
+        except Exception:
+            target_price_ws = None
+
     dcf_inputs_payload = {
         "current_price": round(current_price, 2),
         "shares_mm": round(current_shares_mm, 2),
@@ -1622,7 +1633,7 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         "exit_multiple_default": round(exit_ev_fcf_default, 1),
         "dividend_rate": round(dividend_rate, 2),
         "payout_ratio_pct": payout_pct,
-        "target_price": info.get("targetMeanPrice"),
+        "target_price": target_price_ws,
     }
 
     financial_inputs_payload = {
@@ -1639,7 +1650,7 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         "payout_ratio_pct": payout_pct,
         "dividend_rate": round(dividend_rate, 2),
         "exit_ptbv_default": exit_ptbv_default,
-        "target_price": info.get("targetMeanPrice"),
+        "target_price": target_price_ws,
     }
 
     reverse_dcf = _compute_reverse_dcf(

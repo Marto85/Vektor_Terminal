@@ -525,10 +525,13 @@ def detect_anomalies(
                 reinv_delta_pp = reinv_opex_curr_pct - reinv_base_pct
 
                 is_growing = (rev_growth_yoy_pct is not None and rev_growth_yoy_pct >= 10.0)
+                is_high_growth = (rev_growth_yoy_pct is not None and rev_growth_yoy_pct >= 15.0)
                 is_shrinking = (rev_growth_yoy_pct is not None and rev_growth_yoy_pct < 0.0)
                 gross_deteriorated = gp_delta_pp is not None and gp_delta_pp < -2.0
 
-                if is_growing and not gross_deteriorated and (reinv_delta_pp >= 1.5 or gp_delta_pp is None or gp_delta_pp >= -1.5):
+                # Si las ventas crecen >= 15% (ej. MELI +35% o AMZN logística), una baja de margen bruto por
+                # costos de envío/fulfillment en COGS sigue siendo inversión comercial, no deterioro estructural.
+                if (is_growing and not gross_deteriorated and (reinv_delta_pp >= 1.5 or gp_delta_pp is None or gp_delta_pp >= -1.5)) or is_high_growth:
                     margin_classification = "investment"
                     can_auto_margin = bool(margin_base_info["auto_adjust"] or len(hist_margin_series) >= 3)
                     normalized_ebit_margin_pct = round(base_margin_pct, 2)
@@ -733,23 +736,28 @@ def detect_anomalies(
                         break
 
         if (abs(cfo_curr) > 0 and abs(wc_curr) > abs(cfo_curr) * 0.20) or wc_sigma_alert:
-            direction_wc = "consumo" if wc_curr < 0 else "liberación puntual"
+            # Si el NWC es positivo de forma recurrente (>=2 de los últimos 3 años o float fintech en alto crecimiento),
+            # no debe restarse automáticamente como una "liberación puntual".
+            hist_wc_pos = sum(1 for y in valid_years[-4:-1] if get_m("Cambios en el capital de trabajo", y) > 0)
+            is_recurring_float = wc_curr > 0 and (hist_wc_pos >= 2 or (rev_growth_yoy_pct is not None and rev_growth_yoy_pct >= 15.0))
+            direction_wc = "consumo" if wc_curr < 0 else ("flujo favorable recurrente (float)" if is_recurring_float else "liberación puntual")
             _add_flag(
                 rule_id="R5",
                 code="CAPITAL_TRABAJO",
                 legacy_code="WORKING_CAPITAL_SWING",
                 severity="info",
                 ftype="working_capital",
-                title="Variación extraordinaria en Capital de Trabajo",
+                title="Variación relevante en Capital de Trabajo",
                 detail=(
                     f"El capital de trabajo registró un {direction_wc} de US$ {abs(wc_curr):,.2f} MM"
-                    f"{' y desvío >2σ en días de giro (DSO/DIO/DPO)' if wc_sigma_alert else ''}, alterando la conversión de caja."
+                    f"{' y desvío >2σ en días de giro (DSO/DIO/DPO)' if wc_sigma_alert else ''}"
+                    f"{'. Al ser recurrente por modelo comercial/fintech no se descuenta automáticamente.' if is_recurring_float else ', alterando la conversión de caja.'}"
                 ),
-                evidence={"wc_curr_mm": round(wc_curr, 2), "wc_sigma_alert": wc_sigma_alert},
-                adjustment={"param": "nwc_normalization", "from": round(wc_curr, 2), "to": 0.0},
+                evidence={"wc_curr_mm": round(wc_curr, 2), "wc_sigma_alert": wc_sigma_alert, "is_recurring_float": is_recurring_float},
+                adjustment=None if is_recurring_float else {"param": "nwc_normalization", "from": round(wc_curr, 2), "to": 0.0},
                 impact_mm=wc_curr,
                 confidence="medium",
-                enabled=True if abs(wc_curr) > abs(cfo_curr or 1.0) * 0.20 else False,
+                enabled=False if is_recurring_float else (True if abs(wc_curr) > abs(cfo_curr or 1.0) * 0.20 else False),
             )
 
         # R6 CONVERSION_CAJA

@@ -288,6 +288,33 @@ export default function ValuationModelsTab({
 
   const activeDcfEngine = simDcfEngine || valData?.dcf_engine || null;
 
+  const currentManualOverrides = useMemo(
+    () =>
+      workMode === "manual"
+        ? {
+            rev_growth_pct: revGrowth,
+            target_ebit_margin_pct: targetEbitMargin,
+            wacc_pct: wacc,
+            terminal_growth_pct: terminalGrowth,
+            capex_stage1_pct: capexStage1Pct,
+            capex_terminal_pct: capexTerminalPct,
+            exit_multiple: exitMultiple,
+            extra_adj_mm: extraAdjMm,
+          }
+        : {},
+    [
+      workMode,
+      revGrowth,
+      targetEbitMargin,
+      wacc,
+      terminalGrowth,
+      capexStage1Pct,
+      capexTerminalPct,
+      exitMultiple,
+      extraAdjMm,
+    ]
+  );
+
   const handleToggleAdjustment = async (flagCode) => {
     const exists = enabledAdjustments.includes(flagCode);
     const nextCodes = exists
@@ -298,6 +325,7 @@ export default function ValuationModelsTab({
     try {
       const res = await apiClient.post(`/company/${selectedTicker}/valuation/simulate`, {
         enabled_codes: nextCodes,
+        overrides: currentManualOverrides,
       });
       if (res?.data?.dcf_engine) {
         setSimDcfEngine(res.data.dcf_engine);
@@ -308,6 +336,24 @@ export default function ValuationModelsTab({
       setSimLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!selectedTicker || !valData?.dcf_inputs || workMode !== "manual") return undefined;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await apiClient.post(`/company/${selectedTicker}/valuation/simulate`, {
+          enabled_codes: enabledAdjustments,
+          overrides: currentManualOverrides,
+        });
+        if (res?.data?.dcf_engine) {
+          setSimDcfEngine(res.data.dcf_engine);
+        }
+      } catch (e) {
+        console.error("Error sincronizando modo manual DCF:", e);
+      }
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [selectedTicker, valData, workMode, enabledAdjustments, currentManualOverrides]);
 
   useEffect(() => {
     if (!selectedTicker) return;
@@ -385,6 +431,24 @@ export default function ValuationModelsTab({
   const dcfOutput = useMemo(() => {
     const inp = valData?.dcf_inputs;
     if (!inp || !inp.shares_mm || inp.shares_mm <= 0) return null;
+
+    if (activeDcfEngine?.normalized?.solvable && activeDcfEngine?.sensitivity_matrix?.length) {
+      const norm = activeDcfEngine.normalized;
+      const rep = activeDcfEngine.reported || {};
+      return {
+        invalid: false,
+        horizonYears: norm.horizon_years || 5,
+        projections: norm.projections || [],
+        steadyFcf6: norm.steady_fcf_terminal_mm || 0,
+        priceGordon: norm.price_gordon,
+        priceMult: norm.price_mult,
+        intrinsicPrice: norm.intrinsic_price,
+        upsidePct: norm.upside_pct ?? 0,
+        priceUnadjustedCapex: rep.price_gordon ?? norm.price_gordon,
+        gStepsPct: activeDcfEngine.g_steps_pct || [],
+        sensitivityMatrix: activeDcfEngine.sensitivity_matrix || [],
+      };
+    }
 
     const rev0 = Number(inp.revenue_base_mm || 0);
     const startMargin = Number(inp.ebit_margin_pct || 15.0) / 100;
@@ -497,6 +561,7 @@ export default function ValuationModelsTab({
 
     return {
       invalid: false,
+      horizonYears: 5,
       projections,
       steadyFcf6,
       priceGordon,
@@ -509,6 +574,7 @@ export default function ValuationModelsTab({
     };
   }, [
     valData,
+    activeDcfEngine,
     revGrowth,
     targetEbitMargin,
     wacc,
@@ -702,9 +768,14 @@ export default function ValuationModelsTab({
 
     if (!impliedTargets.length) return { empty: true };
 
-    const avgImplied =
+    const normTargets = impliedTargets.filter((it) => typeof it.normImpliedPrice === "number" && it.normImpliedPrice > 0);
+    const avgCold =
       impliedTargets.reduce((acc, it) => acc + it.impliedPrice, 0) /
       impliedTargets.length;
+    const avgNorm = normTargets.length
+      ? normTargets.reduce((acc, it) => acc + it.normImpliedPrice, 0) / normTargets.length
+      : avgCold;
+    const avgImplied = valData?.audit?.has_anomalies ? avgNorm : avgCold;
     const upsidePct = ((avgImplied - curPrice) / curPrice) * 100;
 
     return {
@@ -877,7 +948,9 @@ export default function ValuationModelsTab({
                 </strong>{" "}
                 · Consenso WS:{" "}
                 <strong className="text-gray-800">
-                  {inp.target_price ? formatMoney(inp.target_price) : "-"}
+                  {inp.target_price || profileData?.summary_metrics?.valuation?.target_price
+                    ? formatMoney(inp.target_price ?? profileData?.summary_metrics?.valuation?.target_price)
+                    : "-"}
                 </strong>
               </p>
             </div>
@@ -1496,7 +1569,7 @@ export default function ValuationModelsTab({
                             ))}
                             <tr className="bg-emerald-50/70 font-bold text-emerald-900">
                               <td className="py-2 px-3.5 text-left">
-                                Año +6 (Estacionario)
+                                Año +{(dcfOutput.horizonYears || 5) + 1} (Estacionario)
                               </td>
                               <td className="py-2 px-3">-</td>
                               <td className="py-2 px-3">
@@ -1540,7 +1613,7 @@ export default function ValuationModelsTab({
                               {formatMoney(dcfOutput.priceGordon)}
                             </p>
                             <p className="text-[11px] text-gray-600 mt-1.5 leading-relaxed">
-                              Asume que <strong>conservás la empresa para siempre</strong> y desde el año 6 crece al {terminalGrowth.toFixed(1)}% anual, sin depender de múltiplos futuros.
+                              Asume que <strong>conservás la empresa para siempre</strong> y desde el año {(dcfOutput.horizonYears || 5) + 1} crece al {terminalGrowth.toFixed(1)}% anual, sin depender de múltiplos futuros.
                             </p>
                           </div>
                           {Math.abs(capexStage1Pct - capexTerminalPct) >= 3 && (
@@ -1579,7 +1652,7 @@ export default function ValuationModelsTab({
                               {formatMoney(dcfOutput.priceMult)}
                             </p>
                             <p className="text-[11px] text-gray-600 mt-1.5 leading-relaxed">
-                              Asume que <strong>vendés la empresa al año 5</strong> a un múltiplo de mercado de {exitMultiple.toFixed(1)}x su flujo de caja libre normalizado.
+                              Asume que <strong>vendés la empresa al año {dcfOutput.horizonYears || 5}</strong> a un múltiplo de mercado de {exitMultiple.toFixed(1)}x su flujo de caja libre normalizado.
                             </p>
                           </div>
                           <p className="text-[11px] text-gray-500 mt-2 pt-2 border-t border-gray-100">
