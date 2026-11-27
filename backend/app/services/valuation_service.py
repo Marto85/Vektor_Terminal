@@ -8,6 +8,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from app.models.database import PriceHistoryCache, is_sqlite
+from app.services.anomaly_detector import detect_anomalies
 from app.services.company_service import get_raw_financials
 from app.services.financial_parser import (
     build_ttm_series,
@@ -436,6 +437,44 @@ def _analyze_trajectory_and_margins(
 
 
 def _audit_anomalies_and_adjustments(
+    valid_years: list[str],
+    get_m: Any,
+    current_mcap_mm: float | None,
+    current_ev_mm: float | None,
+    ltm_multiples: dict[str, float | None],
+    is_financial: bool = False,
+    fallback_ebit_margin_pct: float = 15.0,
+    quarterly_rows: list[dict[str, Any]] | None = None,
+    fx_rate: float = 1.0,
+    ttm_data: dict[str, Any] | None = None,
+    reporting_currency: str = "USD",
+    shares_mm: float | None = None,
+    sector: str = "",
+    dcf_growth_pct: float | None = None,
+    hist_roe_pcts: list[float] | None = None,
+    current_roe_pct: float | None = None,
+) -> dict[str, Any]:
+    return detect_anomalies(
+        valid_years=valid_years,
+        get_m=get_m,
+        ttm_data=ttm_data,
+        quarterly_rows=quarterly_rows,
+        fx_rate=fx_rate,
+        reporting_currency=reporting_currency,
+        current_mcap_mm=current_mcap_mm,
+        current_ev_mm=current_ev_mm,
+        shares_mm=shares_mm,
+        ltm_multiples=ltm_multiples,
+        is_financial=is_financial,
+        sector=sector,
+        fallback_ebit_margin_pct=fallback_ebit_margin_pct,
+        dcf_growth_pct=dcf_growth_pct,
+        hist_roe_pcts=hist_roe_pcts,
+        current_roe_pct=current_roe_pct,
+    )
+
+
+def _legacy_audit_unused(
     valid_years: list[str],
     get_m: Any,
     current_mcap_mm: float | None,
@@ -1330,6 +1369,12 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         fallback_ebit_margin_pct=fallback_ebit_margin_pct,
         quarterly_rows=quarterly_rows,
         fx_rate=sec_fx_rate,
+        ttm_data=ttm_data,
+        reporting_currency=reporting_currency,
+        shares_mm=current_shares_mm if current_shares_mm > 0 else None,
+        sector=str(classification.get("sector") or ""),
+        hist_roe_pcts=roe_series,
+        current_roe_pct=round(float(info["returnOnEquity"]) * 100.0, 2) if info.get("returnOnEquity") is not None else None,
     )
 
     trajectory = _analyze_trajectory_and_margins(
