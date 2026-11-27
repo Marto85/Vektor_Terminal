@@ -239,10 +239,17 @@ export default function ValuationModelsTab({
   const [ddmTerminalGrowth, setDdmTerminalGrowth] = useState(3.0);
   const [ddmKe, setDdmKe] = useState(9.0);
 
+  // Motor DCF Dual (backend dcf_engine + simulación por toggles)
+  const [simDcfEngine, setSimDcfEngine] = useState(null);
+  const [enabledAdjustments, setEnabledAdjustments] = useState([]);
+  const [simLoading, setSimLoading] = useState(false);
+
   const applyDefaultsFromPayload = (vPayload, pPayload) => {
     const routing = vPayload?.sector_routing?.profile || "standard";
     const inp = vPayload?.dcf_inputs || {};
     const fInp = vPayload?.financial_sector_inputs || {};
+    setSimDcfEngine(vPayload?.dcf_engine || null);
+    setEnabledAdjustments(vPayload?.dcf_engine?.active_codes || []);
     const divRate = Number(
       pPayload?.summary_metrics?.valuation?.dividend_rate ??
         pPayload?.summary_metrics?.dividend?.dividend_rate ??
@@ -277,6 +284,29 @@ export default function ValuationModelsTab({
     );
     setDdmTerminalGrowth(3.0);
     setDdmKe(Number(fInp.cost_of_equity_pct ?? inp.suggested_wacc_pct ?? 9.0));
+  };
+
+  const activeDcfEngine = simDcfEngine || valData?.dcf_engine || null;
+
+  const handleToggleAdjustment = async (flagCode) => {
+    const exists = enabledAdjustments.includes(flagCode);
+    const nextCodes = exists
+      ? enabledAdjustments.filter((c) => c !== flagCode)
+      : [...enabledAdjustments, flagCode];
+    setEnabledAdjustments(nextCodes);
+    setSimLoading(true);
+    try {
+      const res = await apiClient.post(`/company/${selectedTicker}/valuation/simulate`, {
+        enabled_codes: nextCodes,
+      });
+      if (res?.data?.dcf_engine) {
+        setSimDcfEngine(res.data.dcf_engine);
+      }
+    } catch (e) {
+      console.error("Error simulando ajustes DCF:", e);
+    } finally {
+      setSimLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -1017,59 +1047,150 @@ export default function ValuationModelsTab({
               </div>
             </div>
 
-            {/* ALERTAS DE ANOMALÍAS CONTABLES */}
-            {audit.has_anomalies && (
-              <div className="bg-amber-50/80 border border-amber-300 rounded-xl p-4 space-y-2">
-                <div className="flex items-center gap-2 font-bold text-amber-950">
-                  <AlertTriangle className="w-4 h-4 text-amber-600" />
-                  <span>
-                    Detector de Distorsiones Contables en {selectedTicker} (Impacto en Valuación)
-                  </span>
+            {/* ALERTAS DE ANOMALÍAS CONTABLES Y PUENTE DUAL */}
+            {(audit.has_anomalies || (audit.flags && audit.flags.length > 0)) && (
+              <div className="bg-amber-50/80 border border-amber-300 rounded-xl p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 font-bold text-amber-950">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                    <span className="text-sm">
+                      Detector de Eventos Extraordinarios en {selectedTicker}
+                      {valData?.ttm_meta?.cutoff_label ? ` (${valData.ttm_meta.cutoff_label})` : ""}
+                    </span>
+                  </div>
+                  {simLoading && (
+                    <span className="text-xs text-amber-700 font-medium">Recalculando escenario...</span>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                  {audit.flags.map((f) => (
-                    <div
-                      key={f.code}
-                      className="bg-white border border-amber-200 rounded-lg p-3 text-[11px]"
-                    >
-                      <p className="font-bold text-gray-900">{f.title}</p>
-                      <p className="text-gray-600 mt-1 leading-relaxed">
-                        {f.detail}
-                      </p>
-                    </div>
-                  ))}
+                  {audit.flags.map((f) => {
+                    const canon = f.canonical_code || f.code;
+                    const hasAdj = Boolean(f.adjustment);
+                    const isEnabled = enabledAdjustments.includes(canon) || enabledAdjustments.includes(f.code);
+                    return (
+                      <div
+                        key={`${f.rule_id || ""}-${f.code}-${f.title}`}
+                        className="bg-white border border-amber-200 rounded-lg p-3 text-xs space-y-1.5"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 font-bold text-[11px] mr-1.5">
+                              {f.rule_id || canon}
+                            </span>
+                            <span className="font-bold text-gray-900">{f.title}</span>
+                          </div>
+                          {hasAdj && (
+                            <label className="inline-flex items-center gap-1.5 shrink-0 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                role="switch"
+                                aria-label={`Activar ajuste ${f.title}`}
+                                checked={isEnabled}
+                                onChange={() => handleToggleAdjustment(canon)}
+                                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                              />
+                              <span className="text-xs font-semibold text-gray-700">
+                                {isEnabled ? "Activo" : "Inactivo"}
+                              </span>
+                            </label>
+                          )}
+                        </div>
+                        <p className="text-gray-600 leading-relaxed text-xs">
+                          {f.detail}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
-                {valData?.valuation_comparison?.has_material_diff && (
+
+                {/* DUAL VALUATION: REPORTADO FRÍO VS ESCENARIO NORMALIZADO (BIS) */}
+                {(activeDcfEngine?.reported?.solvable || valData?.valuation_comparison?.has_material_diff) && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
                     <div className="bg-white border border-amber-200 rounded-lg p-3 text-xs">
-                      <span className="text-[11px] font-bold uppercase tracking-wide text-gray-500">
-                        {valData.valuation_comparison.as_reported.label}
+                      <span className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                        Realidad fría (Reportado)
                       </span>
                       <div className="flex items-baseline justify-between mt-1">
                         <span className="text-base font-extrabold text-gray-900 tabular-nums">
-                          {formatMoney(valData.valuation_comparison.as_reported.intrinsic_value_per_share)}
+                          {formatMoney(
+                            activeDcfEngine?.reported?.intrinsic_price ??
+                              valData?.valuation_comparison?.as_reported?.intrinsic_value_per_share
+                          )}
                         </span>
-                        <span className="text-[11px] text-gray-600 tabular-nums">
-                          EBIT {valData.valuation_comparison.as_reported.ebit_margin_pct}% · CapEx {valData.valuation_comparison.as_reported.capex_pct}%
+                        <span className="text-xs text-gray-600 tabular-nums">
+                          EBIT {activeDcfEngine?.reported?.ebit_margin_start_pct ?? valData?.valuation_comparison?.as_reported?.ebit_margin_pct}% · CapEx{" "}
+                          {activeDcfEngine?.reported?.capex_stage1_pct ?? valData?.valuation_comparison?.as_reported?.capex_pct}%
                         </span>
                       </div>
                     </div>
                     <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs">
-                      <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-800">
-                        {valData.valuation_comparison.normalized.label}
+                      <span className="text-xs font-bold uppercase tracking-wide text-emerald-800">
+                        Escenario normalizado (Bis)
                       </span>
                       <div className="flex items-baseline justify-between mt-1">
                         <span className="text-base font-extrabold text-emerald-900 tabular-nums">
-                          {formatMoney(valData.valuation_comparison.normalized.intrinsic_value_per_share)}
+                          {formatMoney(
+                            activeDcfEngine?.normalized?.intrinsic_price ??
+                              valData?.valuation_comparison?.normalized?.intrinsic_value_per_share
+                          )}
                         </span>
-                        {valData.valuation_comparison.delta_pct != null && (
-                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold tabular-nums">
-                            {valData.valuation_comparison.delta_pct >= 0 ? "+" : ""}
-                            {valData.valuation_comparison.delta_pct.toFixed(1)}% vs. realidad fría
+                        {activeDcfEngine && activeDcfEngine.reported?.intrinsic_price > 0 ? (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold tabular-nums">
+                            {activeDcfEngine.total_delta_per_share >= 0 ? "+" : ""}
+                            {formatMoney(activeDcfEngine.total_delta_per_share)}/acc
                           </span>
+                        ) : (
+                          valData?.valuation_comparison?.delta_pct != null && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold tabular-nums">
+                              {valData.valuation_comparison.delta_pct >= 0 ? "+" : ""}
+                              {valData.valuation_comparison.delta_pct.toFixed(1)}% vs. realidad fría
+                            </span>
+                          )
                         )}
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* PUENTE ADITIVO POR AJUSTE */}
+                {activeDcfEngine?.bridge?.length > 0 && (
+                  <div className="bg-white border border-amber-200 rounded-lg p-3 text-xs overflow-x-auto">
+                    <p className="font-bold text-gray-800 mb-2">
+                      Puente de Valuación (Reportado → Normalizado)
+                    </p>
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-gray-200 text-gray-500">
+                          <th className="py-1 pr-2">Regla / Ajuste</th>
+                          <th className="py-1 pr-2">Parámetro (de → a)</th>
+                          <th className="py-1 pr-2 text-right">Impacto / acción</th>
+                          <th className="py-1 text-right">Acumulado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeDcfEngine.bridge.map((step, idx) => (
+                          <tr key={`${step.code}-${idx}`} className="border-b border-gray-100">
+                            <td className="py-1.5 pr-2 font-medium text-gray-900">{step.title}</td>
+                            <td className="py-1.5 pr-2 text-gray-600 tabular-nums">
+                              {step.param}: {step.from} → {step.to}
+                            </td>
+                            <td className={`py-1.5 pr-2 text-right font-bold tabular-nums ${step.delta_per_share >= 0 ? "text-emerald-700" : "text-red-700"}`}>
+                              {step.delta_per_share >= 0 ? "+" : ""}
+                              {formatMoney(step.delta_per_share)}
+                            </td>
+                            <td className="py-1.5 text-right font-semibold text-gray-900 tabular-nums">
+                              {formatMoney(step.price_after)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {activeDcfEngine?.ddm_alert && (
+                  <div className="bg-amber-100/80 border border-amber-300 rounded-lg p-2.5 text-xs text-amber-950">
+                    <strong>{activeDcfEngine.ddm_alert.title}:</strong> {activeDcfEngine.ddm_alert.detail}
                   </div>
                 )}
               </div>

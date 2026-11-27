@@ -19,7 +19,11 @@ from app.core.yf_client import (
     get_company_profile,
     get_cached_market_snapshot,
 )
-from app.services.valuation_service import _compute_split_factors_by_year, build_valuation_report
+from app.services.valuation_service import (
+    _compute_split_factors_by_year,
+    build_valuation_report,
+    simulate_company_valuation,
+)
 from app.services.company_service import get_raw_financials
 from app.services.financial_parser import (
     detect_reporting_currency,
@@ -451,6 +455,11 @@ def get_quarterly_financials(ticker: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ValuationSimulateRequest(BaseModel):
+    enabled_codes: list[str] | None = None
+    overrides: dict[str, Any] = Field(default_factory=dict)
+
+
 @router.get("/company/{ticker}/valuation")
 def get_company_valuation(ticker: str, db: Session = Depends(get_db)):
     try:
@@ -459,6 +468,25 @@ def get_company_valuation(ticker: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error calculando valoración: {str(e)}")
+
+
+@router.post("/company/{ticker}/valuation/simulate")
+def post_company_valuation_simulate(
+    ticker: str,
+    body: ValuationSimulateRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return simulate_company_valuation(
+            ticker,
+            db,
+            enabled_codes=body.enabled_codes,
+            overrides=body.overrides,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error simulando valoración: {str(e)}")
 
 
 @router.get("/company/{ticker}/ownership")

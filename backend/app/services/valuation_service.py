@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.database import PriceHistoryCache, is_sqlite
 from app.services.anomaly_detector import detect_anomalies
 from app.services.company_service import get_raw_financials
+from app.services.dcf_engine import run_dcf
 from app.services.financial_parser import (
     build_ttm_series,
     detect_reporting_currency,
@@ -1732,6 +1733,11 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         },
     }
 
+    dcf_engine_res = run_dcf(
+        dcf_inputs_payload,
+        adjustments=audit.get("flags") or [],
+    )
+
     return {
         "ticker": ticker_upper,
         "classification": classification,
@@ -1742,6 +1748,7 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         "trajectory": trajectory,
         "reverse_dcf": reverse_dcf,
         "valuation_comparison": valuation_comparison,
+        "dcf_engine": dcf_engine_res,
         "ttm_meta": {
             "is_complete": ttm_data.get("is_complete"),
             "source": ttm_data.get("source"),
@@ -1752,4 +1759,23 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
         },
         "dcf_inputs": dcf_inputs_payload,
         "financial_sector_inputs": financial_inputs_payload,
+    }
+
+
+def simulate_company_valuation(
+    ticker_symbol: str,
+    db: Session,
+    enabled_codes: list[str] | None = None,
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Recalcula el DCF dual y el puente acumulativo con los ajustes seleccionados por el usuario."""
+    report = build_valuation_report(ticker_symbol, db)
+    dcf_inputs = report.get("dcf_inputs") or {}
+    flags = (report.get("audit") or {}).get("flags") or []
+    code_set = set(enabled_codes) if enabled_codes is not None else None
+    sim = run_dcf(dcf_inputs, adjustments=flags, enabled_codes=code_set, overrides=overrides)
+    return {
+        "ticker": report.get("ticker"),
+        "dcf_engine": sim,
+        "flags": flags,
     }
