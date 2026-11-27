@@ -265,6 +265,15 @@ def _fetch_historical_close_map(
         try:
             tk = yf.Ticker(sym)
             sym_curr = _infer_symbol_currency(sym, tk=tk)
+            raw_ccy = None
+            try:
+                fi = getattr(tk, "fast_info", None)
+                raw_ccy = getattr(fi, "currency", None) if fi is not None else None
+                if not raw_ccy and isinstance(fi, dict):
+                    raw_ccy = fi.get("currency")
+            except Exception:
+                raw_ccy = None
+            unit_scale = 0.01 if isinstance(raw_ccy, str) and raw_ccy.strip() in ("GBp", "GBX") else 1.0
             hist = tk.history(start=start_date, end=end_date, interval="1d", auto_adjust=False)
             if hist is not None and not hist.empty and "Close" in hist.columns:
                 if sym_curr == curr:
@@ -281,7 +290,7 @@ def _fetch_historical_close_map(
                     if pd.notna(val) and float(val) > 0:
                         dt_str = idx.strftime("%Y-%m-%d")
                         rate = 1.0 if sym_curr == curr else _lookup_rate_on_date(fx_map, dt_str, fallback_fx)
-                        date_map[dt_str] = float(val) * rate
+                        date_map[dt_str] = float(val) * unit_scale * rate
                 if date_map:
                     if len(_TWR_HIST_CACHE) >= 256:
                         oldest_k = min(_TWR_HIST_CACHE, key=lambda k: _TWR_HIST_CACHE[k][0])
@@ -310,11 +319,11 @@ def _lookup_historical_price(
             if prior_dates:
                 raw_px = series[max(prior_dates)]
         if raw_px is not None:
-            # Desajustar cierres históricos de Yahoo por splits ocurridos en o después de `target_date`
-            # para mantener consistencia con las cantidades pre-split registradas en la cartera.
+            # Desajustar cierres históricos de Yahoo por splits estrictamente posteriores a `target_date`
+            # (en la fecha exacta del split Yahoo ya refleja el cierre post-split).
             if splits_by_sym and sym in splits_by_sym:
                 for split_date, ratio in splits_by_sym[sym]:
-                    if split_date >= target_date and ratio > 0:
+                    if split_date > target_date and ratio > 0:
                         raw_px *= ratio
             return raw_px
     return fallback_price

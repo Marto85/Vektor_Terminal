@@ -86,7 +86,7 @@ def test_argentina_overview_brechas_and_news_parsing(monkeypatch):
     ):
         res = argentina_service.build_argentina_overview()
 
-    assert res["cards"]["mep"]["brecha_pct"] == 15.0
+    assert res["cards"]["mep"]["brecha_pct"] == 15.5
     assert res["cards"]["ccl"]["brecha_pct"] == 20.0
     assert res["cards"]["riesgo_pais"]["value"] == 750.0
     assert res["cards"]["merval_usd"]["value"] == 1850.0
@@ -104,11 +104,19 @@ def test_argentina_series_candlestick_flags_and_endpoints(api_client):
     with patch.object(
         argentina_service,
         "_fetch_argentinadatos_fx_series",
-        return_value=[{"date": "2026-11-20", "value": 1150.0}, {"date": "2026-11-25", "value": 1160.0}],
+        return_value=[
+            {"date": "2026-11-02", "value": 1120.0},
+            {"date": "2026-11-05", "value": 1135.0},
+            {"date": "2026-11-10", "value": 1140.0},
+            {"date": "2026-11-18", "value": 1150.0},
+            {"date": "2026-11-25", "value": 1160.0},
+        ],
     ):
         s_mep = argentina_service.get_argentina_series("fx_mep", "3m")
-        assert s_mep["supports_candlestick"] is False
-        assert len(s_mep["points"]) == 2
+        assert s_mep["supports_candlestick"] is True
+        assert s_mep["candlestick_timeframe"] == "weekly"
+        assert len(s_mep["ohlc_points"]) >= 3
+        assert len(s_mep["points"]) == 5
 
     adm = api_client.post(
         "/api/v1/auth/login",
@@ -222,3 +230,22 @@ def test_argentina_real_fx_comparison_and_series(api_client, monkeypatch):
         )
         assert ep.status_code == 200
         assert ep.json()["result"]["real_today"] == 2820.0
+
+        # Fecha inválida real (mes 13) -> 400
+        bad_dt = api_client.get(
+            "/api/v1/argentina/real-fx-compare?start_date=2020-13-45&fx_type=oficial",
+            headers=headers,
+        )
+        assert bad_dt.status_code == 400
+
+        # Bono no listado -> 404 (lista blanca A9)
+        bad_bond = api_client.get("/api/v1/argentina/series/bond_FAKE123", headers=headers)
+        assert bad_bond.status_code == 404
+
+    # Motor de bonos soberanos: paridad real, TIR y duration (A2)
+    ana_gd30 = argentina_service._compute_sovereign_bond_analytics("GD30", 50.67, "2026-11-26")
+    assert ana_gd30["coupon_pct"] == 0.75
+    assert ana_gd30["technical_value"] is not None
+    assert ana_gd30["parity_pct"] is not None and ana_gd30["parity_pct"] > 50.0
+    assert ana_gd30["ytm_pct"] is not None and ana_gd30["ytm_pct"] > 5.0
+    assert ana_gd30["mod_duration"] is not None and ana_gd30["mod_duration"] > 1.0

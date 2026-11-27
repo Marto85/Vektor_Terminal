@@ -98,11 +98,24 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
 
   const chartContainerRef = useRef(null);
 
+  const requestOverviewWithRetry = async () => {
+    try {
+      return await apiClient.get("/argentina/overview");
+    } catch (err) {
+      const status = err?.response?.status;
+      if (!status || status >= 500 || err?.code === "ECONNABORTED") {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        return await apiClient.get("/argentina/overview");
+      }
+      throw err;
+    }
+  };
+
   const fetchOverview = async () => {
     setLoadingOverview(true);
     setOverviewError("");
     try {
-      const res = await apiClient.get("/argentina/overview");
+      const res = await requestOverviewWithRetry();
       setOverview(res.data);
     } catch (err) {
       setOverviewError(
@@ -117,7 +130,7 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
     let cancelled = false;
     const init = async () => {
       try {
-        const res = await apiClient.get("/argentina/overview");
+        const res = await requestOverviewWithRetry();
         if (!cancelled) setOverview(res.data);
       } catch (err) {
         if (!cancelled) {
@@ -264,6 +277,10 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
     });
 
     if (chartType === "candle" && seriesData?.supports_candlestick) {
+      const candleSource =
+        seriesData.ohlc_points && seriesData.ohlc_points.length > 0
+          ? seriesData.ohlc_points
+          : points;
       const candleSeries = chart.addSeries(LightweightCharts.CandlestickSeries, {
         upColor: "#16a34a",
         downColor: "#dc2626",
@@ -272,7 +289,7 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
         wickDownColor: "#dc2626",
       });
       candleSeries.setData(
-        points
+        candleSource
           .filter((p) => p.open != null && p.high != null && p.low != null && p.close != null)
           .map((p) => ({
             time: p.date,
@@ -283,12 +300,23 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
           }))
       );
     } else if (chartType === "bar") {
+      // Si hay muchos puntos diarios (> 45), muestrear a ~38 barras para evitar muro sólido ilegible
+      let barPoints = points;
+      if (points.length > 45) {
+        const step = Math.ceil(points.length / 38);
+        barPoints = points.filter((_, idx) => idx % step === 0 || idx === points.length - 1);
+      }
+      const vals = barPoints.map((p) => Number(p.value)).filter((v) => !Number.isNaN(v));
+      const minVal = vals.length > 0 ? Math.min(...vals) : 0;
+      const baseVal = minVal > 0 ? Math.floor(minVal * 0.94) : 0;
+
       const barSeries = chart.addSeries(LightweightCharts.HistogramSeries, {
         color: "#ea580c",
+        base: baseVal,
       });
       barSeries.setData(
-        points.map((p, idx) => {
-          const prev = idx > 0 ? points[idx - 1].value : p.value;
+        barPoints.map((p, idx) => {
+          const prev = idx > 0 ? barPoints[idx - 1].value : p.value;
           return {
             time: p.date,
             value: p.value,
@@ -529,6 +557,23 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
         </div>
       )}
 
+      {overview?.sources_status &&
+        (!overview.sources_status.dolarapi ||
+          !overview.sources_status.riesgo_pais ||
+          !overview.sources_status.data912_bonds) && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-xs text-amber-800 font-medium">
+            Algunas fuentes externas presentaron demoras o fallos parciales (
+            {[
+              !overview.sources_status.dolarapi && "DólarAPI",
+              !overview.sources_status.riesgo_pais && "Riesgo País",
+              !overview.sources_status.data912_bonds && "Bonos data912",
+            ]
+              .filter(Boolean)
+              .join(", ")}
+            ). Se reintentará automáticamente en la próxima actualización.
+          </div>
+        )}
+
       {/* BLOQUE A: TABLERO CAMBIARIO, BRECHAS, RIESGO PAÍS Y MERVAL CCL */}
       <section>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -583,9 +628,12 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
               <Activity className="w-4 h-4 text-orange-600" />
               Visor de Trayectoria: {seriesData?.label || selectedSeriesId}
             </h3>
-            <p className="text-[11px] text-gray-500">
-              Hacé clic en cualquier tarjeta superior o bono soberano para analizar su evolución histórica.
+            <p className="text-xs text-gray-500">
+              Hacé clic en cualquier tarjeta superior o bono para analizar su evolución histórica.
               {seriesData?.source ? ` · Fuente: ${seriesData.source}` : ""}
+              {chartType === "candle" && seriesData?.candlestick_timeframe === "weekly"
+                ? " · Velas semanales"
+                : ""}
             </p>
           </div>
 
@@ -865,13 +913,19 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
           <p className="text-xs text-red-700 font-medium">{realFxError}</p>
         )}
 
+        {realFxData?.result?.out_of_range_warning && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 font-medium">
+            {realFxData.result.out_of_range_warning}
+          </p>
+        )}
+
         {/* Resultado principal + Tabla de Hitos */}
         {realFxData?.result && (
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
             <div className="xl:col-span-4 rounded-xl border border-orange-200 bg-orange-50/40 p-4 flex flex-col justify-between space-y-3">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wide text-orange-700">
-                  Equivalente en pesos de hoy
+                <p className="text-xs font-bold uppercase tracking-wide text-orange-700">
+                  Equivalente en pesos de {realFxData.ipc_latest_month || "hoy"}
                 </p>
                 <p className="text-3xl font-extrabold text-gray-900 tabular-nums mt-1">
                   $ {fmtArNum(realFxData.result.real_today, 2)}
@@ -906,7 +960,7 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
                         : "bg-red-100 text-[#d93025]"
                     }`}
                   >
-                    Brecha {realFxData.result.brecha_pct >= 0 ? "+" : ""}
+                    Dif. real {realFxData.result.brecha_pct >= 0 ? "+" : ""}
                     {fmtArNum(realFxData.result.brecha_pct, 1)}%
                   </span>
                 )}
@@ -920,7 +974,7 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
                     <th className="py-2 pr-3 font-semibold">Período / Hito</th>
                     <th className="py-2 pr-3 font-semibold text-right">Dólar Nominal</th>
                     <th className="py-2 pr-3 font-semibold text-right">Valor de Hoy</th>
-                    <th className="py-2 pr-3 font-semibold text-right">Brecha vs. Hoy</th>
+                    <th className="py-2 pr-3 font-semibold text-right">Diferencia real vs. hoy</th>
                     <th className="py-2 font-semibold text-right">Cargar</th>
                   </tr>
                 </thead>
@@ -1063,12 +1117,19 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-1">
-                    <p className="text-[11px] font-bold text-gray-600">{s.label}</p>
-                    {s.is_override && (
-                      <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 text-[10px] font-semibold">
-                        Actualizado
-                      </span>
-                    )}
+                    <p className="text-xs font-bold text-gray-600">{s.label}</p>
+                    <div className="flex items-center gap-1">
+                      {s.months_ago != null && s.months_ago >= 3 && (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
+                          Hace {s.months_ago} m
+                        </span>
+                      )}
+                      {s.is_override && (
+                        <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 text-[10px] font-semibold">
+                          Actualizado
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-baseline justify-between gap-2 mt-1">
                     <p className="text-lg font-extrabold text-gray-900 tabular-nums">
@@ -1140,9 +1201,12 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
                 <th className="py-2 pr-3 font-semibold">Ticker</th>
                 <th className="py-2 pr-3 font-semibold">Instrumento</th>
                 <th className="py-2 pr-3 font-semibold">Legislación</th>
-                <th className="py-2 pr-3 font-semibold text-right">Cupón</th>
+                <th className="py-2 pr-3 font-semibold text-right">Cupón Vig.</th>
                 <th className="py-2 pr-3 font-semibold">Vencimiento</th>
                 <th className="py-2 pr-3 font-semibold text-right">Precio USD</th>
+                <th className="py-2 pr-3 font-semibold text-right">Paridad</th>
+                <th className="py-2 pr-3 font-semibold text-right">TIR (YTM)</th>
+                <th className="py-2 pr-3 font-semibold text-right">Duration</th>
                 <th className="py-2 pr-3 font-semibold text-right">Var. Día</th>
                 <th className="py-2 font-semibold text-right">Gráfico</th>
               </tr>
@@ -1165,6 +1229,15 @@ export default function ArgentinaTab({ isSuperadmin = false }) {
                     <td className="py-2 pr-3 tabular-nums text-gray-600">{b.maturity}</td>
                     <td className="py-2 pr-3 text-right font-bold tabular-nums text-gray-900">
                       {b.price_usd != null ? `US$ ${fmtArNum(b.price_usd, 2)}` : "-"}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-gray-700">
+                      {b.parity_pct != null ? `${fmtArNum(b.parity_pct, 1)}%` : "-"}
+                    </td>
+                    <td className="py-2 pr-3 text-right font-semibold tabular-nums text-orange-700">
+                      {b.ytm_pct != null ? `${fmtArNum(b.ytm_pct, 2)}%` : "-"}
+                    </td>
+                    <td className="py-2 pr-3 text-right tabular-nums text-gray-600">
+                      {b.mod_duration != null ? `${fmtArNum(b.mod_duration, 2)}a` : "-"}
                     </td>
                     <td
                       className={`py-2 pr-3 text-right font-semibold tabular-nums ${

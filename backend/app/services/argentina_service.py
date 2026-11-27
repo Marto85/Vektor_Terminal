@@ -15,10 +15,11 @@ import yfinance as yf
 from app.models.database import ArgentinaSocialOverride
 
 _OVERVIEW_TTL = timedelta(minutes=10)
+_OVERVIEW_DEGRADED_TTL = timedelta(seconds=60)
 _SERIES_TTL = timedelta(minutes=20)
 _LOCK = threading.Lock()
 _BUILD_LOCK = threading.Lock()
-_OVERVIEW_CACHE: dict[str, Any] = {"ts": None, "payload": None}
+_OVERVIEW_CACHE: dict[str, Any] = {"ts": None, "payload": None, "degraded": False}
 _SERIES_CACHE: dict[tuple[str, str], tuple[datetime, dict[str, Any]]] = {}
 
 _HEADERS = {"User-Agent": "VektorTerminal/1.0 (+https://vektorterminal.local)"}
@@ -44,6 +45,8 @@ PROVINCIAL_BONDS: list[dict[str, Any]] = [
     {"ticker": "NQN30", "name": "Prov. Neuquén 2030", "law": "Provincial", "issuer": "Neuquén", "maturity": "2030-04-27", "coupon_pct": 6.625, "yf_candidates": ["NQN30D.BA", "NQN30.BA", "NDT25.BA"]},
     {"ticker": "SF27D", "name": "Prov. Santa Fe 2027", "law": "Provincial", "issuer": "Santa Fe", "maturity": "2027-11-01", "coupon_pct": 6.90, "yf_candidates": ["SF27D.BA", "SF27.BA"]},
 ]
+
+_ALLOWED_BOND_TICKERS: set[str] = {b["ticker"] for b in SOVEREIGN_BONDS + PROVINCIAL_BONDS}
 
 ARG_NEWS_FEEDS: list[dict[str, str]] = [
     {"source": "Infobae", "topic": "Economía", "url": "https://www.infobae.com/arc/outboundfeeds/rss/category/economia/"},
@@ -227,7 +230,7 @@ def _strip_html(raw: str | None, max_len: int = 210) -> str:
     return cleaned
 
 
-def _fetch_json(url: str, timeout: int = 8) -> Any:
+def _fetch_json(url: str, timeout: int = 5) -> Any:
     resp = requests.get(url, headers=_HEADERS, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
@@ -236,7 +239,7 @@ def _fetch_json(url: str, timeout: int = 8) -> Any:
 def _fetch_dolares_snapshot() -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     try:
-        rows = _fetch_json("https://dolarapi.com/v1/dolares", timeout=7)
+        rows = _fetch_json("https://dolarapi.com/v1/dolares", timeout=5)
         if isinstance(rows, list):
             for item in rows:
                 casa = str(item.get("casa") or "").strip().lower()
@@ -273,11 +276,11 @@ def _fetch_riesgo_pais_snapshot() -> dict[str, Any]:
     except Exception:
         pass
     try:
-        ultimo = _fetch_json("https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais/ultimo", timeout=6)
+        ultimo = _fetch_json("https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais/ultimo", timeout=5)
         if isinstance(ultimo, dict) and ultimo.get("valor") is not None:
             return {
                 "valor": round(float(ultimo["valor"]), 0),
-                "change_pb": 0.0,
+                "change_pb": None,
                 "fecha": ultimo.get("fecha"),
             }
     except Exception:
@@ -290,12 +293,23 @@ def _fetch_merval_usd(ccl_rate: float | None) -> dict[str, Any]:
         try:
             hist = yf.Ticker("^MERV").history(period="5d", interval="1d")
             if hist is not None and not hist.empty and "Close" in hist.columns:
-                closes = [float(v) for v in hist["Close"].dropna().tolist() if float(v) > 0]
-                if closes:
-                    last_ars = closes[-1]
-                    prev_ars = closes[-2] if len(closes) >= 2 else last_ars
-                    last_usd = round(last_ars / ccl_rate, 2)
-                    chg_pct = round(((last_ars - prev_ars) / prev_ars) * 100.0, 2) if prev_ars > 0 else 0.0
+                rows_valid = [(idx.strftime("%Y-%m-%d"), float(v)) for idx, v in hist["Close"].items() if pd.notna(v) and float(v) > 0]
+                if rows_valid:
+                    ccl_series = _fetch_argentinadatos_fx_series("contadoconliqui")
+                    ccl_map = {p["date"]: p["value"] for p in ccl_series}
+                    sorted_ccl = sorted(ccl_map.keys())
+                    usd_vals: list[float] = []
+                    for dt, ars_val in rows_valid:
+                        fx = ccl_map.get(dt)
+                        if not fx and sorted_ccl:
+                            prior = [d for d in sorted_ccl if d <= dt]
+                            fx = ccl_map[prior[-1]] if prior else ccl_rate
+                        fx = fx or ccl_rate
+                        usd_vals.append(ars_val / fx)
+                    last_ars = rows_valid[-1][1]
+                    last_usd = round(usd_vals[-1], 2)
+                    prev_usd = usd_vals[-2] if len(usd_vals) >= 2 else last_usd
+                    chg_pct = round(((last_usd - prev_usd) / prev_usd) * 100.0, 2) if prev_usd > 0 else 0.0
                     return {
                         "value_usd": last_usd,
                         "change_pct": chg_pct,
@@ -404,6 +418,11 @@ def _fetch_single_sovereign_bond(
             except Exception:
                 continue
 
+    analytics = (
+        _compute_sovereign_bond_analytics(sym, price_usd)
+        if bond_cfg["law"] in ("Ley NY", "Ley Local")
+        else {"coupon_pct": None, "technical_value": None, "parity_pct": None, "ytm_pct": None, "mod_duration": None}
+    )
     return {
         "ticker": sym,
         "series_id": f"bond_{sym}",
@@ -411,11 +430,184 @@ def _fetch_single_sovereign_bond(
         "law": bond_cfg["law"],
         "issuer": bond_cfg.get("issuer", "Nación"),
         "maturity": bond_cfg["maturity"],
-        "coupon_pct": bond_cfg["coupon_pct"],
+        "coupon_pct": analytics.get("coupon_pct") or bond_cfg["coupon_pct"],
         "price_usd": price_usd,
-        "parity_pct": price_usd,
+        "technical_value": analytics.get("technical_value"),
+        "parity_pct": analytics.get("parity_pct"),
+        "ytm_pct": analytics.get("ytm_pct"),
+        "mod_duration": analytics.get("mod_duration"),
         "change_pct": change_pct,
         "source": source_used,
+    }
+
+
+_SOVEREIGN_SCHEDULES: dict[str, dict[str, Any]] = {
+    "29": {
+        "coupons": [("2021-07-09", "2029-07-09", 1.00)],
+        "amort_start": "2025-01-09",
+        "amort_count": 10,
+        "maturity": "2029-07-09",
+    },
+    "30": {
+        "coupons": [
+            ("2021-07-09", "2023-07-09", 0.50),
+            ("2023-07-10", "2027-07-09", 0.75),
+            ("2027-07-10", "2030-07-09", 1.75),
+        ],
+        "first_amort": ("2024-07-09", 4.0),
+        "amort_start": "2025-01-09",
+        "amort_count": 12,
+        "amort_each": 8.0,
+        "maturity": "2030-07-09",
+    },
+    "35": {
+        "coupons": [
+            ("2021-07-09", "2024-07-09", 3.625),
+            ("2024-07-10", "2027-07-09", 4.125),
+            ("2027-07-10", "2028-07-09", 4.75),
+            ("2028-07-10", "2035-07-09", 5.00),
+        ],
+        "amort_start": "2031-01-09",
+        "amort_count": 10,
+        "maturity": "2035-07-09",
+    },
+    "38": {
+        "coupons": [
+            ("2021-07-09", "2024-07-09", 4.25),
+            ("2024-07-10", "2038-01-09", 5.00),
+        ],
+        "amort_start": "2027-07-09",
+        "amort_count": 22,
+        "maturity": "2038-01-09",
+    },
+    "41": {
+        "coupons": [
+            ("2021-07-09", "2022-07-09", 2.50),
+            ("2022-07-10", "2029-07-09", 3.50),
+            ("2029-07-10", "2041-07-09", 4.875),
+        ],
+        "amort_start": "2035-01-09",
+        "amort_count": 14,
+        "maturity": "2041-07-09",
+    },
+    "46": {
+        "coupons": [
+            ("2021-07-09", "2024-07-09", 3.625),
+            ("2024-07-10", "2027-07-09", 4.125),
+            ("2027-07-10", "2028-07-09", 4.75),
+            ("2028-07-10", "2046-07-09", 5.00),
+        ],
+        "amort_start": "2025-01-09",
+        "amort_count": 44,
+        "maturity": "2046-07-09",
+    },
+}
+
+
+def _coupon_rate_on_date(coupons: list[tuple[str, str, float]], dt_str: str) -> float:
+    for s, e, rate in coupons:
+        if s <= dt_str <= e:
+            return rate
+    return coupons[-1][2] if coupons else 0.0
+
+
+def _semiannual_dates(start_str: str, end_str: str) -> list[str]:
+    dates: list[str] = []
+    cur = datetime.strptime(start_str, "%Y-%m-%d").date()
+    end_d = datetime.strptime(end_str, "%Y-%m-%d").date()
+    while cur <= end_d:
+        dates.append(cur.strftime("%Y-%m-%d"))
+        next_m = cur.month + 6
+        next_y = cur.year + (1 if next_m > 12 else 0)
+        next_m = next_m - 12 if next_m > 12 else next_m
+        cur = cur.replace(year=next_y, month=next_m)
+    return dates
+
+
+def _compute_sovereign_bond_analytics(
+    ticker: str,
+    price_usd: float | None,
+    as_of_date: str | None = None,
+) -> dict[str, Any]:
+    """Calcula cupón step-up vigente, valor técnico, paridad real, TIR y duration modificada."""
+    sym = (ticker or "").upper()
+    series_num = sym[-2:] if (sym.startswith(("GD", "AL")) and len(sym) == 4) else None
+    sched = _SOVEREIGN_SCHEDULES.get(series_num or "")
+    if not sched:
+        return {"coupon_pct": None, "technical_value": None, "parity_pct": None, "ytm_pct": None, "mod_duration": None}
+
+    ref_str = as_of_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    ref_dt = datetime.strptime(ref_str, "%Y-%m-%d").date()
+    current_coupon = _coupon_rate_on_date(sched["coupons"], ref_str)
+
+    pay_dates = _semiannual_dates("2021-01-09", sched["maturity"])
+    amort_map: dict[str, float] = {}
+    if "first_amort" in sched:
+        amort_map[sched["first_amort"][0]] = sched["first_amort"][1]
+    amort_dates = _semiannual_dates(sched["amort_start"], sched["maturity"])[: sched["amort_count"]]
+    amort_each = sched.get("amort_each") or (100.0 / float(sched["amort_count"]))
+    for ad in amort_dates:
+        amort_map[ad] = amort_map.get(ad, 0.0) + amort_each
+
+    residual = 100.0
+    prev_coupon_dt = datetime.strptime("2021-01-09", "%Y-%m-%d").date()
+    future_flows: list[tuple[float, float]] = []
+
+    for pd_str in pay_dates:
+        pd_dt = datetime.strptime(pd_str, "%Y-%m-%d").date()
+        rate = _coupon_rate_on_date(sched["coupons"], pd_str)
+        interest = residual * (rate / 100.0) * 0.5
+        amort = amort_map.get(pd_str, 0.0)
+        if pd_dt <= ref_dt:
+            residual = max(0.0, residual - amort)
+            prev_coupon_dt = pd_dt
+        else:
+            years = max(1.0 / 365.0, (pd_dt - ref_dt).days / 365.25)
+            future_flows.append((years, interest + amort))
+            residual = max(0.0, residual - amort)
+
+    # Recalcular residual vigente exacto a ref_dt e interés corrido
+    residual_now = 100.0 - sum(v for d_str, v in amort_map.items() if d_str <= ref_str)
+    residual_now = max(0.0, residual_now)
+    days_accrued = max(0, (ref_dt - prev_coupon_dt).days)
+    accrued = residual_now * (current_coupon / 100.0) * (min(days_accrued, 182) / 365.0)
+    tech_val = round(residual_now + accrued, 2)
+
+    if price_usd is None or price_usd <= 0 or tech_val <= 0 or not future_flows:
+        return {
+            "coupon_pct": round(current_coupon, 3),
+            "technical_value": tech_val,
+            "parity_pct": None,
+            "ytm_pct": None,
+            "mod_duration": None,
+        }
+
+    parity_pct = round((price_usd / tech_val) * 100.0, 2)
+
+    # Bisección para TIR anual efectiva sobre flujos futuros
+    def pv_at(r: float) -> float:
+        return sum(cf / ((1.0 + r) ** t) for t, cf in future_flows)
+
+    lo, hi = -0.20, 1.50
+    for _ in range(70):
+        mid = (lo + hi) * 0.5
+        if pv_at(mid) > price_usd:
+            lo = mid
+        else:
+            hi = mid
+    ytm = (lo + hi) * 0.5
+
+    # Duration de Macaulay y modificada
+    pv_total = pv_at(ytm)
+    mac_dur = sum(t * cf / ((1.0 + ytm) ** t) for t, cf in future_flows) / pv_total if pv_total > 0 else 0.0
+    mod_dur = mac_dur / (1.0 + ytm) if (1.0 + ytm) > 0 else mac_dur
+
+    return {
+        "coupon_pct": round(current_coupon, 3),
+        "technical_value": tech_val,
+        "parity_pct": parity_pct,
+        "ytm_pct": round(ytm * 100.0, 2),
+        "mod_duration": round(mod_dur, 2),
     }
 
 
@@ -513,7 +705,7 @@ def _fetch_datos_gob_series(cfg: dict[str, Any]) -> list[dict[str, Any]]:
     if bcra_var_id:
         try:
             url = f"https://api.bcra.gob.ar/estadisticas/v4.0/monetarias/{bcra_var_id}?limit=1000"
-            resp = requests.get(url, headers=_HEADERS, timeout=7, verify=False)
+            resp = requests.get(url, headers=_HEADERS, timeout=5, verify=True)
             resp.raise_for_status()
             data = resp.json()
             results = data.get("results") if isinstance(data, dict) else None
@@ -531,8 +723,8 @@ def _fetch_datos_gob_series(cfg: dict[str, Any]) -> list[dict[str, Any]]:
     if not pts and gid:
         try:
             rep_param = f"&representation_mode={rep}" if rep else ""
-            url = f"https://apis.datos.gob.ar/series/api/series/?ids={gid}{rep_param}&limit=1000&format=json"
-            data = _fetch_json(url, timeout=8)
+            url = f"https://apis.datos.gob.ar/series/api/series/?ids={gid}{rep_param}&limit=1000&sort=desc&format=json"
+            data = _fetch_json(url, timeout=5)
             rows = data.get("data") if isinstance(data, dict) else None
             if isinstance(rows, list):
                 for row in rows:
@@ -625,6 +817,7 @@ def _load_social_series_data(series_id: str, db: Session | None = None) -> dict[
 
 def _build_social_cards(db: Session | None = None) -> list[dict[str, Any]]:
     cards: list[dict[str, Any]] = []
+    now_dt = datetime.now(timezone.utc)
     for sid in SOCIAL_SERIES_CONFIG:
         data = _load_social_series_data(sid, db=db)
         pts = data["points"]
@@ -632,6 +825,13 @@ def _build_social_cards(db: Session | None = None) -> list[dict[str, Any]]:
         prev = pts[-2] if len(pts) >= 2 else None
         val = latest["value"] if latest else None
         delta = round(val - prev["value"], 2) if (val is not None and prev is not None) else None
+        months_ago: int | None = None
+        if latest and latest.get("date"):
+            try:
+                ref_dt = datetime.strptime(str(latest["date"])[:10], "%Y-%m-%d")
+                months_ago = max(0, (now_dt.year - ref_dt.year) * 12 + (now_dt.month - ref_dt.month))
+            except ValueError:
+                months_ago = None
         cards.append(
             {
                 "series_id": sid,
@@ -641,6 +841,7 @@ def _build_social_cards(db: Session | None = None) -> list[dict[str, Any]]:
                 "delta": delta,
                 "unit": data["unit"],
                 "date": latest["date"] if latest else None,
+                "months_ago": months_ago,
                 "note": latest.get("note") if latest else None,
                 "source": data["source"],
                 "subtitle": data["subtitle"],
@@ -729,7 +930,8 @@ def build_argentina_overview(db: Session | None = None) -> dict[str, Any]:
     with _LOCK:
         ts = _OVERVIEW_CACHE.get("ts")
         payload = _OVERVIEW_CACHE.get("payload")
-        if ts and payload and (now - ts) < _OVERVIEW_TTL:
+        ttl = _OVERVIEW_DEGRADED_TTL if _OVERVIEW_CACHE.get("degraded") else _OVERVIEW_TTL
+        if ts and payload and (now - ts) < ttl:
             out = dict(payload)
             out["social_indicators"] = _build_social_cards(db=db)
             return out
@@ -739,12 +941,13 @@ def build_argentina_overview(db: Session | None = None) -> dict[str, Any]:
         with _LOCK:
             ts = _OVERVIEW_CACHE.get("ts")
             payload = _OVERVIEW_CACHE.get("payload")
-            if ts and payload and (now - ts) < _OVERVIEW_TTL:
+            ttl = _OVERVIEW_DEGRADED_TTL if _OVERVIEW_CACHE.get("degraded") else _OVERVIEW_TTL
+            if ts and payload and (now - ts) < ttl:
                 out = dict(payload)
                 out["social_indicators"] = _build_social_cards(db=db)
                 return out
 
-        with ThreadPoolExecutor(max_workers=12) as pool:
+        with ThreadPoolExecutor(max_workers=16) as pool:
             f_fx = pool.submit(_fetch_dolares_snapshot)
             f_rp = pool.submit(_fetch_riesgo_pais_snapshot)
             f_news = pool.submit(_fetch_argentina_news)
@@ -760,9 +963,10 @@ def build_argentina_overview(db: Session | None = None) -> dict[str, Any]:
             live_bonds_map = f_d912.result()
             macro_indicators = [fut.result() for fut in f_macro.values()]
 
+        # Misma base homogénea (venta) para mayorista, oficial, MEP y CCL
         mayorista = (dolares.get("mayorista") or {}).get("venta")
         oficial = (dolares.get("oficial") or {}).get("venta")
-        mep = (dolares.get("bolsa") or {}).get("promedio") or (dolares.get("bolsa") or {}).get("venta")
+        mep = (dolares.get("bolsa") or {}).get("venta") or (dolares.get("bolsa") or {}).get("promedio")
         ccl = (dolares.get("contadoconliqui") or {}).get("venta") or (dolares.get("contadoconliqui") or {}).get("promedio")
 
         brecha_mep_pct = round(((mep - mayorista) / mayorista) * 100.0, 2) if (mep and mayorista and mayorista > 0) else None
@@ -773,30 +977,46 @@ def build_argentina_overview(db: Session | None = None) -> dict[str, Any]:
         bonds = [_fetch_single_sovereign_bond(cfg, mep, live_map=live_bonds_map) for cfg in SOVEREIGN_BONDS]
         provincial_bonds = [_fetch_single_sovereign_bond(cfg, mep, live_map=live_bonds_map) for cfg in PROVINCIAL_BONDS]
 
+        macro_ok = sum(1 for m in macro_indicators if m.get("value") is not None)
+        sources_status = {
+            "dolarapi": bool(dolares),
+            "riesgo_pais": riesgo.get("valor") is not None,
+            "data912_bonds": bool(live_bonds_map),
+            "macro_ok": macro_ok,
+            "macro_total": len(macro_indicators),
+            "news_count": len(news),
+        }
+        is_degraded = not (
+            sources_status["dolarapi"]
+            and sources_status["riesgo_pais"]
+            and sources_status["data912_bonds"]
+        )
+
         out = {
             "updated_at": now.isoformat(),
+            "sources_status": sources_status,
             "cards": {
                 "mayorista": {
                     "series_id": "fx_mayorista",
                     "label": "Dólar Mayorista (A3500)",
                     "value": mayorista,
                     "unit": "ARS",
-                    "subtitle": "Referencia oficial comercio exterior",
+                    "subtitle": "Referencia oficial (venta)",
                 },
                 "oficial": {
                     "series_id": "fx_oficial",
                     "label": "Dólar Oficial Minorista",
                     "value": oficial,
                     "unit": "ARS",
-                    "subtitle": "BNA / Bancos minoristas",
+                    "subtitle": "BNA / Bancos (venta)",
                 },
                 "mep": {
                     "series_id": "fx_mep",
-                    "label": "Dólar MEP (Promedio)",
+                    "label": "Dólar MEP",
                     "value": mep,
                     "unit": "ARS",
                     "brecha_pct": brecha_mep_pct,
-                    "subtitle": f"Brecha {brecha_mep_pct:+.1f}% vs. Mayorista" if brecha_mep_pct is not None else "Dólar Bolsa",
+                    "subtitle": f"Brecha {brecha_mep_pct:+.1f}% vs. Mayorista" if brecha_mep_pct is not None else "Dólar Bolsa (venta)",
                 },
                 "ccl": {
                     "series_id": "fx_ccl",
@@ -838,6 +1058,7 @@ def build_argentina_overview(db: Session | None = None) -> dict[str, Any]:
         with _LOCK:
             _OVERVIEW_CACHE["ts"] = now
             _OVERVIEW_CACHE["payload"] = out
+            _OVERVIEW_CACHE["degraded"] = is_degraded
         return out
 
 
@@ -876,6 +1097,40 @@ def _fetch_argentinadatos_fx_series(casa: str) -> list[dict[str, Any]]:
     return out
 
 
+def _aggregate_weekly_ohlc(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Agrupa cierres diarios en velas semanales reales (O/H/L/C) para FX y Riesgo País."""
+    if not points:
+        return []
+    buckets: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    for p in points:
+        dt_str = str(p.get("date") or "")[:10]
+        val = p.get("value")
+        if not dt_str or val is None:
+            continue
+        try:
+            iso = datetime.strptime(dt_str, "%Y-%m-%d").isocalendar()
+            key = (iso.year, iso.week)
+            buckets.setdefault(key, []).append({"date": dt_str, "value": float(val)})
+        except ValueError:
+            continue
+
+    weekly: list[dict[str, Any]] = []
+    for key in sorted(buckets.keys()):
+        grp = sorted(buckets[key], key=lambda x: x["date"])
+        vals = [g["value"] for g in grp]
+        weekly.append(
+            {
+                "date": grp[-1]["date"],
+                "open": round(vals[0], 2),
+                "high": round(max(vals), 2),
+                "low": round(min(vals), 2),
+                "close": round(vals[-1], 2),
+                "value": round(vals[-1], 2),
+            }
+        )
+    return weekly
+
+
 def get_argentina_series(series_id: str, range_key: str = "1y", db: Session | None = None) -> dict[str, Any]:
     sid = (series_id or "").strip()
     rk = (range_key or "1y").strip().lower()
@@ -908,10 +1163,21 @@ def get_argentina_series(series_id: str, range_key: str = "1y", db: Session | No
         }
         casa, label = casa_map[sid]
         pts = _filter_points_by_range(_fetch_argentinadatos_fx_series(casa), rk)
-        payload.update({"label": label, "unit": "ARS", "supports_candlestick": False, "source": "ArgentinaDatos", "points": pts})
+        weekly = _aggregate_weekly_ohlc(pts)
+        payload.update(
+            {
+                "label": label,
+                "unit": "ARS",
+                "supports_candlestick": len(weekly) >= 3,
+                "candlestick_timeframe": "weekly" if len(weekly) >= 3 else None,
+                "ohlc_points": weekly,
+                "source": "ArgentinaDatos",
+                "points": pts,
+            }
+        )
 
     elif sid == "riesgo_pais":
-        rows = _fetch_json("https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais", timeout=8)
+        rows = _fetch_json("https://api.argentinadatos.com/v1/finanzas/indices/riesgo-pais", timeout=5)
         pts = []
         if isinstance(rows, list):
             for r in rows:
@@ -919,13 +1185,17 @@ def get_argentina_series(series_id: str, range_key: str = "1y", db: Session | No
                 if dt and r.get("valor") is not None:
                     pts.append({"date": dt, "value": round(float(r["valor"]), 0)})
             pts.sort(key=lambda x: x["date"])
+        filtered_pts = _filter_points_by_range(pts, rk)
+        weekly = _aggregate_weekly_ohlc(filtered_pts)
         payload.update(
             {
                 "label": "Riesgo País (EMBI+ Argentina)",
                 "unit": "pb",
-                "supports_candlestick": False,
+                "supports_candlestick": len(weekly) >= 3,
+                "candlestick_timeframe": "weekly" if len(weekly) >= 3 else None,
+                "ohlc_points": weekly,
                 "source": "ArgentinaDatos",
-                "points": _filter_points_by_range(pts, rk),
+                "points": filtered_pts,
             }
         )
 
@@ -983,6 +1253,8 @@ def get_argentina_series(series_id: str, range_key: str = "1y", db: Session | No
 
     elif sid.startswith("bond_"):
         sym = sid.replace("bond_", "", 1).upper()
+        if sym not in _ALLOWED_BOND_TICKERS:
+            raise ValueError(f"Bono Argentina no soportado: {sym}")
         pts = []
         bond_cfg = next((b for b in PROVINCIAL_BONDS + SOVEREIGN_BONDS if b["ticker"] == sym), None)
         d912_candidates = [sym] if sym.endswith("D") else [f"{sym}D", sym]
@@ -1324,6 +1596,13 @@ def _compute_real_fx_window(
     ar_factor_avg = round(sum(ar_factors) / len(ar_factors), 2)
     us_factor_avg = round(sum(us_factors) / len(us_factors), 3)
 
+    out_of_range_warning: str | None = None
+    first_avail = fx_pts[0]["date"]
+    if end_date < first_avail:
+        out_of_range_warning = f"No hay datos previos a {first_avail} para esta cotización; se usó el primer registro disponible ({first_avail})."
+    elif start_date < first_avail:
+        out_of_range_warning = f"La serie comienza en {first_avail}; el promedio excluye fechas anteriores."
+
     return {
         "nominal_avg": nominal_avg,
         "real_today": real_today,
@@ -1335,6 +1614,7 @@ def _compute_real_fx_window(
         "points_used": len(real_vals),
         "effective_start": selected[0]["date"],
         "effective_end": selected[-1]["date"],
+        "out_of_range_warning": out_of_range_warning,
     }
 
 
@@ -1380,8 +1660,11 @@ def calculate_real_fx_comparison(
 ) -> dict[str, Any]:
     s_dt = (start_date or "").strip()[:10]
     e_dt = (end_date or s_dt).strip()[:10]
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", s_dt) or not re.match(r"^\d{4}-\d{2}-\d{2}$", e_dt):
-        raise ValueError("Formato de fecha inválido. Usá YYYY-MM-DD.")
+    try:
+        datetime.strptime(s_dt, "%Y-%m-%d")
+        datetime.strptime(e_dt, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError("Fecha inválida. Usá formato real YYYY-MM-DD.")
     if s_dt > e_dt:
         s_dt, e_dt = e_dt, s_dt
 

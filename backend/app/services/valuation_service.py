@@ -1281,11 +1281,15 @@ def build_valuation_report(ticker_symbol: str, db: Session) -> dict[str, Any]:
 
     sector_txt = f"{classification.get('sector') or ''} {classification.get('industry') or ''}".lower()
     if any(k in sector_txt for k in ("software", "internet", "saas", "cloud", "media", "communication")):
-        nwc_pct_of_delta_rev = 0.015
-    elif any(k in sector_txt for k in ("retail", "industrial", "manufacturing", "machinery", "energy", "auto", "consumer")):
-        nwc_pct_of_delta_rev = 0.035
-    else:
         nwc_pct_of_delta_rev = 0.02
+    elif any(k in sector_txt for k in ("industrial", "manufacturing", "machinery", "auto", "aerospace")):
+        nwc_pct_of_delta_rev = 0.12
+    elif any(k in sector_txt for k in ("retail", "apparel", "wholesale", "grocery", "merchandise")):
+        nwc_pct_of_delta_rev = 0.10
+    elif any(k in sector_txt for k in ("energy", "materials", "chemicals", "consumer")):
+        nwc_pct_of_delta_rev = 0.08
+    else:
+        nwc_pct_of_delta_rev = 0.05
 
     dcf_inputs_payload = {
         "current_price": round(current_price, 2),
